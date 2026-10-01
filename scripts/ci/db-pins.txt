@@ -89,3 +89,4 @@
 ./internal/catalog TestPersonalCollectionTitleSortKeepsSeasonsWithSeriesDB
 ./internal/catalog TestPersonalCollectionSeriesScopeIncludesSeasonsDB
 ./internal/catalog TestPersonalCollectionAddedSortPlacesSeasonsWithSeriesDB
+./internal/catalog TestPersonalCollectionFileFiltersMatchSeasonEpisodesDB

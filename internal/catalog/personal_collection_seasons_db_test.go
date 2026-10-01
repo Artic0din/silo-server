@@ -393,3 +393,22 @@ func TestPersonalCollectionAddedSortPlacesSeasonsWithSeriesDB(t *testing.T) {
 		t.Fatalf("added asc = %v, want %v", asc, want)
 	}
 }
+
+func TestPersonalCollectionFileFiltersMatchSeasonEpisodesDB(t *testing.T) {
+	f := newSeasonCollectionFixture(t)
+	f.addEpisodes(t, f.s1, 2)
+	f.addEpisodes(t, f.s2, 2)
+	batchEquivExec(t, f.pool, `UPDATE media_files SET resolution='1080p' WHERE episode_id IN (SELECT content_id FROM episodes WHERE season_id=$1)`, f.s1)
+	batchEquivExec(t, f.pool, `UPDATE media_files SET resolution='2160p' WHERE episode_id IN (SELECT content_id FROM episodes WHERE season_id=$1)`, f.s2)
+	req := CatalogRequest{Source: CatalogSourceUserCollection, CollectionID: f.collectionID, CursorPaging: true, Limit: 50}
+	req.Query.Match = "all"
+	req.Query.Groups = []QueryGroup{{Match: "all", Rules: []QueryRule{{Field: "resolution", Op: "is", Value: "1080p"}}}}
+	result, err := f.resolver.Resolve(context.Background(), req, f.access())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Season 1 has 1080p episodes; the series has them too; season 2 is 4K only.
+	if got, want := ids(result.Items), []string{f.s1, f.series}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("1080p filter = %v, want %v", got, want)
+	}
+}

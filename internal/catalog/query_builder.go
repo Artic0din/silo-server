@@ -923,6 +923,14 @@ func (qb *QueryBuilder) mediaFileLibraryScopeClause(alias string) string {
 }
 
 func (qb *QueryBuilder) mediaFileJoinCondition(mediaFileAlias string) string {
+	if qb.libraryContentOverride != "" && !isEpisodeCatalogScope(qb.mediaScope) {
+		// Season rows borrow their series' key; episode files carry the
+		// series ID, so a season matches only its own episodes' files.
+		return fmt.Sprintf(
+			`%[1]s.content_id = %[2]s AND (%[3]s.type <> 'season' OR %[1]s.episode_id IN (SELECT season_episode.content_id FROM episodes season_episode WHERE season_episode.season_id = %[3]s.content_id))`,
+			mediaFileAlias, qb.libraryContentOverride, qb.alias,
+		)
+	}
 	return catalogMediaFileJoinConditionForScope(qb.mediaScope, mediaFileAlias, qb.alias)
 }
 
@@ -1524,6 +1532,12 @@ func (qb *QueryBuilder) mediaFileSortJoin(columnAlias, aggregateExpr string) (st
 		args = append(args, scopeArgs...)
 	}
 	groupExpr := qb.mediaFileGroupExpr("mf")
+	// A season row sorts by its series' files: the aggregate is per catalog
+	// item, and season rows join it through the series key.
+	joinKey := qb.alias + ".content_id"
+	if qb.libraryContentOverride != "" && !isEpisodeCatalogScope(qb.mediaScope) {
+		joinKey = qb.libraryContentOverride
+	}
 
 	joinSQL := fmt.Sprintf(
 		`LEFT JOIN (
@@ -1531,13 +1545,13 @@ func (qb *QueryBuilder) mediaFileSortJoin(columnAlias, aggregateExpr string) (st
 			FROM media_files mf
 			WHERE %s
 			GROUP BY %s
-		) sort_files ON sort_files.content_id = %s.content_id`,
+		) sort_files ON sort_files.content_id = %s`,
 		groupExpr,
 		aggregateExpr,
 		columnAlias,
 		strings.Join(whereParts, " AND "),
 		groupExpr,
-		qb.alias,
+		joinKey,
 	)
 	return joinSQL, args
 }
