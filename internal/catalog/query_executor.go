@@ -50,6 +50,9 @@ type QueryExecutor struct {
 	// relation whose rows borrow another item's library membership (a
 	// season borrowing its series') projects that key and names it here.
 	LibraryContentExpr string
+	// SeasonsMatchSeriesType is passed to the query builder; see
+	// QueryBuilder.WithSeasonsMatchSeriesType.
+	SeasonsMatchSeriesType bool
 	// SnapshotAt, when set, restricts results to items created at or before
 	// this timestamp.  This prevents offset-based pagination drift when new
 	// items are inserted between page fetches (e.g. during a scan).
@@ -363,7 +366,8 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 		WithArgIdx(len(baseArgs)+1).
 		WithUserScope(access.UserID, access.ProfileID).
 		WithMediaScope(effectiveScope).
-		WithLibraryScope(libraryIDs)
+		WithLibraryScope(libraryIDs).
+		WithSeasonsMatchSeriesType(e.SeasonsMatchSeriesType)
 	filterWhere, filterArgs, err := builder.Build(def)
 	if err != nil {
 		return previewPagePlan{}, err

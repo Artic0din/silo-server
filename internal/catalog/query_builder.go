@@ -30,6 +30,9 @@ type QueryBuilder struct {
 	// executor reads this flag to inject the user_last_watched CTE and
 	// the LEFT JOIN aliased as uhist before running the query.
 	requireUserHistoryCTE bool
+	// seasonsMatchSeriesType widens a "type is/is_not series" rule to season
+	// rows, for relations (personal collections) that hold seasons as members.
+	seasonsMatchSeriesType bool
 }
 
 type QuerySortPlan struct {
@@ -63,6 +66,13 @@ func (qb *QueryBuilder) WithArgIdx(argIdx int) *QueryBuilder {
 	if argIdx > 0 {
 		qb.argIdx = argIdx
 	}
+	return qb
+}
+
+// WithSeasonsMatchSeriesType makes a "type is series" rule match season rows
+// too, and "type is_not series" exclude them.
+func (qb *QueryBuilder) WithSeasonsMatchSeriesType(enabled bool) *QueryBuilder {
+	qb.seasonsMatchSeriesType = enabled
 	return qb
 }
 
@@ -438,6 +448,16 @@ func (qb *QueryBuilder) buildRule(rule QueryRule) (string, error) {
 		return qb.buildAudioLanguageClause(rule)
 	case "subtitle_language":
 		return qb.buildSubtitleLanguageClause(rule)
+	}
+
+	if qb.seasonsMatchSeriesType && rule.Field == "type" && (rule.Op == "is" || rule.Op == "is_not") {
+		if value, ok := rule.Value.(string); ok && strings.EqualFold(strings.TrimSpace(value), "series") {
+			operator := "IN"
+			if rule.Op == "is_not" {
+				operator = "NOT IN"
+			}
+			return fmt.Sprintf("%s.type %s ('series', 'season')", qb.alias, operator), nil
+		}
 	}
 
 	column := queryColumnSQL(qb.alias, def.columnSQL)
