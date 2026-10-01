@@ -1195,7 +1195,11 @@ func (qb *QueryBuilder) userStateCompletionClause() string {
 	case "ebook":
 		return qb.ebookLeafCompletionSQL(rowID, base)
 	case "series":
-		return qb.episodeRollupCompletionSQL("series_id", qb.alias, base)
+		if !qb.seasonsMatchSeriesType {
+			return qb.episodeRollupCompletionSQL("series_id", qb.alias, base)
+		}
+		// Season rows share this scope here; roll each row up by its own type.
+		return qb.typedRollupCompletionSQL(rowID, base)
 	// No "season" case: season is not a valid media_scope, so a season-scoped
 	// query never reaches here. Season rows are encountered only under unscoped
 	// queries and are rolled up by the mi.type = 'season' branch below.
@@ -1206,19 +1210,25 @@ func (qb *QueryBuilder) userStateCompletionClause() string {
 		// collection-only interpretation.
 		return qb.videoLeafCompletionSQL(rowID, base)
 	default:
-		return fmt.Sprintf(`(CASE
+		return qb.typedRollupCompletionSQL(rowID, base)
+	}
+}
+
+// typedRollupCompletionSQL decides completion per row type: series and
+// seasons roll up their episodes, ebooks and other leaves check themselves.
+func (qb *QueryBuilder) typedRollupCompletionSQL(rowID string, base int) string {
+	return fmt.Sprintf(`(CASE
 		WHEN %[1]s.type = 'series' THEN %[2]s
 		WHEN %[1]s.type = 'season' THEN %[3]s
 		WHEN %[1]s.type = 'ebook' THEN %[4]s
 		ELSE %[5]s
 	END)`,
-			qb.alias,
-			qb.episodeRollupCompletionSQL("series_id", qb.alias, base),
-			qb.episodeRollupCompletionSQL("season_id", qb.alias, base),
-			qb.ebookLeafCompletionSQL(rowID, base),
-			qb.videoLeafCompletionSQL(rowID, base),
-		)
-	}
+		qb.alias,
+		qb.episodeRollupCompletionSQL("series_id", qb.alias, base),
+		qb.episodeRollupCompletionSQL("season_id", qb.alias, base),
+		qb.ebookLeafCompletionSQL(rowID, base),
+		qb.videoLeafCompletionSQL(rowID, base),
+	)
 }
 
 // videoLeafCompletionSQL returns the completed-progress-or-history predicate for

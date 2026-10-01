@@ -351,3 +351,31 @@ func TestPersonalCollectionTitleSortKeepsSeasonsWithSeriesDB(t *testing.T) {
 		t.Fatalf("paged = %v, want %v", paged, want)
 	}
 }
+
+func (f seasonCollectionFixture) scoped(t *testing.T, scope string) []string {
+	t.Helper()
+	req := CatalogRequest{Source: CatalogSourceUserCollection, CollectionID: f.collectionID, CursorPaging: true, Limit: 50}
+	req.Query.MediaScope = scope
+	result, err := f.resolver.Resolve(context.Background(), req, f.access())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ids(result.Items)
+}
+
+func TestPersonalCollectionSeriesScopeIncludesSeasonsDB(t *testing.T) {
+	f := newSeasonCollectionFixture(t)
+	if got, want := f.scoped(t, "series"), []string{f.s2, f.s1, f.series, f.s0}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("series scope = %v, want %v", got, want)
+	}
+	if got := f.scoped(t, "movie"); fmt.Sprint(got) != fmt.Sprint([]string{f.movie}) {
+		t.Fatalf("movie scope = %v", got)
+	}
+	f.addEpisodes(t, f.s1, 2)
+	f.addEpisodes(t, f.s2, 2)
+	f.markEpisodesWatched(t, f.s1)
+	f.setDisplay(t, displayRule("watched", true))
+	if got := f.scoped(t, "series"); fmt.Sprint(got) != fmt.Sprint([]string{f.s1}) {
+		t.Fatalf("watched within series scope = %v, want only season 1", got)
+	}
+}

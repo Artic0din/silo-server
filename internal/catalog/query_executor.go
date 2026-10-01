@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -406,6 +407,9 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 	}
 	if def.MediaScope != "" && !isEpisodeCatalogScope(def.MediaScope) {
 		scopeTypes := MediaScopeItemTypes(def.MediaScope)
+		if e.SeasonsMatchSeriesType && slices.Contains(scopeTypes, "series") {
+			scopeTypes = append(slices.Clone(scopeTypes), "season")
+		}
 		if len(scopeTypes) == 1 {
 			conditions = append(conditions, fmt.Sprintf("mi.type = $%d", argIdx))
 			args = append(args, scopeTypes[0])
