@@ -6,21 +6,21 @@ package catalog
 // media_items row with the season's identity, artwork and year laid over it
 // by jsonb_populate_record, so both branches always share the media_items
 // column list. access_content_id names the row whose library membership
-// decides visibility: the item itself, or a season's series. The season's
-// sort_title extends the series' sort key, so a title sort places seasons
-// directly after their series, in season order.
+// decides visibility: the item itself, or a season's series. A season keeps
+// its series' title and sort title; collection_season_key (empty for catalog
+// rows, the zero-padded season number for seasons) breaks the tie, so a title
+// sort places seasons directly after their series, in season order.
 const personalCollectionBaseRelation = `(
-	SELECT catalog_item.*, catalog_item.content_id AS access_content_id
+	SELECT catalog_item.*, catalog_item.content_id AS access_content_id, ''::text AS collection_season_key
 	FROM media_items catalog_item
 	UNION ALL
-	SELECT season_row.*, series_item.content_id AS access_content_id
+	SELECT season_row.*, series_item.content_id AS access_content_id, LPAD(season.season_number::text, 6, '0') AS collection_season_key
 	FROM user_personal_collection_items season_member
 	JOIN seasons season ON season.content_id = season_member.media_item_id
 	JOIN media_items series_item ON series_item.content_id = season.series_id AND series_item.type = 'series'
 	CROSS JOIN LATERAL jsonb_populate_record(series_item, jsonb_build_object(
 		'content_id', season.content_id,
 		'type', 'season',
-		'sort_title', LOWER(COALESCE(NULLIF(BTRIM(series_item.sort_title), ''), series_item.title)) || ' season ' || LPAD(season.season_number::text, 4, '0'),
 		'overview', COALESCE(NULLIF(BTRIM(season.overview), ''), series_item.overview),
 		'year', COALESCE(EXTRACT(YEAR FROM season.air_date)::integer, series_item.year),
 		'release_date', season.air_date,
@@ -51,6 +51,7 @@ func usePersonalCollectionSource(executor *QueryExecutor, userID int, collection
 	executor.BaseRelationArgs = []any{userID, collectionID}
 	executor.LibraryContentExpr = "mi.access_content_id"
 	executor.SeasonsMatchSeriesType = true
+	executor.SeasonOrderKeyExpr = "mi.collection_season_key"
 }
 
 // inheritPersonalCollectionSource gives dst the season-aware relation of src,
@@ -63,4 +64,5 @@ func inheritPersonalCollectionSource(dst, src *QueryExecutor) {
 	dst.BaseRelationArgs = append([]any(nil), src.BaseRelationArgs...)
 	dst.LibraryContentExpr = src.LibraryContentExpr
 	dst.SeasonsMatchSeriesType = src.SeasonsMatchSeriesType
+	dst.SeasonOrderKeyExpr = src.SeasonOrderKeyExpr
 }

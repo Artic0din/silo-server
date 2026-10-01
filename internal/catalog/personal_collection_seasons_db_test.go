@@ -321,3 +321,33 @@ func TestGetVisibleSeasonsWithAccessDB(t *testing.T) {
 		t.Fatalf("other library sees %v", hidden)
 	}
 }
+
+func TestPersonalCollectionTitleSortKeepsSeasonsWithSeriesDB(t *testing.T) {
+	f := newSeasonCollectionFixture(t)
+	between := f.movie + "-between"
+	// "alpha beta" sorts after "alpha" but before any "alpha season ..." key.
+	batchEquivExec(t, f.pool, `INSERT INTO media_items(content_id,type,title,genres,content_rating,content_rating_age) VALUES($1,'movie','Alpha Beta','{}','G',0)`, between)
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(), `DELETE FROM media_items WHERE content_id=$1`, between)
+	})
+	batchEquivExec(t, f.pool, `INSERT INTO media_item_libraries(content_id,media_folder_id) VALUES($1,$2)`, between, f.library)
+	batchEquivExec(t, f.pool, `INSERT INTO user_personal_collection_items(user_id,collection_id,media_item_id,position) VALUES($1,$2,$3,9)`, f.userID, f.collectionID, between)
+	sort := QuerySort{Field: "title", Order: "asc"}
+	want := []string{f.series, f.s0, f.s1, f.s2, between, f.movie}
+	if got := ids(f.page(t, f.access(), sort, 50).Items); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("title order = %v, want %v", got, want)
+	}
+	var paged []string
+	var previous *CatalogResult
+	for range 10 {
+		page := f.resolve(t, f.access(), sort, 2, previous)
+		paged = append(paged, ids(page.Items)...)
+		if !page.HasMore || page.Next == nil {
+			break
+		}
+		previous = page
+	}
+	if fmt.Sprint(paged) != fmt.Sprint(want) {
+		t.Fatalf("paged = %v, want %v", paged, want)
+	}
+}

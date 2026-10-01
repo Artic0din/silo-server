@@ -33,6 +33,9 @@ type QueryBuilder struct {
 	// seasonsMatchSeriesType widens a "type is/is_not series" rule to season
 	// rows, for relations (personal collections) that hold seasons as members.
 	seasonsMatchSeriesType bool
+	// seasonOrderKeyExpr, when set, breaks title ties between a series and
+	// its season rows, which share the series' title.
+	seasonOrderKeyExpr string
 }
 
 type QuerySortPlan struct {
@@ -73,6 +76,13 @@ func (qb *QueryBuilder) WithArgIdx(argIdx int) *QueryBuilder {
 // too, and "type is_not series" exclude them.
 func (qb *QueryBuilder) WithSeasonsMatchSeriesType(enabled bool) *QueryBuilder {
 	qb.seasonsMatchSeriesType = enabled
+	return qb
+}
+
+// WithSeasonOrderKey sets a text expression that orders rows sharing a title:
+// empty for catalog items, the zero-padded season number for season rows.
+func (qb *QueryBuilder) WithSeasonOrderKey(expr string) *QueryBuilder {
+	qb.seasonOrderKeyExpr = expr
 	return qb
 }
 
@@ -261,6 +271,11 @@ func (qb *QueryBuilder) BuildSortPlan(sortConfig QuerySort) (result QuerySortPla
 
 	switch sortConfig.Field {
 	case "title":
+		if qb.seasonOrderKeyExpr != "" {
+			qb.cursorTerms = []queryCursorTerm{{expression: titleExpr, descending: dir == "DESC"}, {expression: qb.seasonOrderKeyExpr}, {expression: qb.alias + ".content_id"}}
+			plan.OrderBy = fmt.Sprintf("ORDER BY %s %s, %s ASC, %s.content_id ASC", titleExpr, dir, qb.seasonOrderKeyExpr, qb.alias)
+			return plan, nil
+		}
 		qb.cursorTerms = []queryCursorTerm{{expression: titleExpr, descending: dir == "DESC"}, {expression: qb.alias + ".content_id"}}
 		plan.OrderBy = fmt.Sprintf("ORDER BY %s %s, %s.content_id ASC", titleExpr, dir, qb.alias)
 		return plan, nil

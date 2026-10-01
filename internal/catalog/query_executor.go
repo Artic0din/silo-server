@@ -53,6 +53,9 @@ type QueryExecutor struct {
 	// SeasonsMatchSeriesType is passed to the query builder; see
 	// QueryBuilder.WithSeasonsMatchSeriesType.
 	SeasonsMatchSeriesType bool
+	// SeasonOrderKeyExpr is passed to the query builder; see
+	// QueryBuilder.WithSeasonOrderKey.
+	SeasonOrderKeyExpr string
 	// SnapshotAt, when set, restricts results to items created at or before
 	// this timestamp.  This prevents offset-based pagination drift when new
 	// items are inserted between page fetches (e.g. during a scan).
@@ -367,7 +370,8 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 		WithUserScope(access.UserID, access.ProfileID).
 		WithMediaScope(effectiveScope).
 		WithLibraryScope(libraryIDs).
-		WithSeasonsMatchSeriesType(e.SeasonsMatchSeriesType)
+		WithSeasonsMatchSeriesType(e.SeasonsMatchSeriesType).
+		WithSeasonOrderKey(e.SeasonOrderKeyExpr)
 	filterWhere, filterArgs, err := builder.Build(def)
 	if err != nil {
 		return previewPagePlan{}, err
