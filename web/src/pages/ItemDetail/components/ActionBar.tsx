@@ -181,6 +181,8 @@ export interface ActionBarProps {
   collectionItemId?: string;
   /** Title of collectionItemId, shown in the picker when it differs from the page. */
   collectionItemTitle?: string;
+  /** The series a season page can add instead; see AddToCollectionDialog. */
+  collectionSeriesOption?: { id: string; title: string };
   watchTogether?: ActionBarWatchTogether;
   /** Replaces the Play action. */
   primaryAction?: ActionBarPrimaryAction;
@@ -254,6 +256,7 @@ export default function ActionBar({
   contentId,
   collectionItemId,
   collectionItemTitle,
+  collectionSeriesOption,
   watchTogether,
   primaryAction,
   secondaryActions,
@@ -1021,6 +1024,7 @@ export default function ActionBar({
             onOpenChange={setAddToCollectionOpen}
             mediaItemId={collectionItemId}
             itemTitle={collectionItemTitle}
+            seriesOption={collectionSeriesOption}
           />
         )}
       </div>

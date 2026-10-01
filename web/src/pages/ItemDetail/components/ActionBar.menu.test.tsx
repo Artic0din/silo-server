@@ -9,7 +9,12 @@ vi.mock("@/playback/watchPlaybackContext", () => ({
 }));
 
 const collectionDialogMocks = vi.hoisted(() => ({
-  props: null as { open: boolean; mediaItemId: string; itemTitle?: string } | null,
+  props: null as {
+    open: boolean;
+    mediaItemId: string;
+    itemTitle?: string;
+    seriesOption?: { id: string; title: string };
+  } | null,
 }));
 vi.mock("@/components/AddToCollectionDialog", () => ({
   default: (props: { open: boolean; mediaItemId: string; itemTitle?: string }) => {
@@ -259,13 +264,14 @@ describe("ActionBar add to collection", () => {
     collectionDialogMocks.props = null;
   });
 
-  it("adds the collection item, not the page's own content", async () => {
+  it("passes the collection item and its series option to the dialog", async () => {
     render(
       <MemoryRouter>
         <ActionBar
           contentId="season-1"
-          collectionItemId="series-1"
-          collectionItemTitle="Example Series"
+          collectionItemId="season-1"
+          collectionItemTitle="Example Series — Season 1"
+          collectionSeriesOption={{ id: "series-1", title: "Example Series" }}
         />
       </MemoryRouter>,
     );
@@ -274,8 +280,9 @@ describe("ActionBar add to collection", () => {
 
     expect(collectionDialogMocks.props).toMatchObject({
       open: true,
-      mediaItemId: "series-1",
-      itemTitle: "Example Series",
+      mediaItemId: "season-1",
+      itemTitle: "Example Series — Season 1",
+      seriesOption: { id: "series-1", title: "Example Series" },
     });
   });
 

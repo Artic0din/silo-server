@@ -248,7 +248,7 @@ describe("SeasonContent", () => {
     expect(mocks.capturedActionBarProps.value).not.toHaveProperty("onRatingChange");
   });
 
-  it("adds the parent series to collections, since seasons are not collection members", () => {
+  it("offers the season, with the whole series as an alternative, to collections", () => {
     renderToStaticMarkup(
       <MemoryRouter initialEntries={["/item/season-1"]}>
         <SeasonContent item={makeSeasonItem()} />
@@ -257,8 +257,9 @@ describe("SeasonContent", () => {
 
     expect(mocks.capturedActionBarProps.value).toMatchObject({
       contentId: "season-1",
-      collectionItemId: "series-1",
-      collectionItemTitle: "Example Series",
+      collectionItemId: "season-1",
+      collectionItemTitle: "Example Series — Season 1",
+      collectionSeriesOption: { id: "series-1", title: "Example Series" },
     });
   });
 
