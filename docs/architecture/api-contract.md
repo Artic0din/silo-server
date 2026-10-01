@@ -2057,7 +2057,9 @@ season requires its parent series to be visible to the caller under the same lib
 and advisory rules; synthetic `{series}-S{n}` IDs are not found. In catalog listings a season
 member is a `CatalogItem` with `type: "season"`, `series_id`, `series_title`, `season_number`
 and a `play_content_id`. Its visibility, sorting, display filters (`type: series` includes
-seasons) and counts follow its parent series.
+seasons) and counts follow its parent series. Home and section rails built from a personal
+collection, the offset-paged catalog path and collection filter facets do not include season
+members yet.
 
 Collection capabilities describe the acting account's selected user store:
 
