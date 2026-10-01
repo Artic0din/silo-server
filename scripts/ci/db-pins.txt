@@ -85,3 +85,7 @@
 ./internal/catalog TestCountVisiblePersonalCollectionMembersIncludesSeasonsDB
 ./internal/catalog TestPersonalCollectionSourcePlanDB
 ./internal/api/handlers TestPersonalCollectionPagingListsSeasonMembersDB
+./internal/api/handlers TestPersonalCollectionOrderEditorIncludesSeasonMembersDB
+./internal/catalog TestPersonalCollectionTitleSortKeepsSeasonsWithSeriesDB
+./internal/catalog TestPersonalCollectionSeriesScopeIncludesSeasonsDB
+./internal/catalog TestPersonalCollectionAddedSortPlacesSeasonsWithSeriesDB
