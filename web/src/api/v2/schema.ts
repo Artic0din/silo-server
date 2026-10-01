@@ -104446,6 +104446,7 @@ export interface operations {
         "X-Client-Build"?: string;
         "X-Client-Channel"?: string;
         "X-Client-Model"?: string;
+        /** @description App name; when non-blank, the X-Client-* headers supply the whole client identity and X-Silo-Client* is ignored */
         "X-Client-Name"?: string;
         "X-Client-OS-Version"?: string;
         "X-Client-Platform"?: string;
@@ -104455,6 +104456,14 @@ export interface operations {
         "X-Profile-Id": string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
+        /** @description App name the first-party clients send on every request; when non-blank and X-Client-Name is absent or blank, the X-Silo-Client* headers supply the client identity */
+        "X-Silo-Client"?: string;
+        /** @description Opaque build identifier paired with X-Silo-Client */
+        "X-Silo-Client-Build"?: string;
+        /** @description Opaque distribution channel paired with X-Silo-Client */
+        "X-Silo-Client-Channel"?: string;
+        /** @description Marketing version paired with X-Silo-Client */
+        "X-Silo-Client-Version"?: string;
       };
       path: {
         /** @description Opaque identifier */
@@ -104604,6 +104613,7 @@ export interface operations {
         "X-Client-Build"?: string;
         "X-Client-Channel"?: string;
         "X-Client-Model"?: string;
+        /** @description App name; when non-blank, the X-Client-* headers supply the whole client identity and X-Silo-Client* is ignored */
         "X-Client-Name"?: string;
         "X-Client-OS-Version"?: string;
         "X-Client-Platform"?: string;
@@ -104613,6 +104623,14 @@ export interface operations {
         "X-Profile-Id": string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
+        /** @description App name the first-party clients send on every request; when non-blank and X-Client-Name is absent or blank, the X-Silo-Client* headers supply the client identity */
+        "X-Silo-Client"?: string;
+        /** @description Opaque build identifier paired with X-Silo-Client */
+        "X-Silo-Client-Build"?: string;
+        /** @description Opaque distribution channel paired with X-Silo-Client */
+        "X-Silo-Client-Channel"?: string;
+        /** @description Marketing version paired with X-Silo-Client */
+        "X-Silo-Client-Version"?: string;
       };
       path: {
         /** @description Opaque identifier */
@@ -104762,6 +104780,7 @@ export interface operations {
         "X-Client-Build"?: string;
         "X-Client-Channel"?: string;
         "X-Client-Model"?: string;
+        /** @description App name; when non-blank, the X-Client-* headers supply the whole client identity and X-Silo-Client* is ignored */
         "X-Client-Name"?: string;
         "X-Client-OS-Version"?: string;
         "X-Client-Platform"?: string;
@@ -104771,6 +104790,14 @@ export interface operations {
         "X-Profile-Id": string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
+        /** @description App name the first-party clients send on every request; when non-blank and X-Client-Name is absent or blank, the X-Silo-Client* headers supply the client identity */
+        "X-Silo-Client"?: string;
+        /** @description Opaque build identifier paired with X-Silo-Client */
+        "X-Silo-Client-Build"?: string;
+        /** @description Opaque distribution channel paired with X-Silo-Client */
+        "X-Silo-Client-Channel"?: string;
+        /** @description Marketing version paired with X-Silo-Client */
+        "X-Silo-Client-Version"?: string;
       };
       path: {
         /** @description Opaque identifier */
@@ -105052,6 +105079,7 @@ export interface operations {
         "X-Client-Build"?: string;
         "X-Client-Channel"?: string;
         "X-Client-Model"?: string;
+        /** @description App name; when non-blank, the X-Client-* headers supply the whole client identity and X-Silo-Client* is ignored */
         "X-Client-Name"?: string;
         "X-Client-OS-Version"?: string;
         "X-Client-Platform"?: string;
@@ -105061,6 +105089,14 @@ export interface operations {
         "X-Profile-Id": string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
+        /** @description App name the first-party clients send on every request; when non-blank and X-Client-Name is absent or blank, the X-Silo-Client* headers supply the client identity */
+        "X-Silo-Client"?: string;
+        /** @description Opaque build identifier paired with X-Silo-Client */
+        "X-Silo-Client-Build"?: string;
+        /** @description Opaque distribution channel paired with X-Silo-Client */
+        "X-Silo-Client-Channel"?: string;
+        /** @description Marketing version paired with X-Silo-Client */
+        "X-Silo-Client-Version"?: string;
       };
       path?: never;
       cookie?: never;
@@ -105567,6 +105603,7 @@ export interface operations {
         "X-Client-Build"?: string;
         "X-Client-Channel"?: string;
         "X-Client-Model"?: string;
+        /** @description App name; when non-blank, the X-Client-* headers supply the whole client identity and X-Silo-Client* is ignored */
         "X-Client-Name"?: string;
         "X-Client-OS-Version"?: string;
         "X-Client-Platform"?: string;
@@ -105576,6 +105613,14 @@ export interface operations {
         "X-Profile-Id": string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
+        /** @description App name the first-party clients send on every request; when non-blank and X-Client-Name is absent or blank, the X-Silo-Client* headers supply the client identity */
+        "X-Silo-Client"?: string;
+        /** @description Opaque build identifier paired with X-Silo-Client */
+        "X-Silo-Client-Build"?: string;
+        /** @description Opaque distribution channel paired with X-Silo-Client */
+        "X-Silo-Client-Channel"?: string;
+        /** @description Marketing version paired with X-Silo-Client */
+        "X-Silo-Client-Version"?: string;
       };
       path?: never;
       cookie?: never;
