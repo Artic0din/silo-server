@@ -379,3 +379,17 @@ func TestPersonalCollectionSeriesScopeIncludesSeasonsDB(t *testing.T) {
 		t.Fatalf("watched within series scope = %v, want only season 1", got)
 	}
 }
+
+func TestPersonalCollectionAddedSortPlacesSeasonsWithSeriesDB(t *testing.T) {
+	f := newSeasonCollectionFixture(t)
+	batchEquivExec(t, f.pool, `UPDATE media_item_libraries SET first_seen_at='2020-01-01' WHERE content_id=$1`, f.movie)
+	batchEquivExec(t, f.pool, `UPDATE media_item_libraries SET first_seen_at='2021-01-01' WHERE content_id=$1`, f.series)
+	desc := ids(f.page(t, f.access(), QuerySort{Field: "added_at", Order: "desc"}, 50).Items)
+	if want := []string{f.series, f.s0, f.s1, f.s2, f.movie}; fmt.Sprint(desc) != fmt.Sprint(want) {
+		t.Fatalf("added desc = %v, want %v", desc, want)
+	}
+	asc := ids(f.page(t, f.access(), QuerySort{Field: "added_at", Order: "asc"}, 50).Items)
+	if want := []string{f.movie, f.series, f.s0, f.s1, f.s2}; fmt.Sprint(asc) != fmt.Sprint(want) {
+		t.Fatalf("added asc = %v, want %v", asc, want)
+	}
+}

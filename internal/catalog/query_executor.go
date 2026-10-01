@@ -372,7 +372,8 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 		WithMediaScope(effectiveScope).
 		WithLibraryScope(libraryIDs).
 		WithSeasonsMatchSeriesType(e.SeasonsMatchSeriesType).
-		WithSeasonOrderKey(e.SeasonOrderKeyExpr)
+		WithSeasonOrderKey(e.SeasonOrderKeyExpr).
+		WithLibraryContentExpr(e.LibraryContentExpr)
 	filterWhere, filterArgs, err := builder.Build(def)
 	if err != nil {
 		return previewPagePlan{}, err

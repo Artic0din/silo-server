@@ -36,6 +36,10 @@ type QueryBuilder struct {
 	// seasonOrderKeyExpr, when set, breaks title ties between a series and
 	// its season rows, which share the series' title.
 	seasonOrderKeyExpr string
+	// libraryContentOverride, when set outside the episode scope, is the key
+	// library joins use instead of the row's content_id; see
+	// QueryExecutor.LibraryContentExpr.
+	libraryContentOverride string
 }
 
 type QuerySortPlan struct {
@@ -83,6 +87,13 @@ func (qb *QueryBuilder) WithSeasonsMatchSeriesType(enabled bool) *QueryBuilder {
 // empty for catalog items, the zero-padded season number for season rows.
 func (qb *QueryBuilder) WithSeasonOrderKey(expr string) *QueryBuilder {
 	qb.seasonOrderKeyExpr = expr
+	return qb
+}
+
+// WithLibraryContentExpr sets the key library joins use for rows that borrow
+// another item's library membership.
+func (qb *QueryBuilder) WithLibraryContentExpr(expr string) *QueryBuilder {
+	qb.libraryContentOverride = expr
 	return qb
 }
 
@@ -920,6 +931,9 @@ func (qb *QueryBuilder) mediaFileGroupExpr(mediaFileAlias string) string {
 }
 
 func (qb *QueryBuilder) libraryContentExpr() string {
+	if qb.libraryContentOverride != "" && !isEpisodeCatalogScope(qb.mediaScope) {
+		return qb.libraryContentOverride
+	}
 	return catalogLibraryContentExprForScope(qb.mediaScope, qb.alias)
 }
 
