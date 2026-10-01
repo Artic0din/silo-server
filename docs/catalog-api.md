@@ -379,6 +379,62 @@ book libraries, never carry an advisory age, so the limit never hides them.
 
 Frozen v1 responses do not expose these fields.
 
+## Ratings on title pages
+
+Every client shows a title's external ratings the same way: the v2 item detail
+carries `ratings`, the list to render, already chosen and formatted by the
+server. It is present on every v2 item detail, as an empty array when there is
+nothing to show. Each entry has:
+
+- `source`: `imdb`, `tmdb`, `rt_critic`, `rt_audience`, or another source name
+  from the list below.
+- `name`: the source's plain-text mark (`IMDb`, `TMDB`, `RT`, `RT Audience`,
+  `Metacritic`, ...).
+- `score`: the rating on a 0-100 scale.
+- `display`: the score on the source's own scale, formatted: `8.5`, `93%`,
+  `4.2`.
+
+Clients render each entry as its mark followed by `display`, in list order.
+The list holds at most three entries, the first in display order, so every
+client shows the same three ratings on one line.
+Marks are plain text, never a source's logo artwork, with one exception: TMDB's
+approved logo may stand in for the `TMDB` mark, as TMDB's terms allow. Clients
+do not recompute the list from the `rating_*` members.
+
+IMDb and TMDB are always in the list when the title has them. Every other
+source appears only after an administrator turns it on in the
+`catalog.extra_rating_sources` server setting, a comma-separated list of
+source names that is empty by default, because the owners of those scores
+restrict how others may display them. IMDb, TMDB and Rotten Tomatoes come from
+the `rating_*` members, the same numbers poster badges and browse sorting use;
+the other sources come from `rating_sources`.
+
+Cards follow the same choice: every v2 card leaves out `rating_rt_critic` and
+`rating_rt_audience` unless the administrator turned that source on, so poster
+badges show a Rotten Tomatoes score only where title pages do. Item detail
+does the same, and its `rating_sources` lists only the sources clients show.
+The exception is a viewer who may curate the item's metadata (an admin, or an
+account with the metadata curation permission): their item detail, and the
+detail `updateAdminItemMetadata` returns, keep every stored value for the
+metadata editor. Frozen v1 responses are unchanged.
+
+Browse follows the choice too. A v2 catalog browse sorted by
+`rating_rt_critic` or `rating_rt_audience` while that source is hidden orders
+as if no sort was given: the saved or default order, reported as
+`effective_sort`.
+
+`GET /api/v2/capabilities/ratings` (`getRatingsCapability`) is the feature
+check. It answers `state: available` on a server whose item detail carries
+`ratings`, and `sources` lists the sources title pages and cards show, in
+display order, each with its `source` and `name`. Clients use it to decide
+whether to render `ratings` and which rating sorts and badges to offer. A
+server without the operation predates `ratings`.
+
+A card-sized summary such as a home hero shows one rating, IMDb or, without an
+IMDb score, TMDB, as its mark and score. Cards carry raw `rating_*` numbers,
+so a client that formats one itself rounds halves away from zero, as the
+server's `display` does: a stored IMDb 7.35 reads `7.4`.
+
 ## Rating sources
 
 The v2 item detail of a movie or series may carry `rating_sources`, a list of
@@ -394,8 +450,9 @@ IMDb, Metacritic, Letterboxd and Roger Ebert scores. Each entry has:
   report it.
 
 Entries come in that fixed source order, at most one per source. The member is
-absent when no provider reported a source. It is detail-only: list and section
-cards do not carry it.
+absent when no source has a score the viewer is shown (see "Ratings on title
+pages"). It is detail-only: list and section cards do not carry it. A title
+page renders `ratings`, not this list.
 
 The four `rating_imdb`, `rating_tmdb`, `rating_rt_critic` and
 `rating_rt_audience` members are unchanged, keep their own scales, and remain

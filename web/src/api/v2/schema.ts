@@ -5416,6 +5416,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v2/capabilities/ratings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Whether item detail carries the ratings list, and the rating sources title pages and cards show. */
+    get: operations["getRatingsCapability"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v2/capabilities/trailers": {
     parameters: {
       query?: never;
@@ -17467,9 +17484,15 @@ export interface components {
       progress_updated_at?: string;
       /** Format: double */
       rating_imdb?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes audience score, 0-100. Absent unless an administrator shows rt_audience (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_audience?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes critic score, 0-100. Absent unless an administrator shows rt_critic (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_critic?: number;
       /** Format: double */
       rating_tmdb?: number;
@@ -17638,14 +17661,22 @@ export interface components {
       progress_updated_at?: string;
       /** Format: double */
       rating_imdb?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes audience score, 0-100. Absent unless an administrator shows rt_audience (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_audience?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes critic score, 0-100. Absent unless an administrator shows rt_critic (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_critic?: number;
-      /** @description Per-source ratings on a 0-100 scale for movies and series, in display order; absent when no provider reported any */
+      /** @description Per-source ratings on a 0-100 scale for movies and series, in display order; absent when there are none. Only the sources clients show, except for a viewer who curates the item's metadata, who gets every stored source. Title pages render ratings, not this list. */
       rating_sources?: components["schemas"]["CatalogRatingSource"][];
       /** Format: double */
       rating_tmdb?: number;
+      /** @description The external ratings a title page shows, in display order: IMDb and TMDB, plus the sources an administrator turned on. Render every entry as its name and display text. Empty, never null */
+      ratings: components["schemas"]["CatalogRating"][];
       recap?: components["schemas"]["Marker"];
       /**
        * @description Calendar date, YYYY-MM-DD
@@ -17851,6 +17882,28 @@ export interface components {
       op: string;
       /** @description Scalar or array, as the operator requires */
       value: unknown;
+    };
+    CatalogRating: {
+      /**
+       * @description The score on the source's own scale, formatted for display
+       * @example 8.5
+       */
+      display: string;
+      /**
+       * @description The source's name as a plain-text mark, shown next to the score
+       * @example IMDb
+       */
+      name: string;
+      /**
+       * Format: double
+       * @description Score on a 0-100 scale
+       */
+      score: number;
+      /**
+       * @description Rating source, such as imdb, tmdb, rt_critic or rt_audience. Clients may use it to pick a source's mark and should fall back to name for one they do not recognize.
+       * @example imdb
+       */
+      source: string;
     };
     CatalogRatingSource: {
       /**
@@ -20202,9 +20255,15 @@ export interface components {
       progress_updated_at?: string;
       /** Format: double */
       rating_imdb?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes audience score, 0-100. Absent unless an administrator shows rt_audience (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_audience?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes critic score, 0-100. Absent unless an administrator shows rt_critic (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_critic?: number;
       /** Format: double */
       rating_tmdb?: number;
@@ -24698,6 +24757,31 @@ export interface components {
        */
       rating: number;
     };
+    RatingsCapability: {
+      /** @description Whether the current principal may use the capability */
+      allowed: boolean;
+      /** @description Opaque revision of this document */
+      revision: string;
+      /** @description The rating sources title pages and cards show, in display order: imdb and tmdb, then each source an administrator turned on. A card or detail carries rating_rt_critic or rating_rt_audience only when its source is listed. Empty, never null */
+      sources: components["schemas"]["RatingsCapabilitySource"][];
+      /**
+       * @description Support and configuration state, not health
+       * @enum {string}
+       */
+      state: "available" | "disabled" | "not_configured" | "unsupported";
+    };
+    RatingsCapabilitySource: {
+      /**
+       * @description The source's plain-text mark
+       * @example IMDb
+       */
+      name: string;
+      /**
+       * @description Rating source name, as in CatalogRating.source
+       * @example imdb
+       */
+      source: string;
+    };
     RatingSet: {
       /**
        * Format: int64
@@ -28051,9 +28135,15 @@ export interface components {
       progress_updated_at?: string;
       /** Format: double */
       rating_imdb?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes audience score, 0-100. Absent unless an administrator shows rt_audience (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_audience?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes critic score, 0-100. Absent unless an administrator shows rt_critic (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_critic?: number;
       /** Format: double */
       rating_tmdb?: number;
@@ -28208,9 +28298,15 @@ export interface components {
       progress_updated_at?: string;
       /** Format: double */
       rating_imdb?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes audience score, 0-100. Absent unless an administrator shows rt_audience (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_audience?: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Rotten Tomatoes critic score, 0-100. Absent unless an administrator shows rt_critic (see getRatingsCapability); a viewer who curates the item's metadata gets it on item detail regardless
+       */
       rating_rt_critic?: number;
       /** Format: double */
       rating_tmdb?: number;
@@ -77476,6 +77572,138 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  getRatingsCapability: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Optional first precondition, evaluated before If-None-Match: a tag that does not match the current representation is 412 precondition_failed. */
+        "If-Match"?: string;
+        "If-None-Match"?: string;
+        /** @description The household profile acting for this request; it must belong to the authenticated account. */
+        "X-Profile-Id": string;
+        /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
+        "X-Profile-Token"?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          "Cache-Control"?: string;
+          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RatingsCapability"];
+        };
+      };
+      /** @description The representation named by If-None-Match is current; no body. */
+      304: {
+        headers: {
+          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Acceptable */
+      406: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Precondition Failed */
+      412: {
+        headers: {
+          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
         headers: {
           [name: string]: unknown;
         };
