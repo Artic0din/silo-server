@@ -450,10 +450,11 @@ func (qb *QueryBuilder) buildRule(rule QueryRule) (string, error) {
 		return qb.buildSubtitleLanguageClause(rule)
 	}
 
-	if qb.seasonsMatchSeriesType && rule.Field == "type" && (rule.Op == "is" || rule.Op == "is_not") {
+	// The type field only accepts is and is_not, checked above.
+	if qb.seasonsMatchSeriesType && rule.Field == displayFilterFieldType {
 		if value, ok := rule.Value.(string); ok && strings.EqualFold(strings.TrimSpace(value), "series") {
 			operator := "IN"
-			if rule.Op == "is_not" {
+			if rule.Op != "is" {
 				operator = "NOT IN"
 			}
 			return fmt.Sprintf("%s.type %s ('series', 'season')", qb.alias, operator), nil
