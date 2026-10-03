@@ -5,6 +5,7 @@ import {
   prepareAdminCollectionDeletes,
   adminMutationMessage,
 } from "@/api/adminCollections";
+import type { AdminCollectionDeleteSnapshot } from "@/api/adminCollections";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -150,7 +151,7 @@ export default function AdminCollections() {
     return () => window.removeEventListener("keydown", clearSelection);
   }, [confirmDeleteAll, confirmDeleteCollection, confirmDeleteSelected]);
 
-  const [deleteSnapshots, setDeleteSnapshots] = useState<{ id: string; etag: string }[]>([]);
+  const [deleteSnapshots, setDeleteSnapshots] = useState<AdminCollectionDeleteSnapshot[]>([]);
   const [preparingDelete, setPreparingDelete] = useState(false);
   async function prepareDelete(collection: LibraryCollection) {
     try {
@@ -224,9 +225,11 @@ export default function AdminCollections() {
   const deleteAllDescription = selectedLibrary
     ? `Delete all ${deleteSnapshots.length} collections shown for ${selectedLibrary.name}? ${sharedDeletionNotice} ${collectionDeletionNotice}`
     : `Delete all ${deleteSnapshots.length} server collections? ${collectionDeletionNotice}`;
+  // Read library membership from the snapshots the delete will use, not the
+  // board, which can be stale.
   const selectedIncludesShared =
     selectedLibrary !== null &&
-    selectedCollections.some((collection) => collectionLibraryIDs(collection).length > 1);
+    deleteSnapshots.some((snapshot) => collectionLibraryIDs(snapshot.collection).length > 1);
   const deleteSelectedScopeNotice = selectedIncludesShared ? ` ${sharedDeletionNotice}` : "";
   const deleteSelectedDescription = `Delete ${deleteSnapshots.length} selected collection${deleteSnapshots.length === 1 ? "" : "s"}?${deleteSelectedScopeNotice} ${collectionDeletionNotice}`;
   const deleteProgressLabel = `Deleting ${deleteCollections.progress?.completed ?? 0} of ${deleteCollections.progress?.total ?? collectionsInScope.length} collections`;

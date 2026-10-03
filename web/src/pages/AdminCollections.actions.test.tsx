@@ -88,7 +88,11 @@ beforeEach(() => {
     etag: '"rev-1"',
   }));
   state.prepareDeletes.mockImplementation(async (ids: string[]) =>
-    ids.map((id) => ({ id, etag: '"rev-1"' })),
+    ids.map((id) => ({
+      id,
+      etag: '"rev-1"',
+      collection: state.collections.find((entry) => entry.id === id),
+    })),
   );
 });
 afterEach(() => {
@@ -137,6 +141,21 @@ describe("AdminCollections actions", () => {
     renderPage("/admin/collections?libraryId=1");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Shared" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Delete 1 selected collection? Shared collections will also be removed from their other libraries.",
+    );
+  });
+
+  it("warns from the fetched collection when a selected one became shared after the board loaded", async () => {
+    state.collections = [collection("Solo", "manual")];
+    state.prepareDeletes.mockImplementation(async (ids: string[]) =>
+      ids.map((id) => ({ id, etag: '"rev-2"', collection: collection(id, "manual", [1, 2]) })),
+    );
+    renderPage("/admin/collections?libraryId=1");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Solo" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
 
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
