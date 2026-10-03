@@ -227,10 +227,13 @@ export default function AdminCollections() {
     : `Delete all ${deleteSnapshots.length} server collections? ${collectionDeletionNotice}`;
   // Read library membership from the snapshots the delete will use, not the
   // board, which can be stale.
-  const selectedIncludesShared =
-    selectedLibrary !== null &&
-    deleteSnapshots.some((snapshot) => collectionLibraryIDs(snapshot.collection).length > 1);
-  const deleteSelectedScopeNotice = selectedIncludesShared ? ` ${sharedDeletionNotice}` : "";
+  const selectedIncludesShared = deleteSnapshots.some(
+    (snapshot) => collectionLibraryIDs(snapshot.collection).length > 1,
+  );
+  const sharedSelectionNotice = selectedLibrary
+    ? sharedDeletionNotice
+    : "Collections in more than one library will be removed from all of them.";
+  const deleteSelectedScopeNotice = selectedIncludesShared ? ` ${sharedSelectionNotice}` : "";
   const deleteSelectedDescription = `Delete ${deleteSnapshots.length} selected collection${deleteSnapshots.length === 1 ? "" : "s"}?${deleteSelectedScopeNotice} ${collectionDeletionNotice}`;
   const deleteProgressLabel = `Deleting ${deleteCollections.progress?.completed ?? 0} of ${deleteCollections.progress?.total ?? collectionsInScope.length} collections`;
 

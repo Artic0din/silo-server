@@ -163,6 +163,18 @@ describe("AdminCollections actions", () => {
     );
   });
 
+  it("warns on the all-libraries list when a selected collection is in more than one library", async () => {
+    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
+    renderPage("/admin/collections");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shared in Movies" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Delete 1 selected collection? Collections in more than one library will be removed from all of them.",
+    );
+  });
+
   it("does not mention other libraries when no selected collection is shared", async () => {
     state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
     renderPage("/admin/collections?libraryId=1");
