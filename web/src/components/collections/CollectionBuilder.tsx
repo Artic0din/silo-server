@@ -398,8 +398,14 @@ export function SmartCollectionLimitField({
 }) {
   function commit(input: HTMLInputElement) {
     const parsed = Number.parseInt(input.value, 10);
-    // Blank (or anything that isn't a positive number) means no limit.
-    const limit = parsed > 0 ? parsed : undefined;
+    // Blank means no limit. Anything else that isn't a positive number, such
+    // as 0, keeps the current limit.
+    let limit = query.limit;
+    if (input.value.trim() === "") {
+      limit = undefined;
+    } else if (parsed > 0) {
+      limit = parsed;
+    }
     input.value = limit === undefined ? "" : String(limit);
     if (query.limit !== limit) {
       onQueryChange({ ...query, limit });

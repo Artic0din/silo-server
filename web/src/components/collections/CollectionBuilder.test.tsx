@@ -245,4 +245,13 @@ describe("SmartCollectionLimitField", () => {
     expect(onQueryChange).toHaveBeenCalledTimes(1);
     expect(onQueryChange.mock.calls[0]?.[0].limit).toBeUndefined();
   });
+  it.each(["0", "-5"])("keeps the limit when %s is entered", (value) => {
+    const { input, onQueryChange } = renderLimit(250);
+
+    fireEvent.change(input, { target: { value } });
+    fireEvent.blur(input);
+
+    expect(onQueryChange).not.toHaveBeenCalled();
+    expect(input).toHaveValue(250);
+  });
 });
