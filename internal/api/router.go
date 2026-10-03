@@ -522,6 +522,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 	var metadataCurationAccess func(http.Handler) http.Handler
 	var markerEditAccess func(http.Handler) http.Handler
 	var viewerResolver apimw.ViewerResolver
+	var collectionOwners catalog.PersonalCollectionAccess
 	var profileTokenService *access.ProfileTokenService
 	var jwtService *auth.JWTService
 	var sessionRepo *auth.SessionRepository
@@ -606,6 +607,9 @@ func newChiRouter(deps Dependencies) chi.Router {
 				viewerResolver = access.NewResolver(userRepo, deps.UserStoreProvider, profileTokenService, accessGroupStore).WithUnratedContentPolicy(unratedContent)
 			}
 			viewerAccessMiddleware = apimw.NewViewerAccessMiddleware(viewerResolver)
+			// Shared personal collections are limited to their owner's
+			// access, resolved by the same resolver the request gates use.
+			collectionOwners = usercollections.NewOwnerAccess(viewerResolver)
 		}
 		if deps.DB != nil {
 			metadataLibraries := apimw.NewPGMetadataTargetLibraryResolver(deps.DB)
@@ -852,6 +856,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		if catalogSearchService != nil {
 			itemsHandler.SetCatalogSearchProvider(catalogSearchService.Provider())
 		}
+		itemsHandler.SetPersonalCollectionAccess(collectionOwners)
 		if deps.MarkerPopulation != nil {
 			itemsHandler.MarkerPopulation = deps.MarkerPopulation
 		}
@@ -910,7 +915,8 @@ func newChiRouter(deps Dependencies) chi.Router {
 				WithEpisodeRepository(episodeRepo).
 				WithUserStoreProvider(deps.UserStoreProvider).
 				WithSearchProvider(catalogSearchService.Provider()).
-				WithWatchlistPromoter(watchlistTitles),
+				WithWatchlistPromoter(watchlistTitles).
+				WithPersonalCollectionAccess(collectionOwners),
 			itemsHandler,
 		)
 		catalogHandler.SetWorkSummaryProvider(literaryRepo)
@@ -1091,6 +1097,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		}
 		collectionHandler.ArtworkStore = deps.Blobs.Assets
 		collectionHandler.ArtworkResolver = deps.ArtworkResolver
+		collectionHandler.CollectionOwners = collectionOwners
 		// The import handler is built beside the collection handler so the v1
 		// route group and the v2 operations share one instance; the v1 routes
 		// keep their userImportHandler != nil condition.
@@ -1810,6 +1817,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		sectionBulkHandler = &handlers.SectionBulkHandler{Repo: sectionRepo}
 		sectionFetcher := sections.NewFetcher(deps.DB)
 		sectionFetcher.StoreProvider = deps.UserStoreProvider
+		sectionFetcher.CollectionOwners = collectionOwners
 		if watchlistTitles != nil {
 			sectionFetcher.WatchlistPromoter = watchlistTitles
 		}
@@ -1962,6 +1970,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		libraryCollectionHandler.Executor = &catalog.QueryExecutor{Pool: deps.DB}
 		libraryCollectionHandler.SectionRepo = sectionRepo
 		libraryCollectionHandler.UserCollectionPool = deps.DB
+		libraryCollectionHandler.CollectionOwners = collectionOwners
 		libraryCollectionHandler.EventsHub = deps.EventsHub
 		libraryCollectionHandler.SortPreferenceCleaner = collectionSortCleaner
 		if deps.FolderRepo != nil {
@@ -2028,6 +2037,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		if deps.DB != nil {
 			recsFetcher := sections.NewFetcher(deps.DB)
 			recsFetcher.StoreProvider = deps.UserStoreProvider
+			recsFetcher.CollectionOwners = collectionOwners
 			if watchlistTitles != nil {
 				recsFetcher.WatchlistPromoter = watchlistTitles
 			}

@@ -96,6 +96,10 @@ type Fetcher struct {
 	// it. Nil skips promotion.
 	WatchlistPromoter catalog.WatchlistPromoter
 
+	// CollectionOwners limits a row of another profile's shared personal
+	// collection to its owner's access. Without it such a row fails.
+	CollectionOwners catalog.PersonalCollectionAccess
+
 	candidateCacheMu sync.Mutex
 	candidateCache   *editorialCandidateCache
 	candidateGroup   singleflight.Group
@@ -1349,6 +1353,11 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 		if !canAccess {
 			return []*models.MediaItem{}, 0, nil
 		}
+	}
+	// Another profile's collection shows only what its owner can access too.
+	filter, err = catalog.PersonalCollectionFilter(ctx, f.CollectionOwners, filter, userID, profileID, collection.CreatorProfileID)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// Smart / live-query collection: parse the query definition and use the
