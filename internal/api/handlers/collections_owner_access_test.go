@@ -340,6 +340,17 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		if len(tab) != 0 {
 			t.Errorf("library tab shows %d collections whose owner is unavailable, want none", len(tab))
 		}
+		// Ordering never reads members, so the order editor still offers
+		// every collection the viewer orders; a partial list would be
+		// rejected when submitted.
+		order, err := h.PersonalCollectionOrderEditor(reqCtx, f.account, "viewer", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantOrder := []string{manual.ID, displayed.ID, smart.ID}
+		if got := ids(slices.Clone(order.OrderedIDs)); !slices.Equal(got, ids(wantOrder)) {
+			t.Errorf("order editor = %v, want %v", order.OrderedIDs, wantOrder)
+		}
 		for _, c := range collections {
 			if _, err := h.GetPersonalCollection(reqCtx, f.account, "viewer", c.ID); err == nil {
 				t.Errorf("%s: detail answered without its owner's access", c.Name)
