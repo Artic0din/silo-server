@@ -162,6 +162,15 @@ func TestLibraryCollectionRailsMatchTheCollectionPageDB(t *testing.T) {
 		if got := collectionPage(hidden.ID, outsider); len(got) != 0 {
 			t.Fatalf("collection page = %v, want nothing", got)
 		}
+		// Readers that hand the query's own libraries to the executor, such
+		// as jellycompat BoxSets and collection items, get nothing either.
+		items, total, err := (&catalog.QueryExecutor{Pool: pool}).Preview(ctx, catalog.QueryDefinition{LibraryIDs: []int{shown}}, outsider, 10)
+		if err != nil {
+			t.Fatalf("preview query: %v", err)
+		}
+		if got := railContentIDs(items); len(got) != 0 || total != 0 {
+			t.Fatalf("query = %v (total %d), want nothing", got, total)
+		}
 	})
 
 	t.Run("manual collection with a query definition", func(t *testing.T) {
