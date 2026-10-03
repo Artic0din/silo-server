@@ -55,6 +55,7 @@ import {
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
+import { isListBackedCollectionType } from "@/lib/collectionTypes";
 import { buildAdminCollectionEditorPath, collectionsInAdminScope } from "./adminCollectionsShared";
 
 export default function AdminCollections() {
@@ -208,6 +209,14 @@ export default function AdminCollections() {
     boardCollectionCount === 0 &&
     !hasRegularBoardGroups;
   const selectedLibrary = libraries.find((library) => library.id === selectedLibraryId) ?? null;
+  // Deleting removes the collection itself, so a shared one leaves every library at once.
+  const deleteLibraryCount = confirmDeleteCollection
+    ? collectionLibraryIDs(confirmDeleteCollection).length
+    : 0;
+  const deleteScopeNotice =
+    deleteLibraryCount > 1
+      ? ` It will be removed from all ${deleteLibraryCount} libraries it belongs to.`
+      : "";
   const collectionDeletionNotice =
     "Silo will keep collections that are still used by home or library sections. This action cannot be undone.";
   const deleteAllDescription = selectedLibrary
@@ -239,7 +248,7 @@ export default function AdminCollections() {
           if (!open) setConfirmDeleteCollection(null);
         }}
         title="Delete collection"
-        description={`Delete collection "${confirmDeleteCollection?.title}"? This action cannot be undone.`}
+        description={`Delete collection "${confirmDeleteCollection?.title}"?${deleteScopeNotice} This action cannot be undone.`}
         confirmLabel="Delete"
         variant="destructive"
         onConfirm={() => {
@@ -759,7 +768,7 @@ function AllLibraryCollectionRow({
   onDelete: () => void;
   onSync: () => void;
 }) {
-  const syncable = collection.collection_type !== "manual";
+  const syncable = isListBackedCollectionType(collection.collection_type);
   const collectionLibraries = collectionLibraryIDs(collection)
     .map((id) => libraries.find((library) => library.id === id)?.name ?? `Library ${id}`)
     .join(", ");
