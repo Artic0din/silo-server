@@ -858,11 +858,17 @@ func playableTargetKeyForItem(item *models.MediaItem) string {
 }
 
 func (h *ItemsHandler) resolvePlayableTargetInputs(ctx context.Context, v ItemViewer, inputs []catalog.PlayableTargetInput, libraryIDs []int, filter catalog.AccessFilter) map[string]string {
+	return catalog.PlayableTargetIDs(h.resolvePlayableTargets(ctx, v, inputs, libraryIDs, filter))
+}
+
+// resolvePlayableTargets is resolvePlayableTargetInputs with each target's
+// season attached.
+func (h *ItemsHandler) resolvePlayableTargets(ctx context.Context, v ItemViewer, inputs []catalog.PlayableTargetInput, libraryIDs []int, filter catalog.AccessFilter) map[string]catalog.PlayableTarget {
 	if h == nil || h.playableTargets == nil || len(inputs) == 0 {
-		return map[string]string{}
+		return map[string]catalog.PlayableTarget{}
 	}
 	store, _, _ := h.viewerUserStore(ctx, v.ProfileID)
-	targets, err := h.playableTargets.Resolve(ctx, catalog.PlayableTargetQuery{
+	targets, err := h.playableTargets.ResolveTargets(ctx, catalog.PlayableTargetQuery{
 		UserID:        apimw.GetUserID(ctx),
 		ProfileID:     v.ProfileID,
 		LibraryIDs:    libraryIDs,
@@ -872,7 +878,7 @@ func (h *ItemsHandler) resolvePlayableTargetInputs(ctx context.Context, v ItemVi
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "resolving playable poster targets", "component", "api", "error", err)
-		return map[string]string{}
+		return map[string]catalog.PlayableTarget{}
 	}
 	return targets
 }
