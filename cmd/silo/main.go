@@ -110,6 +110,7 @@ import (
 	"github.com/Silo-Server/silo-server/internal/secret"
 	"github.com/Silo-Server/silo-server/internal/sections"
 	"github.com/Silo-Server/silo-server/internal/server"
+	"github.com/Silo-Server/silo-server/internal/serveridentity"
 	"github.com/Silo-Server/silo-server/internal/settingscontract"
 	"github.com/Silo-Server/silo-server/internal/storagetransition"
 	"github.com/Silo-Server/silo-server/internal/streamtelemetry"
@@ -3592,6 +3593,9 @@ func main() {
 	}
 
 	errCh := make(chan error, 3)
+	// Closed when the LAN advertiser has sent its goodbye packets; nil when
+	// discovery is off.
+	var lanDiscoveryDone chan struct{}
 	// Bind before serving so resident plugins, which reverse-proxy to this
 	// listener, are only started once it exists.
 	apiListener, apiListenErr := net.Listen("tcp", cfg.Server.Listen)
@@ -3609,6 +3613,13 @@ func main() {
 				slog.Error("post-restart storage transition reconciliation paused; it will resume on the next start", "error", reconcileErr)
 			}
 		}()
+		if cfg.Server.LANDiscovery && (mode == "integrated" || mode == "api") {
+			lanDiscoveryDone = make(chan struct{})
+			go func() {
+				defer close(lanDiscoveryDone)
+				advertiseOnLAN(appCtx, apiListener.Addr(), serveridentity.New(catalog.NewServerSettingsRepo(pool)), brandingSvc)
+			}()
+		}
 		if pluginService != nil {
 			pluginService.StartResidents(appCtx)
 			if mode == "api" {
@@ -3653,6 +3664,16 @@ func main() {
 	slog.Info("beginning graceful shutdown")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
+
+	// Let the LAN advertiser withdraw the service (appCtx is already
+	// canceled) so clients drop it now rather than when its records expire.
+	if lanDiscoveryDone != nil {
+		select {
+		case <-lanDiscoveryDone:
+		case <-time.After(2 * time.Second):
+			slog.WarnContext(shutdownCtx, "LAN discovery did not withdraw its advertisement before shutdown")
+		}
+	}
 
 	// 0. Stop resident plugins first: their overlay listeners front the HTTP
 	// servers, so ingress goes away before the servers drain.
