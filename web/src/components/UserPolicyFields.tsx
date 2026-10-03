@@ -198,6 +198,9 @@ interface PolicyContext {
   // What those fields currently evaluate to, shown next to the source. Absent
   // when unknown.
   effective?: PolicyInheritHints;
+  // Locks the menus. A disabled <fieldset> blocks the native controls, but
+  // Radix Select opens on pointerdown and only honors its own prop.
+  disabled?: boolean;
 }
 
 function defaultHint(source: PolicyDefaultSource, effectiveText: string | undefined): string {
@@ -214,6 +217,7 @@ function BooleanPolicyRow({
   onValueChange,
   source,
   effectiveValue,
+  disabled,
 }: {
   label: string;
   description?: string;
@@ -221,6 +225,7 @@ function BooleanPolicyRow({
   onValueChange: (value: boolean | null) => void;
   source: PolicyDefaultSource;
   effectiveValue?: boolean;
+  disabled?: boolean;
 }) {
   const id = useId();
   const selectValue = value === null ? INHERIT : value ? "allowed" : "blocked";
@@ -233,6 +238,7 @@ function BooleanPolicyRow({
       <Select
         value={selectValue}
         onValueChange={(next) => onValueChange(next === INHERIT ? null : next === "allowed")}
+        disabled={disabled}
       >
         <SelectTrigger id={id} className="w-40 shrink-0">
           <SelectValue />
@@ -384,12 +390,14 @@ function StreamBitratePolicyField({
   onValueChange,
   source,
   effectiveValue,
+  disabled,
 }: {
   label: string;
   value: number | null;
   onValueChange: (value: number | null) => void;
   source: PolicyDefaultSource;
   effectiveValue?: number;
+  disabled?: boolean;
 }) {
   const id = useId();
   // Same override model as LimitPolicyField: turning Override on seeds the
@@ -417,6 +425,7 @@ function StreamBitratePolicyField({
         id={id}
         label={label}
         value={value}
+        disabled={disabled}
         // A custom box without a valid value keeps the last one; the form's
         // required/pattern validation blocks saving until it is fixed.
         onValueChange={(kbps) => {
@@ -434,6 +443,7 @@ export function PolicyAccessFields({
   source,
   effective,
   libraries,
+  disabled,
 }: PolicyContext & { libraries: Library[] }) {
   return (
     <>
@@ -458,6 +468,7 @@ export function PolicyAccessFields({
           onValueChange={(downloadAllowed) => onChange({ ...state, downloadAllowed })}
           source={source}
           effectiveValue={effective?.download_allowed}
+          disabled={disabled}
         />
         <BooleanPolicyRow
           label="Download Transcodes"
@@ -467,6 +478,7 @@ export function PolicyAccessFields({
           }
           source={source}
           effectiveValue={effective?.download_transcode_allowed}
+          disabled={disabled}
         />
       </div>
       <BooleanPolicyRow
@@ -476,13 +488,14 @@ export function PolicyAccessFields({
         onValueChange={(requestsAllowed) => onChange({ ...state, requestsAllowed })}
         source={source}
         effectiveValue={effective?.requests_allowed}
+        disabled={disabled}
       />
     </>
   );
 }
 
 // Limits-tab policy fields: stream/transcode ceilings and the quality gate.
-export function PolicyLimitFields({ state, onChange, source, effective }: PolicyContext) {
+export function PolicyLimitFields({ state, onChange, source, effective, disabled }: PolicyContext) {
   const qualityId = useId();
   const qualityValue: PlaybackQualityPreset | typeof INHERIT =
     state.maxPlaybackQuality === null
@@ -513,6 +526,7 @@ export function PolicyLimitFields({ state, onChange, source, effective }: Policy
           }
           source={source}
           effectiveValue={effective?.max_remote_stream_bitrate_kbps}
+          disabled={disabled}
         />
         <StreamBitratePolicyField
           label="Max local stream bitrate"
@@ -522,6 +536,7 @@ export function PolicyLimitFields({ state, onChange, source, effective }: Policy
           }
           source={source}
           effectiveValue={effective?.max_local_stream_bitrate_kbps}
+          disabled={disabled}
         />
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -531,6 +546,7 @@ export function PolicyLimitFields({ state, onChange, source, effective }: Policy
           onValueChange={(transcodeAllowed) => onChange({ ...state, transcodeAllowed })}
           source={source}
           effectiveValue={effective?.transcode_allowed}
+          disabled={disabled}
         />
         <BooleanPolicyRow
           label="Audio Transcoding"
@@ -539,11 +555,13 @@ export function PolicyLimitFields({ state, onChange, source, effective }: Policy
           onValueChange={(audioTranscodeAllowed) => onChange({ ...state, audioTranscodeAllowed })}
           source={source}
           effectiveValue={effective?.audio_transcode_allowed}
+          disabled={disabled}
         />
       </div>
       <div className="space-y-1">
         <Label htmlFor={qualityId}>Max Playback Quality</Label>
         <Select
+          disabled={disabled}
           value={qualityValue}
           onValueChange={(value) =>
             onChange({
