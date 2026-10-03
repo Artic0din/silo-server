@@ -133,21 +133,21 @@ describe("SectionEditorDrawer custom-filter rows", () => {
       groups: [{ match: "all", rules: [{ field: "watched", op: "is", value: false }] }],
       sort: { field: "date_viewed", order: "desc" },
     });
-    expect(screen.queryByText("Unsupported rule")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Rule not editable here" })).toBeNull();
     const comboboxes = screen.getAllByRole("combobox").map((box) => box.textContent);
     expect(comboboxes).toContain("Watched");
     expect(comboboxes).toContain("Date Viewed");
   });
 
-  it("shows rules the editor cannot edit as unsupported and keeps them until removed", async () => {
+  it("shows rules the editor cannot edit as read-only and keeps them until removed", async () => {
     const onSave = renderAdmin(structuredClone(unknownFieldConfig));
-    const unsupported = screen.getAllByRole("group", { name: "Unsupported rule" });
-    expect(unsupported).toHaveLength(2);
-    expect(unsupported[0]).toHaveTextContent('cast contains "Tom Hanks"');
-    expect(unsupported[1]).toHaveTextContent('watched is "true"');
+    const readOnly = screen.getAllByRole("group", { name: "Rule not editable here" });
+    expect(readOnly).toHaveLength(2);
+    expect(readOnly[0]).toHaveTextContent('cast contains "Tom Hanks"');
+    expect(readOnly[1]).toHaveTextContent('watched is "true"');
 
-    await userEvent.click(within(unsupported[0]!).getByRole("button", { name: "Remove" }));
-    expect(screen.getAllByRole("group", { name: "Unsupported rule" })).toHaveLength(1);
+    await userEvent.click(within(readOnly[0]!).getByRole("button", { name: "Remove" }));
+    expect(screen.getAllByRole("group", { name: "Rule not editable here" })).toHaveLength(1);
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave.mock.calls[0]![0].config.groups).toEqual([

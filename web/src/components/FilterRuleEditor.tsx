@@ -65,8 +65,9 @@ export function getFilterRuleFieldOptions(
 
 /**
  * Whether the rule's field, operator and value fit the editor's controls.
- * Any other rule, such as one an older editor saved, is shown read-only and
- * kept exactly as saved unless removed.
+ * Any other rule is shown read-only and kept exactly as saved unless removed.
+ * Many such rules are valid, for example ones the guided editor writes for
+ * fields these controls do not offer, so the label must not call them broken.
  */
 function canEditRule(
   rule: FilterRule,
@@ -259,11 +260,11 @@ export default function FilterRuleEditor({
                 <div
                   key={ruleIdx}
                   role="group"
-                  aria-label="Unsupported rule"
+                  aria-label="Rule not editable here"
                   className="border-border flex items-center gap-2 rounded-md border border-dashed px-2 py-1 text-xs"
                 >
                   <span className="flex-1">
-                    <span className="font-medium">Unsupported rule</span>{" "}
+                    <span className="font-medium">Not editable here</span>{" "}
                     <code className="text-muted-foreground">
                       {rule.field} {rule.op} {JSON.stringify(rule.value)}
                     </code>

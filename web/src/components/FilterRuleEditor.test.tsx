@@ -93,7 +93,7 @@ describe("FilterRuleEditor", () => {
     expect(movieOptions.find((option) => option.value === "watched")?.label).toBe("Watched");
   });
 
-  it("shows rules its controls cannot represent as read-only unsupported rules", () => {
+  it("shows rules its controls cannot represent as read-only rules", () => {
     render(
       <FilterRuleEditor
         value={{
@@ -116,12 +116,46 @@ describe("FilterRuleEditor", () => {
     );
 
     expect(
-      screen.getAllByRole("group", { name: "Unsupported rule" }).map((rule) => rule.textContent),
+      screen
+        .getAllByRole("group", { name: "Rule not editable here" })
+        .map((rule) => rule.textContent),
     ).toEqual([
-      "Unsupported rule year contains 1999Remove",
-      'Unsupported rule year between "1990-1999"Remove',
-      'Unsupported rule hdr is "true"Remove',
-      "Unsupported rule in_watchlist is trueRemove",
+      "Not editable here year contains 1999Remove",
+      'Not editable here year between "1990-1999"Remove',
+      'Not editable here hdr is "true"Remove',
+      "Not editable here in_watchlist is trueRemove",
+    ]);
+  });
+
+  // The guided editor writes fields the server accepts but these controls do
+  // not offer, so the read-only label must not call them broken.
+  it("does not call valid guided-editor rules unsupported", () => {
+    render(
+      <FilterRuleEditor
+        value={{
+          match: "all",
+          groups: [
+            {
+              match: "all",
+              rules: [
+                { field: "original_language", op: "is", value: "fr" },
+                { field: "author", op: "is", value: "Ursula K. Le Guin" },
+              ],
+            },
+          ],
+        }}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/unsupported/i)).toBeNull();
+    expect(
+      screen
+        .getAllByRole("group", { name: "Rule not editable here" })
+        .map((rule) => rule.textContent),
+    ).toEqual([
+      'Not editable here original_language is "fr"Remove',
+      'Not editable here author is "Ursula K. Le Guin"Remove',
     ]);
   });
 });
