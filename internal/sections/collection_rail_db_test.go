@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +17,8 @@ import (
 // TestLibraryCollectionRailsMatchTheCollectionPageDB checks that a Home or
 // library row showing a server collection lists the same titles, in the same
 // order, as the collection's own page, for smart collections and for a manual
-// collection that carries a query_definition.
+// collection that carries a query_definition. A cached row costs one statement,
+// the revision read that keys it.
 func TestLibraryCollectionRailsMatchTheCollectionPageDB(t *testing.T) {
 	dsn := os.Getenv("SILO_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -25,7 +27,13 @@ func TestLibraryCollectionRailsMatchTheCollectionPageDB(t *testing.T) {
 	resetResolvedListCacheForTest()
 	t.Cleanup(resetResolvedListCacheForTest)
 	ctx := t.Context()
-	pool, err := pgxpool.New(ctx, dsn)
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse test database url: %v", err)
+	}
+	tracer := &nextUpStatementTracer{}
+	config.ConnConfig.Tracer = tracer
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatalf("connect test database: %v", err)
 	}
@@ -128,6 +136,15 @@ func TestLibraryCollectionRailsMatchTheCollectionPageDB(t *testing.T) {
 		assertContentIDs(t, "rail", got, page[:2]...)
 		if total != 3 {
 			t.Fatalf("rail total = %d, want 3 members", total)
+		}
+
+		// Every request reads the revision, so an edit on any node shows on
+		// the next read; the cached titles cost nothing more.
+		tracer.take()
+		cached, _ := rail(smart.ID, nil, viewer)
+		assertContentIDs(t, "cached rail", cached, page[:2]...)
+		if queries := tracer.take(); len(queries) != 1 || !strings.Contains(queries[0], "library_collection_revisions") {
+			t.Fatalf("cached rail ran %d statements %q, want only the revision read", len(queries), queries)
 		}
 
 		libraryRow, _ := rail(smart.ID, &other, catalog.AccessFilter{})
