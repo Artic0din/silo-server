@@ -1259,7 +1259,12 @@ func (f *Fetcher) fetchCollection(ctx context.Context, s ResolvedSection, librar
 	queryAccess := collectionRailQueryAccess(filter, libraryID, libraryIDs)
 	membership, err := catalog.ResolveLibraryCollectionMembership(collection, queryAccess.AllowedLibraryIDs)
 	if err != nil {
-		return nil, 0, fmt.Errorf("resolving library collection members: %w", err)
+		// The stored query no longer parses or validates, e.g. a legacy
+		// per-profile rule. Like jellycompat, list nothing rather than fail
+		// every request that shows the row; the collection's page reports it.
+		slog.DebugContext(ctx, "library collection query is unusable", "component", "sections",
+			"collection_id", collection.ID, "error", err)
+		return []*models.MediaItem{}, 0, nil
 	}
 	if membership.Live {
 		return catalog.PreviewLiveLibraryCollection(ctx, f.pool, membership, queryAccess, s.ItemLimit)

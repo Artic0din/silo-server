@@ -173,6 +173,21 @@ func TestLibraryCollectionRailsMatchTheCollectionPageDB(t *testing.T) {
 		}
 	})
 
+	t.Run("smart collection with an unusable query", func(t *testing.T) {
+		// A legacy per-profile rule cannot apply to a shared row. The row
+		// lists nothing, like an empty collection, instead of failing every
+		// request that shows it.
+		legacy := create(catalog.CreateLibraryCollectionInput{
+			LibraryIDs:      []int{shown},
+			Title:           "Legacy",
+			CollectionType:  "smart",
+			QueryDefinition: json.RawMessage(`{"groups":[{"match":"all","rules":[{"field":"watched","op":"is","value":true}]}]}`),
+		})
+		if got, total := rail(legacy.ID, nil, viewer); len(got) != 0 || total != 0 {
+			t.Fatalf("rail = %v (total %d), want nothing", got, total)
+		}
+	})
+
 	t.Run("manual collection with a query definition", func(t *testing.T) {
 		// Only collection_type makes a collection live; a manual collection
 		// lists its stored items wherever it is shown.
