@@ -81,8 +81,10 @@ func (h *SectionHandler) CreateAdminSection(ctx context.Context, req AdminSectio
 	if msg, ok := validateSectionConfig(sections.SectionType(req.SectionType), req.Config); !ok {
 		return none, apiError(http.StatusBadRequest, "bad_request", msg)
 	}
-	if msg, ok := validateRecipeConfig(sections.SectionType(req.SectionType), req.Config); !ok {
-		return none, apiError(http.StatusBadRequest, "bad_request", msg)
+	if req.ValidateRecipe {
+		if msg, ok := validateRecipeConfig(sections.SectionType(req.SectionType), req.Config); !ok {
+			return none, apiError(http.StatusBadRequest, "bad_request", msg)
+		}
 	}
 
 	sec := &sections.PageSection{
@@ -416,9 +418,11 @@ func (h *SectionHandler) UpdateAdminSection(ctx context.Context, id string, req 
 		if msg, ok := validateSectionConfig(existing.SectionType, existing.Config); !ok {
 			return none, apiError(400, "bad_request", msg)
 		}
-		// Only writes to the type or config run the recipe check, so a row saved
-		// before create ran it can still be moved, renamed or disabled.
-		if req.SectionType != "" || len(req.Config) > 0 {
+		definitionChanged := existing.SectionType != originalType || !jsonConfigEqual(originalConfig, existing.Config)
+		// Only a changed type or config runs the recipe check, so a row saved
+		// before create ran it can still be moved, renamed or disabled, even
+		// when the client echoes its unchanged type and config.
+		if req.ValidateRecipe && definitionChanged {
 			if msg, ok := validateRecipeConfig(existing.SectionType, existing.Config); !ok {
 				return none, apiError(400, "bad_request", msg)
 			}
@@ -427,7 +431,7 @@ func (h *SectionHandler) UpdateAdminSection(ctx context.Context, id string, req 
 		if !wasTraktBacked && willBeTraktBacked {
 			return none, apiError(http.StatusBadRequest, "unsupported_source", "new Trakt-backed sections are not supported")
 		}
-		if wasTraktBacked && (existing.SectionType != originalType || !jsonConfigEqual(originalConfig, existing.Config) || (!originalEnabled && existing.Enabled)) {
+		if wasTraktBacked && (definitionChanged || (!originalEnabled && existing.Enabled)) {
 			return none, apiError(http.StatusBadRequest, "legacy_source_immutable", "legacy Trakt section sources cannot be changed or reactivated")
 		}
 
