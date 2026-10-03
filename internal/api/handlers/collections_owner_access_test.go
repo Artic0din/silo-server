@@ -209,6 +209,22 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 				}
 			}
 
+			// The v1 bridge lists stored members (smart collections store
+			// none), limited the same way.
+			if c.CollectionType == "manual" {
+				v1, err := h.ListPersonalCollectionItems(reqCtx, f.account, profileID, c.ID)
+				if err != nil {
+					t.Fatalf("%s: v1 items: %v", c.Name, err)
+				}
+				var listed []string
+				for _, item := range v1.Items {
+					listed = append(listed, item.MediaItemID)
+				}
+				if got := ids(listed); !slices.Equal(got, expected) {
+					t.Errorf("%s: v1 items = %v, want %v", c.Name, got, expected)
+				}
+			}
+
 			// The catalog filter facets are built from the same members.
 			source := catalog.CatalogRequest{Source: catalog.CatalogSourceUserCollection, CollectionID: c.ID}
 			facets, err := catalogResolver.ListFilters(reqCtx, source, filter)
@@ -330,6 +346,10 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 			}
 			_, err := h.PersonalCollectionItemsPage(reqCtx, f.account, "viewer", c.ID, filter, userstore.CollectionItemsPageOptions{Limit: 50}, nil)
 			assertPagingAPIStatus(t, err, 500)
+			if c.CollectionType == "manual" {
+				_, err = h.ListPersonalCollectionItems(reqCtx, f.account, "viewer", c.ID)
+				assertPagingAPIStatus(t, err, 500)
+			}
 			for _, cursor := range []bool{true, false} {
 				if _, err := catalogResolver.Resolve(reqCtx, catalog.CatalogRequest{Source: catalog.CatalogSourceUserCollection, CollectionID: c.ID, CursorPaging: cursor, UseSourceOrder: true, Limit: 50}, filter); !errors.Is(err, catalog.ErrPersonalCollectionOwnerAccess) {
 					t.Errorf("%s: catalog (cursor %t) err = %v, want ErrPersonalCollectionOwnerAccess", c.Name, cursor, err)
