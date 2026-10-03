@@ -219,10 +219,16 @@ export default function AdminCollections() {
       : "";
   const collectionDeletionNotice =
     "Silo will keep collections that are still used by home or library sections. This action cannot be undone.";
+  const sharedDeletionNotice =
+    "Shared collections will also be removed from their other libraries.";
   const deleteAllDescription = selectedLibrary
-    ? `Delete all ${deleteSnapshots.length} collections shown for ${selectedLibrary.name}? Shared collections will also be removed from their other libraries. ${collectionDeletionNotice}`
+    ? `Delete all ${deleteSnapshots.length} collections shown for ${selectedLibrary.name}? ${sharedDeletionNotice} ${collectionDeletionNotice}`
     : `Delete all ${deleteSnapshots.length} server collections? ${collectionDeletionNotice}`;
-  const deleteSelectedDescription = `Delete ${deleteSnapshots.length} selected collection${deleteSnapshots.length === 1 ? "" : "s"}? ${collectionDeletionNotice}`;
+  const selectedIncludesShared =
+    selectedLibrary !== null &&
+    selectedCollections.some((collection) => collectionLibraryIDs(collection).length > 1);
+  const deleteSelectedScopeNotice = selectedIncludesShared ? ` ${sharedDeletionNotice}` : "";
+  const deleteSelectedDescription = `Delete ${deleteSnapshots.length} selected collection${deleteSnapshots.length === 1 ? "" : "s"}?${deleteSelectedScopeNotice} ${collectionDeletionNotice}`;
   const deleteProgressLabel = `Deleting ${deleteCollections.progress?.completed ?? 0} of ${deleteCollections.progress?.total ?? collectionsInScope.length} collections`;
 
   function handleDeleteSelected() {

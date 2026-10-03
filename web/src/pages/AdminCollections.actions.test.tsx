@@ -7,7 +7,7 @@ import type { Library, LibraryCollection } from "@/api/types";
 import AdminCollections from "./AdminCollections";
 
 const { state, idle } = vi.hoisted(() => ({
-  state: { collections: [] as LibraryCollection[], snapshot: vi.fn() },
+  state: { collections: [] as LibraryCollection[], snapshot: vi.fn(), prepareDeletes: vi.fn() },
   idle: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -15,7 +15,7 @@ vi.mock("@/api/adminCollections", () => ({
   fetchAdminCollectionSnapshot: state.snapshot,
   fetchAdminGroupSnapshot: vi.fn(),
   fetchAdminBoardOrderSnapshot: vi.fn(),
-  prepareAdminCollectionDeletes: vi.fn(),
+  prepareAdminCollectionDeletes: state.prepareDeletes,
   adminMutationMessage: (_: unknown, fallback: string) => fallback,
 }));
 vi.mock("@/hooks/queries/admin/libraries", () => ({
@@ -87,6 +87,9 @@ beforeEach(() => {
     collection: state.collections.find((entry) => entry.id === id),
     etag: '"rev-1"',
   }));
+  state.prepareDeletes.mockImplementation(async (ids: string[]) =>
+    ids.map((id) => ({ id, etag: '"rev-1"' })),
+  );
 });
 afterEach(() => {
   cleanup();
@@ -127,5 +130,27 @@ describe("AdminCollections actions", () => {
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent('Delete collection "Solo"? This action cannot be undone.');
     expect(dialog).not.toHaveTextContent("libraries");
+  });
+
+  it("says a library board bulk delete removes shared collections from their other libraries", async () => {
+    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
+    renderPage("/admin/collections?libraryId=1");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shared" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Delete 1 selected collection? Shared collections will also be removed from their other libraries.",
+    );
+  });
+
+  it("does not mention other libraries when no selected collection is shared", async () => {
+    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
+    renderPage("/admin/collections?libraryId=1");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Solo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+
+    expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("other libraries");
   });
 });
