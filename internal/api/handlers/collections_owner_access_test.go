@@ -296,6 +296,31 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		setProfile(t, "viewer", "PG", nil)
 		assertMembers(t, "viewer", 1, 3)
 	})
+	t.Run("disjoint library limits hide a title both reach through different libraries", func(t *testing.T) {
+		// Known limit of IntersectAccess: allowed libraries intersect as
+		// lists, not per title. f.ids[1] is in both libraries and each
+		// profile can open it, but no library is allowed to both, so the
+		// shared collection hides it. It fails closed: nothing outside
+		// either profile's access is shown.
+		reset(t)
+		f.exec(t, `INSERT INTO media_item_libraries(content_id,media_folder_id) VALUES($1,$2)`, f.ids[1], f.hidden)
+		t.Cleanup(func() {
+			_, _ = f.pool.Exec(context.Background(), `DELETE FROM media_item_libraries WHERE content_id=$1 AND media_folder_id=$2`, f.ids[1], f.hidden)
+		})
+		setProfile(t, "owner", "", []int{f.hidden})
+		setProfile(t, "viewer", "", []int{f.library})
+		for _, profile := range []string{"owner", "viewer"} {
+			_, own := readerContext(t, profile)
+			visible, err := catalog.NewItemRepository(f.pool).GetByIDsWithAccess(ctx, f.ids[1:2], own)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(visible) != 1 {
+				t.Fatalf("%s cannot open the title in both libraries on its own", profile)
+			}
+		}
+		assertMembers(t, "viewer")
+	})
 	t.Run("the owner's hidden libraries do not limit the viewer", func(t *testing.T) {
 		reset(t)
 		// A restricted owner is the case that matters: hiding a library

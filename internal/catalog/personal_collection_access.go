@@ -54,6 +54,11 @@ func PersonalCollectionFilter(ctx context.Context, owners PersonalCollectionAcce
 // playback quality and excluded media types, and the server-wide unrated-title
 // policy. The owner's hidden libraries are a browsing preference, not access,
 // so they never limit what others see.
+//
+// Library lists intersect as lists, not per title: a title in two libraries,
+// one allowed only to the viewer and the other only to the owner, is hidden
+// although each profile can open it. That errs toward hiding; a per-title
+// check would need a second library predicate on every catalog read path.
 func IntersectAccess(viewer, owner AccessFilter) AccessFilter {
 	out := viewer
 	switch {
