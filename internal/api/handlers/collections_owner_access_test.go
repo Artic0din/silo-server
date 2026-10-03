@@ -49,8 +49,11 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 	}
 	// f.ids[0] lives in f.hidden, the rest in f.library. Ages: G, G, R,
 	// PG, unrated. A PG ceiling admits f.ids[0], f.ids[1] and f.ids[3].
+	// Each title also carries its own genre, so the catalog filter facets
+	// show which titles a collection's facets were built from.
+	genre := func(i int) string { return fmt.Sprintf("owner-access-genre-%d", i) }
 	for i, age := range []any{0, 0, 17, 8, nil} {
-		f.exec(t, `UPDATE media_items SET content_rating_age=$2 WHERE content_id=$1`, f.ids[i], age)
+		f.exec(t, `UPDATE media_items SET content_rating_age=$2, genres=ARRAY[$3::text] WHERE content_id=$1`, f.ids[i], age, genre(i))
 	}
 
 	shared := func(name, kind, query, display string) *userstore.Collection {
@@ -144,6 +147,11 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		t.Helper()
 		reqCtx, filter := readerContext(t, profileID)
 		expected := want(indexes...)
+		expectedGenres := make([]string, 0, len(indexes))
+		for _, i := range indexes {
+			expectedGenres = append(expectedGenres, genre(i))
+		}
+		slices.Sort(expectedGenres)
 		counts := map[string]int{}
 		list, err := h.ListPersonalCollections(reqCtx, f.account, profileID)
 		if err != nil {
@@ -199,6 +207,23 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 				if got = ids(got); !slices.Equal(got, expected) {
 					t.Errorf("%s: catalog (cursor %t) = %v, want %v", c.Name, cursor, got, expected)
 				}
+			}
+
+			// The catalog filter facets are built from the same members.
+			source := catalog.CatalogRequest{Source: catalog.CatalogSourceUserCollection, CollectionID: c.ID}
+			facets, err := catalogResolver.ListFilters(reqCtx, source, filter)
+			if err != nil {
+				t.Fatalf("%s: catalog filters: %v", c.Name, err)
+			}
+			if got := ids(facets.Genres); !slices.Equal(got, expectedGenres) {
+				t.Errorf("%s: catalog filter genres = %v, want %v", c.Name, got, expectedGenres)
+			}
+			matches, err := catalogResolver.SearchFacet(reqCtx, source, filter, "genre", "owner-access-genre", 50)
+			if err != nil {
+				t.Fatalf("%s: catalog facet search: %v", c.Name, err)
+			}
+			if got := ids(matches.Matches); !slices.Equal(got, expectedGenres) {
+				t.Errorf("%s: catalog facet search = %v, want %v", c.Name, got, expectedGenres)
 			}
 
 			row, err := fetcher.FetchOne(reqCtx, sections.ResolvedSection{
@@ -309,6 +334,10 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 				if _, err := catalogResolver.Resolve(reqCtx, catalog.CatalogRequest{Source: catalog.CatalogSourceUserCollection, CollectionID: c.ID, CursorPaging: cursor, UseSourceOrder: true, Limit: 50}, filter); !errors.Is(err, catalog.ErrPersonalCollectionOwnerAccess) {
 					t.Errorf("%s: catalog (cursor %t) err = %v, want ErrPersonalCollectionOwnerAccess", c.Name, cursor, err)
 				}
+			}
+			source := catalog.CatalogRequest{Source: catalog.CatalogSourceUserCollection, CollectionID: c.ID}
+			if _, err := catalogResolver.ListFilters(reqCtx, source, filter); !errors.Is(err, catalog.ErrPersonalCollectionOwnerAccess) {
+				t.Errorf("%s: catalog filters err = %v, want ErrPersonalCollectionOwnerAccess", c.Name, err)
 			}
 			if _, err := fetcher.FetchOne(reqCtx, sections.ResolvedSection{
 				ID: "row-" + c.ID, SectionType: sections.SectionCollection, Title: c.Name, ItemLimit: 50,
