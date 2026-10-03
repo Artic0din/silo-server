@@ -122,6 +122,22 @@ describe("CatalogFiltersPanel toolbar", () => {
     expect(lastQuery(onStateChange)).toEqual({ ...ADVANCED_RULES, media_scope: "movie" });
   });
 
+  it("drops narrator rules, which ebooks can't use, when switching to Ebooks", () => {
+    const audiobooks: QueryDefinition = {
+      ...ADVANCED_RULES,
+      media_scope: "audiobook",
+      groups: [
+        ...ADVANCED_RULES.groups,
+        { match: "all", rules: [{ field: "narrator", op: "is", value: "Kramer" }] },
+      ],
+    };
+    const onStateChange = renderPanel({ source: "query", query_definition: audiobooks });
+
+    choose("Audiobooks", "Ebooks");
+
+    expect(lastQuery(onStateChange)).toEqual({ ...ADVANCED_RULES, media_scope: "ebook" });
+  });
+
   it("keeps the saved sort when switching to collection order", () => {
     const onStateChange = renderPanel({
       source: "user_collection",

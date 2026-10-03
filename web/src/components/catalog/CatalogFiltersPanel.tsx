@@ -1,7 +1,12 @@
 import type { PersonalizedSorts } from "@/lib/querySortOptions";
 import { useMemo, useState } from "react";
 
-import { createEmptyQueryDefinition, type QueryDefinition, type QuerySort } from "@/api/types";
+import {
+  createEmptyQueryDefinition,
+  type QueryDefinition,
+  type QueryGroup,
+  type QuerySort,
+} from "@/api/types";
 import {
   queryDefinitionToGuidedState,
   guidedStateToQueryDefinition,
@@ -96,17 +101,23 @@ export default function CatalogFiltersPanel({
     libraries ?? state.query_definition.library_ids.map((id) => ({ id, name: `Library ${id}` }));
 
   // The toolbar sets only the media type and sort, so it patches those onto
-  // the definition and leaves every rule as it is.
+  // the definition and leaves the rules as they are. The one exception is
+  // narrator rules, which the server rejects for ebooks.
   function updateToolbar(patch: Partial<GuidedFormState>) {
     const next = { ...toolbarGuidedState, ...patch };
     const nextUsesSourceOrder =
       supportsSourceOrder && next.sortField === CATALOG_SOURCE_ORDER_SORT_FIELD;
+    const mediaScope = next.mediaScope === "all" ? undefined : next.mediaScope;
     onStateChange({
       ...state,
       uses_source_order: nextUsesSourceOrder,
       query_definition: {
         ...qd,
-        media_scope: next.mediaScope === "all" ? undefined : next.mediaScope,
+        media_scope: mediaScope,
+        groups:
+          mediaScope === "ebook" && qd.media_scope !== "ebook"
+            ? withoutNarratorRules(qd.groups)
+            : qd.groups,
         sort: nextUsesSourceOrder
           ? qd.sort
           : { field: next.sortField as QuerySort["field"], order: next.sortOrder },
@@ -175,6 +186,12 @@ export default function CatalogFiltersPanel({
       ) : null}
     </div>
   );
+}
+
+function withoutNarratorRules(groups: QueryGroup[]): QueryGroup[] {
+  return groups
+    .map((group) => ({ ...group, rules: group.rules.filter((rule) => rule.field !== "narrator") }))
+    .filter((group) => group.rules.length > 0);
 }
 
 export function CatalogFilterSheetContainer({
