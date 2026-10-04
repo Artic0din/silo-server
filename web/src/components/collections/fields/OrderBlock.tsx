@@ -56,8 +56,11 @@ function storedDefaultSort(sortConfig: Record<string, unknown> | undefined) {
 
 /** Commits the typed limit: blank is no limit; anything not a positive whole number keeps the old one. */
 function parsedLimit(text: string, current: number | undefined): number | undefined {
-  if (text.trim() === "") return undefined;
-  const parsed = Number.parseInt(text, 10);
+  const trimmed = text.trim();
+  if (trimmed === "") return undefined;
+  // Whole digits only: parseInt would read "2.5" as 2 and "1e2" as 1.
+  if (!/^\d+$/.test(trimmed)) return current;
+  const parsed = Number(trimmed);
   return parsed > 0 ? parsed : current;
 }
 
