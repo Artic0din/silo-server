@@ -160,6 +160,10 @@ function stagedSlots(artwork: ArtworkDraft): ArtworkSlot[] {
   return (["poster", "backdrop"] as const).filter((slot) => isArtworkStaged(artwork[slot]));
 }
 
+function stagedOrNone(itemIds: string[]) {
+  return itemIds.length ? itemIds : undefined;
+}
+
 function isPreconditionFailed(error: unknown) {
   return error instanceof V2ProblemError && error.status === 412;
 }
@@ -270,20 +274,9 @@ export function useCollectionDraft<Raw extends WireCollection>(
     return { conflicts: merged.conflicts };
   }, [initKind, readFresh, scope, setState]);
 
-  /** After a save: the fresh copy is the new base; edits made while saving stay. */
-  const rebase = useCallback(
-    async (
-      id: string,
-      saved: CollectionDraft,
-      failedArtwork: ArtworkSlot[],
-      warnings: string[],
-    ) => {
-      await scope.invalidate(queryClient, id);
-      const fresh = await readFresh(id, stagedSlots(saved.artwork).length > 0);
-      const theirs = scope.toDraft(fresh.view, { kind: initKind });
-      const kept = Object.fromEntries(
-        failedArtwork.map((slot) => [slot, saved.artwork[slot]]),
-      ) as ArtworkDraft;
+  /** Keeps the artwork a save couldn't upload staged, with its message. */
+  const keepFailedArtwork = useCallback(
+    (saved: CollectionDraft, failedArtwork: ArtworkSlot[], warnings: string[]) => {
       setArtworkErrors(
         Object.fromEntries(
           failedArtwork.map((slot) => [
@@ -292,6 +285,29 @@ export function useCollectionDraft<Raw extends WireCollection>(
           ]),
         ),
       );
+      return Object.fromEntries(
+        failedArtwork.map((slot) => [slot, saved.artwork[slot]]),
+      ) as ArtworkDraft;
+    },
+    [],
+  );
+
+  /**
+   * After a save: the fresh copy is the new base; edits made while saving stay.
+   * `stillStaged`, when given, replaces the staged titles in the same update.
+   */
+  const rebase = useCallback(
+    async (
+      id: string,
+      saved: CollectionDraft,
+      failedArtwork: ArtworkSlot[],
+      warnings: string[],
+      stillStaged?: string[],
+    ) => {
+      await scope.invalidate(queryClient, id);
+      const fresh = await readFresh(id, stagedSlots(saved.artwork).length > 0);
+      const theirs = scope.toDraft(fresh.view, { kind: initKind });
+      const kept = keepFailedArtwork(saved, failedArtwork, warnings);
       setState((previous) => {
         const later = mergeDraft(saved, previous.draft, theirs).draft;
         return {
@@ -300,12 +316,16 @@ export function useCollectionDraft<Raw extends WireCollection>(
           etag: fresh.etag,
           view: fresh.view,
           base: theirs,
-          draft: { ...later, artwork: kept, stagedItems: previous.draft.stagedItems },
+          draft: {
+            ...later,
+            artwork: kept,
+            stagedItems: stillStaged ? stagedOrNone(stillStaged) : previous.draft.stagedItems,
+          },
           conflicts: [],
         };
       });
     },
-    [initKind, queryClient, readFresh, scope, setState],
+    [initKind, keepFailedArtwork, queryClient, readFresh, scope, setState],
   );
 
   const addStaged = useCallback(
@@ -323,7 +343,12 @@ export function useCollectionDraft<Raw extends WireCollection>(
     [scope],
   );
 
-  /** Creates the collection, then adds its staged titles in order. */
+  /**
+   * Creates the collection, then adds its staged titles in order. The editor
+   * stays in create mode until it has read the new collection back. When only
+   * that read fails, the collection still counts as created: the draft as sent
+   * becomes the base, and the next save reads the collection first.
+   */
   const create = useCallback(async (): Promise<CreateResult | null> => {
     const saved = current.current.draft;
     setSaving(true);
@@ -331,12 +356,18 @@ export function useCollectionDraft<Raw extends WireCollection>(
     try {
       const outcome = await scope.create(saved as SavableDraft);
       const failedItems = await addStaged(outcome.id, saved.stagedItems ?? [], 0);
-      setState((previous) => ({ ...previous, id: outcome.id }));
-      await rebase(outcome.id, saved, outcome.failedArtwork, outcome.warnings);
-      setDraft((draft) => ({
-        ...draft,
-        stagedItems: failedItems.length ? failedItems : undefined,
-      }));
+      try {
+        await rebase(outcome.id, saved, outcome.failedArtwork, outcome.warnings, failedItems);
+      } catch {
+        const kept = keepFailedArtwork(saved, outcome.failedArtwork, outcome.warnings);
+        setState((previous) => ({
+          ...previous,
+          id: outcome.id,
+          base: { ...saved, artwork: {} },
+          draft: { ...previous.draft, artwork: kept, stagedItems: stagedOrNone(failedItems) },
+          conflicts: [],
+        }));
+      }
       return { id: outcome.id, failedItems };
     } catch (error) {
       setSaveError(scope.errorMessage(error, SAVE_FAILED));
@@ -344,7 +375,7 @@ export function useCollectionDraft<Raw extends WireCollection>(
     } finally {
       setSaving(false);
     }
-  }, [addStaged, rebase, scope, setDraft, setState]);
+  }, [addStaged, keepFailedArtwork, rebase, scope, setState]);
 
   /** Tries the titles that failed after create again, at the end of the collection. */
   const retryStagedItems = useCallback(
@@ -352,7 +383,7 @@ export function useCollectionDraft<Raw extends WireCollection>(
       const { id, draft } = current.current;
       if (!id || !draft.stagedItems?.length) return;
       const failed = await addStaged(id, draft.stagedItems, firstPosition);
-      setDraft((next) => ({ ...next, stagedItems: failed.length ? failed : undefined }));
+      setDraft((next) => ({ ...next, stagedItems: stagedOrNone(failed) }));
       await scope.invalidate(queryClient, id);
       await syncWithServer();
     },
@@ -369,6 +400,11 @@ export function useCollectionDraft<Raw extends WireCollection>(
     setSaving(true);
     setSaveError(null);
     try {
+      // Created, but never read back: read it before sending a version.
+      if (!current.current.etag) {
+        const { conflicts } = await syncWithServer();
+        if (conflicts.length > 0) return false;
+      }
       for (let attempt = 0; ; attempt++) {
         const { draft, etag } = current.current;
         try {
