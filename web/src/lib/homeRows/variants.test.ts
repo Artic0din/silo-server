@@ -113,6 +113,25 @@ describe("spotlight rotation", () => {
     ).toEqual({ subject_type: "studio", auto_rotate: true, rotation_cadence: "weekly" });
   });
 
+  // The server needs a subject unless the row rotates, and a pinned person or
+  // studio is dropped on a switch, so the row takes the preset's rotation.
+  it("rotates a pinned director spotlight that becomes an actor spotlight", () => {
+    for (const pinned of [{ auto_rotate: false }, {}]) {
+      expect(
+        applyVariant(
+          "editorial_spotlight",
+          { subject_type: "director", subject: "Akira Kurosawa", library_id: 4, ...pinned },
+          "es_actor",
+        ),
+      ).toEqual({
+        subject_type: "actor",
+        auto_rotate: true,
+        rotation_cadence: "weekly",
+        library_id: 4,
+      });
+    }
+  });
+
   it("pins The 80s and drops rotation", () => {
     expect(
       applyVariant(

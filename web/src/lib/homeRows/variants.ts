@@ -103,10 +103,13 @@ function applySpotlight(config: Config, option: VariantOption): Config {
     const { auto_rotate: _rotate, rotation_cadence: _cadence, ...pinned } = rest;
     return { ...pinned, ...option.values };
   }
-  // Between people and studios the rotation carries over; coming from a
-  // pinned era (or no subject type) the row takes the preset's rotation.
-  const fromPerson = ["director", "actor", "studio"].includes(String(config.subject_type));
-  return fromPerson
+  // Between people and studios a rotation carries over. A pinned row (era,
+  // person or studio) loses its subject here, and the server needs one unless
+  // the row rotates, so it takes the preset's rotation.
+  const rotatingPerson =
+    ["director", "actor", "studio"].includes(String(config.subject_type)) &&
+    config.auto_rotate === true;
+  return rotatingPerson
     ? { ...rest, subject_type: option.values.subject_type }
     : { ...rest, ...SPOTLIGHT_ROTATION, subject_type: option.values.subject_type };
 }
