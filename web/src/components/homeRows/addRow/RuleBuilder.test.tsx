@@ -139,6 +139,18 @@ describe("RuleBuilder", () => {
     expect(screen.getByRole("button", { name: "Add an “and” group" })).toBeInTheDocument();
   });
 
+  it("names each rule's controls by the rule's number", async () => {
+    render(<Harness initial={query()} />);
+    const second = screen.getByRole("group", { name: "Rule 2" });
+    expect(within(second).getByRole("combobox", { name: "Field" })).toHaveTextContent(
+      "IMDb Rating",
+    );
+    await userEvent.click(within(second).getByRole("button", { name: "Remove rule" }));
+    expect(latest!.groups[0]!.rules).toEqual([
+      { field: "year", op: "between", value: [1990, 1999] },
+    ]);
+  });
+
   it("drops a group when its last rule is removed", async () => {
     render(
       <Harness

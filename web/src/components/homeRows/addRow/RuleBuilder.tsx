@@ -242,6 +242,7 @@ export function RuleBuilder({
                 onChange={(updates) => updateRule(index, ruleIndex, updates)}
                 onRemove={() => removeRule(index, ruleIndex)}
                 roomy
+                label={`Rule ${ruleIndex + 1}`}
               />
             ))}
             <div className="flex flex-wrap items-center gap-1">

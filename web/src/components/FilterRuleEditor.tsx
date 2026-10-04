@@ -116,6 +116,11 @@ interface FilterRuleRowProps {
   onRemove: () => void;
   /** Taller controls that wrap onto a second line when narrow, for roomier forms. */
   roomy?: boolean;
+  /**
+   * Names the rule's controls as a group ("Rule 2"), so a screen reader can
+   * tell which rule a Field, Value or Remove rule control belongs to.
+   */
+  label?: string;
 }
 
 const RULE_ROW_SIZES = {
@@ -146,6 +151,7 @@ export function FilterRuleRow({
   onChange,
   onRemove,
   roomy = false,
+  label,
 }: FilterRuleRowProps) {
   const size = RULE_ROW_SIZES[roomy ? "roomy" : "compact"];
   const fieldDef = getCollectionFieldOption(rule.field);
@@ -172,7 +178,7 @@ export function FilterRuleRow({
   }
 
   return (
-    <div className={size.row}>
+    <div role={label ? "group" : undefined} aria-label={label} className={size.row}>
       <Select
         value={rule.field}
         onValueChange={(v) => {
@@ -475,6 +481,7 @@ export default function FilterRuleEditor({
               allowPersonalizedFilters={allowPersonalizedFilters}
               onChange={(updates) => updateRule(groupIdx, ruleIdx, updates)}
               onRemove={() => removeRule(groupIdx, ruleIdx)}
+              label={`Rule ${ruleIdx + 1}`}
             />
           ))}
 
