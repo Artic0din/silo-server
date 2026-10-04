@@ -109,7 +109,11 @@ func (h *UserCollectionImportHandler) HandleImportMDBList(w http.ResponseWriter,
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
 		return
 	}
-	resp, err := h.ImportMDBList(r.Context(), apimw.GetUserID(r.Context()), apimw.GetProfileID(r.Context()), req)
+	userID := apimw.GetUserID(r.Context())
+	resp, err := h.ImportMDBList(r.Context(), userID, apimw.GetProfileID(r.Context()), req)
+	if err == nil {
+		err = v1CollectionAudience(r.Context(), h.storeProvider, userID, &resp.Collection)
+	}
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -123,7 +127,11 @@ func (h *UserCollectionImportHandler) HandleImportTMDB(w http.ResponseWriter, r 
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
 		return
 	}
-	resp, err := h.ImportTMDB(r.Context(), apimw.GetUserID(r.Context()), apimw.GetProfileID(r.Context()), req)
+	userID := apimw.GetUserID(r.Context())
+	resp, err := h.ImportTMDB(r.Context(), userID, apimw.GetProfileID(r.Context()), req)
+	if err == nil {
+		err = v1CollectionAudience(r.Context(), h.storeProvider, userID, &resp.Collection)
+	}
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -137,7 +145,11 @@ func (h *UserCollectionImportHandler) HandleImportTrakt(w http.ResponseWriter, r
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
 		return
 	}
-	resp, err := h.ImportTrakt(r.Context(), apimw.GetUserID(r.Context()), apimw.GetProfileID(r.Context()), req)
+	userID := apimw.GetUserID(r.Context())
+	resp, err := h.ImportTrakt(r.Context(), userID, apimw.GetProfileID(r.Context()), req)
+	if err == nil {
+		err = v1CollectionAudience(r.Context(), h.storeProvider, userID, &resp.Collection)
+	}
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -516,7 +528,7 @@ func (h *UserCollectionImportHandler) SyncPersonalCollection(ctx context.Context
 		return nil, err
 	}
 	collection, err := store.GetCollection(ctx, collectionID)
-	if err != nil {
+	if err != nil || !collection.VisibleTo(profileID) {
 		return nil, apiError(http.StatusNotFound, "not_found", "Collection not found")
 	}
 	if collection.CreatorProfileID != profileID {

@@ -73,12 +73,12 @@ func TestPersonalCollectionSyncScheduleDB(t *testing.T) {
 	h := NewCollectionHandler(provider)
 	daily := usercollections.AllowedSyncSchedules["daily"]
 
-	createSynced := func(t *testing.T, shared bool, allowed ...string) *userstore.Collection {
+	createSynced := func(t *testing.T, shared bool) *userstore.Collection {
 		t.Helper()
 		next := time.Now().Add(12 * time.Hour).UTC().Truncate(time.Microsecond)
 		c, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 			CreatorProfileID: "owner", Name: "Synced", CollectionType: "tmdb", QueryDefinition: "{}",
-			IsShared: shared, AllowedProfileIDs: allowed,
+			IsShared:     shared,
 			SourceURL:    "https://www.themoviedb.org/list/310",
 			SourceConfig: `{"mode":"tmdb_list","url":"https://www.themoviedb.org/list/310"}`,
 			SyncSchedule: &daily, NextSyncAt: &next,
@@ -317,7 +317,7 @@ func TestPersonalCollectionSyncScheduleDB(t *testing.T) {
 	// private collection and another login don't find it, and the row stays
 	// as it was.
 	t.Run("only the creator changes the schedule", func(t *testing.T) {
-		shared := createSynced(t, true, "viewer")
+		shared := createSynced(t, true)
 		_, err := setSchedule("viewer", shared.ID, "weekly")
 		requireStatus(t, err, http.StatusForbidden, "")
 		requireUnchanged(t, shared)

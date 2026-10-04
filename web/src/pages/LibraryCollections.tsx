@@ -6,6 +6,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
 import { useUICustomization } from "@/hooks/useUICustomization";
+import { useProfiles } from "@/hooks/queries/profiles";
+import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { ownerName } from "@/lib/collections/personalOwnership";
 import { cardGridClasses } from "@/lib/uiCustomization";
 
 interface LibraryCollectionsProps {
@@ -148,12 +151,28 @@ function GroupSection({
   libraryId: number;
   gridClasses: string;
 }) {
+  const { data: profiles = [] } = useProfiles();
+  const { profile } = useCurrentProfile();
+  // Personal collections from another profile on the login carry its name.
+  const byline = (c: LibraryTabCollection) =>
+    group.kind === "user_collections" &&
+    profile &&
+    c.creator_profile_id &&
+    c.creator_profile_id !== profile.id
+      ? ownerName(profiles, c.creator_profile_id)
+      : undefined;
   return (
     <section>
       <h2 className="mb-3 text-lg font-semibold">{group.name}</h2>
       <div className={gridClasses}>
         {group.collections.map((c) => (
-          <CollectionPosterCard key={c.id} collection={c} kind={group.kind} libraryId={libraryId} />
+          <CollectionPosterCard
+            key={c.id}
+            collection={c}
+            kind={group.kind}
+            libraryId={libraryId}
+            ownerName={byline(c)}
+          />
         ))}
       </div>
     </section>

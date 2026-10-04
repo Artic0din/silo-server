@@ -46,11 +46,11 @@ func TestPersonalCollectionsHoldingItemDB(t *testing.T) {
 	// f.ids[0] lives in f.hidden, the rest in f.library; f.ids[2] is rated R.
 	f.exec(t, `UPDATE media_items SET content_rating_age=17 WHERE content_id=$1`, f.ids[2])
 
-	create := func(creator, name, kind string, allowed []string, items ...string) string {
+	create := func(creator, name, kind string, shared bool, items ...string) string {
 		t.Helper()
 		c, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 			CreatorProfileID: creator, Name: name, CollectionType: kind, QueryDefinition: "{}",
-			IsShared: len(allowed) > 0, AllowedProfileIDs: allowed,
+			IsShared: shared,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -62,11 +62,11 @@ func TestPersonalCollectionsHoldingItemDB(t *testing.T) {
 		}
 		return c.ID
 	}
-	holdsAll := create("owner", "Holds all", "manual", nil, f.ids[0], f.ids[1], f.ids[2])
-	sharedHolds := create("owner", "Shared", "manual", []string{"viewer"}, f.ids[1])
-	create("owner", "Empty", "manual", nil)
-	create("owner", "Synced", "mdblist", nil, f.ids[1])
-	sharedWithOwner := create("viewer", "Viewer's", "manual", []string{"owner"}, f.ids[1])
+	holdsAll := create("owner", "Holds all", "manual", false, f.ids[0], f.ids[1], f.ids[2])
+	sharedHolds := create("owner", "Shared", "manual", true, f.ids[1])
+	create("owner", "Empty", "manual", false)
+	create("owner", "Synced", "mdblist", false, f.ids[1])
+	sharedWithOwner := create("viewer", "Viewer's", "manual", true, f.ids[1])
 
 	h := NewCollectionHandler(provider)
 	h.Executor = &catalog.QueryExecutor{Pool: f.pool}

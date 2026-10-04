@@ -22623,7 +22623,7 @@
             "type": "boolean"
           },
           "groups": {
-            "description": "The acting account supports collection groups",
+            "description": "Always false: personal collection groups are no longer supported",
             "type": "boolean"
           },
           "import_sources": {
@@ -22651,6 +22651,10 @@
           },
           "item_reorder": {
             "description": "The acting account supports reordering collection items",
+            "type": "boolean"
+          },
+          "login_sharing": {
+            "description": "is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it",
             "type": "boolean"
           },
           "mdblist_search": {
@@ -22709,6 +22713,7 @@
         },
         "required": [
           "groups",
+          "login_sharing",
           "imports",
           "import_sources",
           "artwork",
@@ -23097,7 +23102,7 @@
         "additionalProperties": false,
         "properties": {
           "group_id": {
-            "description": "The group whose collections are ordered; omitted or null orders the ungrouped section",
+            "description": "Omit or send null: personal collection groups are no longer supported, and any other value is a validation failure",
             "examples": [
               "g1"
             ],
@@ -23108,7 +23113,7 @@
             ]
           },
           "ordered_ids": {
-            "description": "Every visible collection in the scope, exactly once, in the new order",
+            "description": "Each of the acting profile's own collections, exactly once, in the new order; another profile's collection is a validation failure",
             "examples": [
               [
                 "01J9Z8C3W4R5T6Y7U8I9O0P1Q4"
@@ -30783,6 +30788,7 @@
             "description": "Display filter fragment"
           },
           "is_shared": {
+            "description": "Show the collection to every profile on the login; defaults to false",
             "examples": [
               false
             ],
@@ -34633,21 +34639,6 @@
       "PersonalCollection": {
         "additionalProperties": false,
         "properties": {
-          "allowed_profile_ids": {
-            "description": "Profiles a shared collection is limited to; empty means every profile on the account",
-            "examples": [
-              []
-            ],
-            "items": {
-              "description": "Opaque identifier",
-              "examples": [
-                "1"
-              ],
-              "minLength": 1,
-              "type": "string"
-            },
-            "type": "array"
-          },
           "collection_type": {
             "description": "manual, smart, or an import source (mdblist, tmdb, trakt)",
             "examples": [
@@ -34690,7 +34681,7 @@
             "description": "Display filter fragment; absent when none"
           },
           "group_id": {
-            "description": "null when ungrouped",
+            "description": "Always null: personal collection groups are no longer supported",
             "examples": [
               "g1"
             ],
@@ -34715,6 +34706,7 @@
             "type": "boolean"
           },
           "is_shared": {
+            "description": "Every profile on the login sees the collection read-only, including profiles added later; otherwise only its creator does",
             "examples": [
               false
             ],
@@ -34800,6 +34792,7 @@
             "description": "Default sort document; {} when unset"
           },
           "sort_order": {
+            "description": "Position in its creator's own order of collections",
             "examples": [
               0
             ],
@@ -34856,7 +34849,6 @@
           "description",
           "collection_type",
           "is_shared",
-          "allowed_profile_ids",
           "query_definition",
           "sort_config",
           "sort_order",
@@ -34895,7 +34887,7 @@
         "additionalProperties": false,
         "properties": {
           "groups": {
-            "description": "The account's collection groups in sort order; empty, never null",
+            "description": "Always empty: personal collection groups are no longer supported",
             "items": {
               "$ref": "#/components/schemas/CollectionGroup"
             },
@@ -34922,21 +34914,6 @@
       "PersonalCollectionCreate": {
         "additionalProperties": false,
         "properties": {
-          "allowed_profile_ids": {
-            "description": "Profiles a shared collection is limited to",
-            "examples": [
-              []
-            ],
-            "items": {
-              "description": "Opaque identifier",
-              "examples": [
-                "1"
-              ],
-              "minLength": 1,
-              "type": "string"
-            },
-            "type": "array"
-          },
           "collection_type": {
             "description": "Defaults to manual",
             "enum": [
@@ -34965,6 +34942,7 @@
             "type": "boolean"
           },
           "is_shared": {
+            "description": "Show the collection to every profile on the login; defaults to false",
             "examples": [
               false
             ],
@@ -35150,23 +35128,12 @@
       "PersonalCollectionUpdate": {
         "additionalProperties": false,
         "properties": {
-          "allowed_profile_ids": {
-            "items": {
-              "description": "Opaque identifier",
-              "examples": [
-                "1"
-              ],
-              "minLength": 1,
-              "type": "string"
-            },
-            "type": "array"
-          },
           "description": {
             "type": "string"
           },
           "display_query_definition": {},
           "group_id": {
-            "description": "Null removes the group; omitted leaves it unchanged",
+            "description": "Omit: personal collection groups are no longer supported, and setting it answers capability_unsupported",
             "examples": [
               "1"
             ],
@@ -35180,6 +35147,7 @@
             "type": "boolean"
           },
           "is_shared": {
+            "description": "Show the collection to every profile on the login",
             "type": "boolean"
           },
           "library_ids": {
@@ -43458,6 +43426,7 @@
             "description": "Display filter fragment"
           },
           "is_shared": {
+            "description": "Show the collection to every profile on the login; defaults to false",
             "examples": [
               false
             ],
@@ -43633,6 +43602,7 @@
             "description": "Display filter fragment"
           },
           "is_shared": {
+            "description": "Show the collection to every profile on the login; defaults to false",
             "examples": [
               false
             ],
@@ -44234,6 +44204,7 @@
             "description": "Display filter fragment"
           },
           "is_shared": {
+            "description": "Show the collection to every profile on the login; defaults to false",
             "examples": [
               false
             ],
@@ -129968,7 +129939,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List the collections the acting profile owns or may see, with the account's collection groups.",
+        "summary": "List the acting profile's own collections in its order, then the collections other profiles on the login share, grouped by creator and each in its creator's order.",
         "tags": [
           "collections"
         ],
@@ -130535,6 +130506,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -130551,7 +130532,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Create an account-wide collection group. Not idempotent: a retry after a lost response creates a second group.",
+        "summary": "Not supported: personal collection groups were removed, and this operation answers capability_unsupported.",
         "tags": [
           "collections"
         ],
@@ -130687,6 +130668,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -130703,7 +130694,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Read the canonical collection editor state and its strong validator.",
+        "summary": "Not supported: personal collection groups were removed, and this operation answers capability_unsupported.",
         "tags": [
           "collections"
         ],
@@ -130921,6 +130912,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -130937,7 +130938,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Replace the order of the account's collection groups. Retries are not safe after an intervening mutation.",
+        "summary": "Not supported: personal collection groups were removed, and this operation answers capability_unsupported.",
         "tags": [
           "collections"
         ],
@@ -131119,6 +131120,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -131135,7 +131146,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Delete a collection group; its collections become ungrouped.",
+        "summary": "Not supported: personal collection groups were removed, and this operation answers capability_unsupported.",
         "tags": [
           "collections"
         ],
@@ -131298,6 +131309,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -131314,7 +131335,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Read the canonical collection editor state and its strong validator.",
+        "summary": "Not supported: personal collection groups were removed, and this operation answers capability_unsupported.",
         "tags": [
           "collections"
         ],
@@ -131546,6 +131567,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -131562,7 +131593,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Update a collection group; omitted members are unchanged. Retries are not safe after an intervening mutation.",
+        "summary": "Not supported: personal collection groups were removed, and this operation answers capability_unsupported.",
         "tags": [
           "collections"
         ],
@@ -132674,10 +132705,12 @@
             }
           },
           {
+            "description": "Omit: personal collection groups are no longer supported, and any value is a validation failure",
             "explode": false,
             "in": "query",
             "name": "group_id",
             "schema": {
+              "description": "Omit: personal collection groups are no longer supported, and any value is a validation failure",
               "type": "string"
             }
           }
@@ -133030,7 +133063,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Replace the order of the collections in one group (or the ungrouped section). Retries are not safe after an intervening mutation.",
+        "summary": "Replace the order of the acting profile's own collections. Retries are not safe after an intervening mutation.",
         "tags": [
           "collections"
         ],
@@ -134460,6 +134493,16 @@
             },
             "description": "Internal Server Error"
           },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -134476,7 +134519,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Update the creator's collection; omitted fields are unchanged.",
+        "summary": "Update the creator's collection; omitted fields are unchanged. Another profile's shared collection answers permission_denied.",
         "tags": [
           "collections"
         ],
