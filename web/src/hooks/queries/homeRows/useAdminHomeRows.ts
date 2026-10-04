@@ -127,7 +127,11 @@ export interface AdminHomeRows extends HomeRowsAdapter {
    * Rows already in that state are skipped.
    */
   setShownMany(ids: string[], shown: boolean): Promise<ShownBatchResult>;
-  copyToLibraries(id: string, libraryIds: number[]): Promise<{ created: number }>;
+  /**
+   * Adds a copy of an existing row to each of `libraryIds` other than this
+   * page. Rejects with RowChangedError when the row no longer matches the page.
+   */
+  copyToLibraries(id: string, libraryIds: number[]): Promise<void>;
 }
 
 /**
@@ -387,7 +391,7 @@ export function useAdminHomeRows(): AdminHomeRows {
     (id: string, libraryIds: number[]) =>
       enqueue(async () => {
         const targets = [...new Set(libraryIds)].filter((target) => target !== libraryId);
-        if (targets.length === 0) return { created: 0 };
+        if (targets.length === 0) return;
         // Copies are made from the row the server holds, and only when it is
         // still the row on screen, like a quick action.
         const onScreen = currentList().find((section) => section.id === id);
@@ -399,11 +403,10 @@ export function useAdminHomeRows(): AdminHomeRows {
         const source = toHomeRow(section);
         if (!canCopyToLibraries(source))
           throw new Error("This row can't be added to other libraries.");
-        const { created } = await bulkCreateAdminSections(
+        await bulkCreateAdminSections(
           buildBulkCopyPayload({ ...source, enabled: section.enabled }, targets),
         );
         await refresh();
-        return { created };
       }),
     [currentList, enqueue, libraryId, refresh],
   );

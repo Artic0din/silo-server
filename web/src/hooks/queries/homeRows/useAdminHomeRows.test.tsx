@@ -583,11 +583,9 @@ describe("useAdminHomeRows", () => {
       ];
       const { result } = setup("/admin/home-rows?page=7");
       await ready(result);
-      let outcome!: { created: number };
       await act(async () => {
-        outcome = await result.current.adapter.copyToLibraries!("lib", [7, 8, 9]);
+        await result.current.adapter.copyToLibraries("lib", [7, 8, 9]);
       });
-      expect(outcome).toEqual({ created: 2 });
       expect(writes()).toHaveLength(1);
       expect(writes()[0]!.args.body).toEqual({
         scope: "library",
@@ -608,7 +606,7 @@ describe("useAdminHomeRows", () => {
       await ready(result);
       libraryRows = libraryRows.map((entry) => ({ ...entry, title: "Renamed elsewhere" }));
       await act(async () => {
-        await expect(result.current.adapter.copyToLibraries!("lib", [8])).rejects.toBeInstanceOf(
+        await expect(result.current.adapter.copyToLibraries("lib", [8])).rejects.toBeInstanceOf(
           RowChangedError,
         );
       });
@@ -627,7 +625,7 @@ describe("useAdminHomeRows", () => {
       const { result } = setup("/admin/home-rows?page=7");
       await ready(result);
       await act(async () => {
-        await expect(result.current.adapter.copyToLibraries!("lib", [8])).rejects.toThrow(
+        await expect(result.current.adapter.copyToLibraries("lib", [8])).rejects.toThrow(
           "can't be added to other libraries",
         );
       });
