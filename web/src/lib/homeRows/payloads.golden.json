@@ -1966,6 +1966,31 @@
           "theme": "christmas"
         }
       }
+    },
+    "legacy_trakt_trending": {
+      "adminTitleEdit": {
+        "title": "Renamed",
+        "section_type": "trending_discover",
+        "featured": false,
+        "item_limit": 20,
+        "config": {
+          "source": "trakt",
+          "window": "week"
+        },
+        "enabled": true
+      },
+      "profileTitleEdit": {
+        "position": 0,
+        "hidden": false,
+        "title": "Renamed",
+        "featured": false,
+        "item_limit": 20,
+        "section_type": "trending_discover",
+        "config": {
+          "source": "trakt",
+          "window": "week"
+        }
+      }
     }
   }
 }

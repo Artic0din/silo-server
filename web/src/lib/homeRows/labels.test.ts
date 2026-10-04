@@ -48,6 +48,7 @@ describe("recipe labels", () => {
     ["seasonal_themed", { theme: "christmas" }, "Seasonal Picks"],
     ["continue_watching", { continue_type: "reading" }, "Continue Watching"],
     ["trending_discover", { source: "tmdb", window: "month" }, "TMDB Trending Today"],
+    ["trending_discover", { source: "trakt", window: "week" }, "TMDB Trending Today"],
   ] as const)("labels a drifted %s row %j as %s", (type, config, label) => {
     expect(recipeLabel(recipeCatalogFixture, type, config)).toBe(label);
   });

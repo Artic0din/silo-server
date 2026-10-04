@@ -236,6 +236,10 @@ const VARIANT_EDGE_ROWS = {
   },
   legacy_family_theme: { section_type: "seasonal_themed", config: { theme: "family_movie_night" } },
   legacy_christmas_theme: { section_type: "seasonal_themed", config: { theme: "christmas" } },
+  legacy_trakt_trending: {
+    section_type: "trending_discover",
+    config: { source: "trakt", window: "week" },
+  },
 } as const;
 
 function galleryCreate(
@@ -479,47 +483,62 @@ describe("admin edit payloads", () => {
     expect((request.body as { config: unknown }).config).toEqual(config);
   });
 
-  it("saves a legacy genre row as a genre row in today's filter shape", async () => {
-    const config = {
-      filter_type: "movie",
-      match: "all",
-      groups: [{ match: "all", rules: [{ field: "genre", op: "contains", value: "Horror" }] }],
-      sort: "added_at",
-      order: "desc",
-    };
+  // A no-op save rewrites a legacy genre row's stored config: filter_type
+  // becomes media_scope, library_ids is added and sort/order fold into one
+  // sort object. The redesign starts from this, not from "saves as-is".
+  it("rewrites a legacy genre row into today's filter shape on a no-op save", async () => {
+    const groups = [{ match: "all", rules: [{ field: "genre", op: "contains", value: "Horror" }] }];
+    const config = { filter_type: "movie", match: "all", groups, sort: "added_at", order: "desc" };
     const request = await patched(adminRow({ section_type: "genre", config }), {});
-    expect(request.body).toMatchObject({
+    expect(request.body).toEqual({
+      title: "Recently Added",
       section_type: "genre",
+      featured: false,
+      item_limit: 20,
       config: {
+        match: "all",
+        groups,
+        sort: { field: "added_at", order: "desc" },
         library_ids: [],
         media_scope: "movie",
-        match: "all",
-        groups: config.groups,
-        sort: { field: "added_at", order: "desc" },
       },
+      enabled: true,
     });
-    expect((request.body as { config: object }).config).not.toHaveProperty("filter_type");
-    expect((request.body as { config: object }).config).not.toHaveProperty("order");
   });
 
-  it("sends a legacy Trakt row's config unchanged on a title-only edit", async () => {
-    const config = {
-      library_collection_id: "lib-trakt",
-      source_provider: "trakt",
-      source_preset: "trending",
-    };
-    const request = await patched(adminRow({ section_type: "collection", config }), {
-      title: "Trending",
-    });
-    expect((request.body as { config: unknown }).config).toEqual(config);
-  });
+  // The server refuses config changes to either Trakt-backed form.
+  it.each([
+    [
+      "collection",
+      { library_collection_id: "lib-trakt", source_provider: "trakt", source_preset: "trending" },
+    ],
+    ["trending_discover", { source: "trakt", window: "week" }],
+  ] as const)(
+    "sends a legacy Trakt %s row's config unchanged on a title-only edit",
+    async (sectionType, config) => {
+      const request = await patched(
+        adminRow({ section_type: sectionType, config: { ...config } }),
+        {
+          title: "Trending",
+        },
+      );
+      expect((request.body as { config: unknown }).config).toEqual(config);
+    },
+  );
 
   it("keeps an admin_curated_list row's items", async () => {
     const config = { item_ids: ["movie:a", "movie:b"] };
     const request = await patched(adminRow({ section_type: "admin_curated_list", config }), {
       featured: true,
     });
-    expect(request.body).toMatchObject({ featured: true, config });
+    expect(request.body).toEqual({
+      title: "Recently Added",
+      section_type: "admin_curated_list",
+      featured: true,
+      item_limit: 20,
+      config,
+      enabled: true,
+    });
   });
 
   it("keeps a hidden award_winners row's award_type", async () => {
