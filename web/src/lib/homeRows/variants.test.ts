@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { everyRecipe } from "./recipeCatalogFixture.test-support";
-import { applyVariant, VARIANT_FAMILIES, variantOf } from "./variants";
+import {
+  applyVariant,
+  kindLocked,
+  showsLabel,
+  VARIANT_FAMILIES,
+  variantLocked,
+  variantOf,
+} from "./variants";
 
 describe("variant families", () => {
   it("covers every catalog kind that offers more than one preset", () => {
@@ -126,5 +133,21 @@ describe("seasonal themes", () => {
         "se_family_movie_night",
       ),
     ).toEqual({ enabled_themes: ["family_movie_night"], theme_titles: { x: "y" } });
+  });
+});
+
+describe("Shows line", () => {
+  it("names a legacy single-theme seasonal row's holiday", () => {
+    expect(showsLabel("seasonal_themed", { theme: "christmas" })).toBe(
+      "Seasonal picks (Christmas only)",
+    );
+    expect(showsLabel("seasonal_themed", { theme: "unknown_day" })).toBe("Seasonal picks");
+  });
+
+  it("locks the kind only for legacy Trakt rows; Continue Reading can still change kind", () => {
+    const reading = { continue_type: "reading" };
+    expect(variantLocked("continue_watching", reading)).toBe(true);
+    expect(kindLocked(reading)).toBe(false);
+    expect(kindLocked({ source: "trakt", window: "week" })).toBe(true);
   });
 });

@@ -218,6 +218,20 @@ describe("Add row form", () => {
     ).toBeInTheDocument();
     expect(within(form).getByLabelText("Longest runtime (minutes)")).toHaveValue(95);
   });
+
+  it("keeps Family movie night out of the holiday list and needs at least one holiday", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Seasonal picks" }));
+    const form = await screen.findByRole("dialog", { name: "Seasonal picks" });
+    const holidays = within(form).getByRole("group", { name: "Holidays" });
+    expect(within(holidays).queryByRole("checkbox", { name: "Family movie night" })).toBeNull();
+    for (const box of within(holidays).getAllByRole("checkbox")) {
+      if (box.getAttribute("aria-checked") === "true") await userEvent.click(box);
+    }
+    expect(within(form).getByRole("radio", { name: /Holidays/ })).toBeChecked();
+    expect(within(form).getByText("Pick at least one holiday.")).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Add row" })).toBeDisabled();
+  });
 });
 
 describe("Edit row form", () => {
@@ -261,6 +275,22 @@ describe("Edit row form", () => {
       session({ sectionType: "seasonal_themed", config: { theme: "family_movie_night" } }),
     );
     expect(within(dialog).getByRole("radio", { name: /Family movie night/ })).toBeChecked();
+  });
+
+  it("names a legacy single-holiday row and edits its holidays from that one", async () => {
+    const { dialog } = await open(
+      session({ sectionType: "seasonal_themed", config: { theme: "christmas", mode: "auto" } }),
+    );
+    expect(within(dialog).getByText("Seasonal picks (Christmas only)")).toBeInTheDocument();
+    const holidays = within(dialog).getByRole("group", { name: "Holidays" });
+    expect(within(holidays).getByRole("checkbox", { name: "Christmas" })).toBeChecked();
+    await userEvent.click(within(holidays).getByRole("checkbox", { name: "Halloween" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1].config).toMatchObject({
+      enabled_themes: ["christmas", "halloween"],
+      theme: "",
+    });
   });
 });
 

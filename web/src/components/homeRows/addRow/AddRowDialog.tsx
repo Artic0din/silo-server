@@ -22,6 +22,7 @@ import {
 } from "@/lib/homeRows/catalog";
 import { pageLabel as labelOfPage } from "@/lib/homeRows/pages";
 import {
+  canSaveDraft,
   DRAFT_FIELD_LABELS,
   draftForPreset,
   draftFromRow,
@@ -34,7 +35,7 @@ import {
 } from "@/lib/homeRows/rowDraft";
 import { searchPickerGroups } from "@/lib/homeRows/search";
 import { RowChangedError, type EditSession, type HomeRowsAdapter } from "@/lib/homeRows/types";
-import { showsLabel, variantLocked } from "@/lib/homeRows/variants";
+import { kindLocked, showsLabel, variantLocked } from "@/lib/homeRows/variants";
 import type { RecipeCatalogResponse } from "@/lib/recipes";
 import { cn } from "@/lib/utils";
 import type { ParamLibrary } from "./ParamFields";
@@ -166,6 +167,7 @@ export function AddRowDialog({
 
   const def = draft ? findRecipe(catalog, draft.sectionType) : undefined;
   const locked = draft ? variantLocked(draft.sectionType, draft.config) : false;
+  const canSave = draft !== null && canSaveDraft(draft);
 
   function pick(card: PickerCard, presetKey?: string) {
     if (BRIDGED_ROW_KINDS.has(card.type)) {
@@ -209,7 +211,7 @@ export function AddRowDialog({
   }
 
   function submit() {
-    if (!draft || conflict) return;
+    if (!draft || conflict || !canSave) return;
     const finished = { ...draft, title: savedTitle(draft, catalog) };
     void run(async () => {
       try {
@@ -406,7 +408,7 @@ export function AddRowDialog({
                   ? {
                       label: showsLabel(draft.sectionType, draft.config),
                       sentence: sentenceWithoutStop(rowKindSentence(draft.sectionType)),
-                      onChange: locked ? undefined : () => setStep("pick"),
+                      onChange: kindLocked(draft.config) ? undefined : () => setStep("pick"),
                     }
                   : undefined
               }
@@ -448,7 +450,7 @@ export function AddRowDialog({
               </Button>
             </DialogClose>
             {step === "form" ? (
-              <Button type="button" disabled={busy || conflict || !draft} onClick={submit}>
+              <Button type="button" disabled={busy || conflict || !canSave} onClick={submit}>
                 {editing ? (
                   "Save"
                 ) : (

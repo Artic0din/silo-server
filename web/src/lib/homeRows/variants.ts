@@ -43,6 +43,18 @@ const HOLIDAY_THEMES = [
   "saturday_morning",
 ];
 
+/** The holidays a seasonal row can show, by their config key. */
+export const SEASONAL_THEME_LABELS: Readonly<Record<string, string>> = {
+  valentines: "Valentine's Day",
+  st_patricks: "St. Patrick's Day",
+  thanksgiving: "Thanksgiving",
+  christmas: "Christmas",
+  halloween: "Halloween",
+  saturday_morning: "Saturday morning cartoons",
+  family_movie_night: "Family movie night",
+  summer_blockbuster: "Summer blockbusters",
+};
+
 /** Spotlight presets that rotate start weekly, as the catalog's presets do. */
 const SPOTLIGHT_ROTATION: Config = { auto_rotate: true, rotation_cadence: "weekly" };
 
@@ -353,16 +365,30 @@ export function showsLabel(sectionType: string, config: Config): string {
   }
   const presetKey = variantOf(sectionType, config);
   const chip = presetKey ? variantOption(sectionType, presetKey)?.chip : undefined;
-  return chip ? `${rowKindLabel(sectionType)} · ${chip}` : rowKindLabel(sectionType);
+  if (chip) return `${rowKindLabel(sectionType)} · ${chip}`;
+  // A legacy single-theme seasonal row shows only that holiday.
+  const holiday =
+    sectionType === "seasonal_themed" && typeof config.theme === "string"
+      ? SEASONAL_THEME_LABELS[config.theme]
+      : undefined;
+  return holiday ? `${rowKindLabel(sectionType)} (${holiday} only)` : rowKindLabel(sectionType);
 }
 
 /**
- * Rows whose variant cannot change: the server refuses config changes on
- * legacy Trakt rows, and Continue Reading (ebooks, beta) has no preset.
+ * Rows whose kind cannot change: the server refuses config changes on legacy
+ * Trakt rows.
+ */
+export function kindLocked(config: Config): boolean {
+  return isTraktConfig(config);
+}
+
+/**
+ * Rows whose variant cannot change: legacy Trakt rows, and Continue Reading
+ * (ebooks, beta), which has no preset.
  */
 export function variantLocked(sectionType: string, config: Config): boolean {
   return (
-    isTraktConfig(config) ||
+    kindLocked(config) ||
     (sectionType === "continue_watching" && config.continue_type === "reading")
   );
 }

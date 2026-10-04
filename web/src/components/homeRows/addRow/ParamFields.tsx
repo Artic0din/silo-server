@@ -13,6 +13,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { sectionLibraryFilterIds, withSectionLibraryFilterIds } from "@/lib/sectionLibraryFilter";
 import { hasParamFields } from "@/lib/homeRows/paramFields";
+import { SEASONAL_THEME_LABELS } from "@/lib/homeRows/variants";
 
 type Config = Record<string, unknown>;
 
@@ -271,25 +272,29 @@ function SpotlightFields({ config, onChange }: FieldProps) {
 }
 
 // Order matches SeasonalThemeOrder on the server: earlier holidays win when
-// several are in season at once.
+// several are in season at once. Family movie night is its own variant, so it
+// isn't offered here; a stored one stays in the list.
 const HOLIDAYS = [
-  { key: "valentines", label: "Valentine's Day", when: "Feb 7–14" },
-  { key: "st_patricks", label: "St. Patrick's Day", when: "Mar 15–17" },
-  { key: "thanksgiving", label: "Thanksgiving", when: "Nov 22–30" },
-  { key: "christmas", label: "Christmas", when: "December" },
-  { key: "halloween", label: "Halloween", when: "October" },
-  { key: "saturday_morning", label: "Saturday morning cartoons", when: "Saturdays before 1pm" },
-  { key: "family_movie_night", label: "Family movie night", when: "Fri and Sat from 5pm" },
-  { key: "summer_blockbuster", label: "Summer blockbusters", when: "June to August" },
-];
+  { key: "valentines", when: "Feb 7–14" },
+  { key: "st_patricks", when: "Mar 15–17" },
+  { key: "thanksgiving", when: "Nov 22–30" },
+  { key: "christmas", when: "December" },
+  { key: "halloween", when: "October" },
+  { key: "saturday_morning", when: "Saturdays before 1pm" },
+  { key: "summer_blockbuster", when: "June to August" },
+].map((holiday) => ({ ...holiday, label: SEASONAL_THEME_LABELS[holiday.key]! }));
+
+function enabledHolidays(config: Config): string[] {
+  if (Array.isArray(config.enabled_themes)) {
+    return config.enabled_themes.filter((value): value is string => typeof value === "string");
+  }
+  // A legacy single-holiday row starts from its one holiday.
+  return typeof config.theme === "string" && config.theme ? [config.theme] : [];
+}
 
 function HolidayChecklist({ config, onChange }: FieldProps) {
   const id = useId();
-  const enabled = new Set(
-    Array.isArray(config.enabled_themes)
-      ? config.enabled_themes.filter((value): value is string => typeof value === "string")
-      : [],
-  );
+  const enabled = new Set(enabledHolidays(config));
   const titles: Record<string, string> = {};
   if (config.theme_titles && typeof config.theme_titles === "object") {
     for (const [key, value] of Object.entries(config.theme_titles)) {
@@ -355,9 +360,15 @@ function HolidayChecklist({ config, onChange }: FieldProps) {
           );
         })}
       </div>
-      <p className="text-muted-foreground text-[13px]">
-        The row shows whichever holiday is in season and hides itself when none is.
-      </p>
+      {HOLIDAYS.some((holiday) => enabled.has(holiday.key)) ? (
+        <p className="text-muted-foreground text-[13px]">
+          The row shows whichever holiday is in season and hides itself when none is.
+        </p>
+      ) : (
+        <p role="status" className="text-destructive text-[13px]">
+          Pick at least one holiday.
+        </p>
+      )}
     </fieldset>
   );
 }

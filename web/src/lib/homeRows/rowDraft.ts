@@ -107,6 +107,13 @@ export function savedTitle(draft: RowDraft, catalog: RecipeCatalogResponse | und
   );
 }
 
+/** Whether the server would accept the draft; the form says what is missing. */
+export function canSaveDraft(draft: RowDraft): boolean {
+  // The server refuses a seasonal row with an empty holiday list and no legacy theme.
+  const themes = draft.config.enabled_themes;
+  return !(draft.sectionType === "seasonal_themed" && Array.isArray(themes) && themes.length === 0);
+}
+
 export type DraftField = "title" | "shows" | "itemLimit" | "hero";
 
 export const DRAFT_FIELD_LABELS: Record<DraftField, string> = {

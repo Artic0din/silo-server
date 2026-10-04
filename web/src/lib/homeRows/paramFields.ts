@@ -35,7 +35,11 @@ export function hasParamFields(
 ): boolean {
   if (slot === "primary") {
     if (LIBRARY_FILTER_SECTION_TYPES.has(sectionType)) return !onLibraryPage;
-    if (sectionType === "seasonal_themed") return variantOf(sectionType, config) === "se_auto";
+    if (sectionType === "seasonal_themed") {
+      // Holidays, or a legacy single-holiday row, whose list starts from that holiday.
+      const variant = variantOf(sectionType, config);
+      return variant === "se_auto" || (variant === null && typeof config.theme === "string");
+    }
   }
   return Boolean(FIELD_KEYS[sectionType]?.[slot]);
 }

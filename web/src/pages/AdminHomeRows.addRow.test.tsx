@@ -352,7 +352,7 @@ describe("Edit row", () => {
         .getAllByRole("radio")
         .filter((radio) => radio.getAttribute("aria-checked") === "true"),
     ).toEqual([]);
-    expect(within(dialog).queryByText("Holidays", { selector: "legend" })).toBeNull();
+    expect(within(dialog).getByText("Seasonal picks (Christmas only)")).toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("Row name"), { target: { value: "Christmas" } });
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(writes).toHaveLength(1));
@@ -379,7 +379,7 @@ describe("Edit row", () => {
     });
   });
 
-  it("shows Continue Reading rows and legacy Trakt rows without a variant or Change", async () => {
+  it("shows Continue Reading rows without a variant, and legacy Trakt rows without Change", async () => {
     rows[1] = {
       ...rows[1]!,
       title: "Keep reading",
@@ -398,7 +398,7 @@ describe("Edit row", () => {
     let dialog = await editRow("Keep reading");
     expect(within(dialog).getByText("Continue Reading")).toBeInTheDocument();
     expect(within(dialog).queryByRole("radiogroup")).toBeNull();
-    expect(within(dialog).queryByRole("button", { name: /^Change/ })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: /^Change/ })).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     dialog = await editRow("Trakt trending");
     expect(within(dialog).queryByRole("radiogroup")).toBeNull();

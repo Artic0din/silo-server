@@ -5,6 +5,7 @@ import golden from "./payloads.golden.json";
 import { buildRowCreateRequest, buildRowUpdateRequest, nextAppendPosition } from "./payloads";
 import { everyPreset, recipeCatalogFixture } from "./recipeCatalogFixture.test-support";
 import {
+  canSaveDraft,
   draftForPreset,
   draftFromRow,
   findRecipe,
@@ -206,5 +207,22 @@ describe("reloading after a conflict", () => {
     const { draft, changedUpstream } = mergeReloadedDraft(original, original, upstream);
     expect(draft.config).toEqual({ window: "30d" });
     expect(changedUpstream).toEqual(["shows"]);
+  });
+});
+
+describe("saving a draft", () => {
+  const seasonal = (config: Record<string, unknown>): RowDraft => ({
+    sectionType: "seasonal_themed",
+    title: "Seasonal Picks",
+    titleFollowsVariant: true,
+    config,
+    itemLimit: 20,
+    hero: false,
+  });
+
+  it("refuses a seasonal row with no holiday, which the server would reject", () => {
+    expect(canSaveDraft(seasonal({ enabled_themes: [] }))).toBe(false);
+    expect(canSaveDraft(seasonal({ enabled_themes: ["christmas"] }))).toBe(true);
+    expect(canSaveDraft(seasonal({ theme: "christmas" }))).toBe(true);
   });
 });
