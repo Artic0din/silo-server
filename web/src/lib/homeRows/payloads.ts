@@ -133,6 +133,35 @@ function preserveGeneratedSectionMetadata(
   return merged;
 }
 
+/** The collection a collection row's config points at, or "" for none. */
+export function collectionIdOf(config?: Record<string, unknown>): string {
+  const userValue = config?.user_collection_id;
+  if (typeof userValue === "string" && userValue) return userValue;
+  const libraryValue = config?.library_collection_id;
+  return typeof libraryValue === "string" ? libraryValue : "";
+}
+
+/**
+ * A collection row's config after an edit. An unchanged selection keeps the
+ * stored config byte for byte, so a row whose collection isn't in the picker
+ * list (still loading, or shared and since gone) keeps its id key. A newly
+ * picked collection replaces both id keys with `key` and keeps the rest.
+ * `stored` is the row's config only when the row already was a collection row.
+ */
+function collectionRowConfig(
+  stored: Record<string, unknown> | undefined,
+  selectedCollectionId: string,
+  key: "user_collection_id" | "library_collection_id",
+): Record<string, unknown> {
+  if (stored && collectionIdOf(stored) === selectedCollectionId) {
+    return { ...stored };
+  }
+  const rest = { ...stored };
+  delete rest.user_collection_id;
+  delete rest.library_collection_id;
+  return { ...rest, [key]: selectedCollectionId };
+}
+
 export interface BuildProfileSectionSaveEntryInput {
   section: SettingsSectionEntry | null;
   sectionType: string;
@@ -159,10 +188,11 @@ export function buildProfileSectionSaveEntry({
   let config: Record<string, unknown>;
   if (sectionType === "collection") {
     const selected = collections?.find((collection) => collection.id === selectedCollectionId);
-    config =
-      selected?.source === "user"
-        ? { user_collection_id: selectedCollectionId }
-        : { library_collection_id: selectedCollectionId };
+    config = collectionRowConfig(
+      section?.section_type === "collection" ? section.config : undefined,
+      selectedCollectionId,
+      selected?.source === "user" ? "user_collection_id" : "library_collection_id",
+    );
   } else if (FILTER_SECTION_TYPES.has(sectionType)) {
     config = preserveGeneratedSectionMetadata(
       section?.config,
@@ -221,8 +251,12 @@ export function buildAdminSectionPayload({
   const base = section?.section_type === sectionType ? { ...section.config } : {};
   let config: Record<string, unknown>;
   if (sectionType === "collection") {
-    delete base.user_collection_id;
-    config = { ...base, library_collection_id: selectedCollectionId };
+    // Admin rows pick library collections only.
+    config = collectionRowConfig(
+      section?.section_type === "collection" ? base : undefined,
+      selectedCollectionId,
+      "library_collection_id",
+    );
   } else if (FILTER_SECTION_TYPES.has(sectionType)) {
     // The editor replaces query fields, while keeping recipe metadata it does not edit.
     delete base.filter_type;
