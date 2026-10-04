@@ -1,5 +1,3 @@
-import { useState } from "react";
-import type { CollectionEditSnapshot } from "@/api/personalCollections";
 import { useNavigate, useParams } from "react-router";
 
 import type { Collection, UserCollectionType } from "@/api/types";
@@ -8,16 +6,14 @@ import PageBack from "@/components/PageBack";
 import PageUnavailable from "@/components/PageUnavailable";
 import ViewTransitionLink from "@/components/ViewTransitionLink";
 import { Button } from "@/components/ui/button";
-import {
-  useCollections,
-  useCollectionCapabilities,
-  useCollectionEditSnapshot,
-} from "@/hooks/queries/collections";
+import { useCollectionCapabilities } from "@/hooks/queries/collections";
+import { useScopeEditor } from "@/hooks/queries/collectionScope";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 
 import { ImportedCollectionEditor } from "./ImportedCollectionEditor";
 import SmartCollectionWizard from "./SmartCollectionWizard";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
-import { UserCollectionForm, isCollectionReadOnly } from "./userCollectionsShared";
+import { UserCollectionForm } from "./userCollectionsShared";
 import { ManualCollectionItemsEditor } from "@/components/collections/ManualCollectionItemsEditor";
 
 type ImportedType = Extract<UserCollectionType, "mdblist" | "tmdb" | "trakt">;
@@ -34,17 +30,12 @@ export default function CollectionEditor() {
   const { profile } = useCurrentProfile();
   const { data: capabilities } = useCollectionCapabilities();
   const { id } = useParams<{ id: string }>();
-  const { data: collections = [] } = useCollections();
-  const { data: fetched, isLoading, isFetching, error, refetch } = useCollectionEditSnapshot(id);
-  const [snapshot, setSnapshot] = useState<CollectionEditSnapshot>();
-  if (fetched && fetched.collection.id === id && snapshot?.collection.id !== id) {
-    const artwork = collections.find((entry) => entry.id === id)?.poster_url;
-    setSnapshot({
-      ...fetched,
-      collection: { ...fetched.collection, poster_url: artwork ?? fetched.collection.poster_url },
-    });
-  }
-  const collection = id && snapshot?.collection.id === id ? snapshot.collection : null;
+  const { snapshot, isLoading, isFetching, error, refetch, rebase } = useScopeEditor(
+    PERSONAL_SCOPE,
+    id,
+  );
+  const collection = snapshot?.view.raw ?? null;
+  const listPath = PERSONAL_SCOPE.paths.list();
 
   if (isLoading && id) {
     return <div className="page-shell py-8">Loading collection editor...</div>;
@@ -67,7 +58,7 @@ export default function CollectionEditor() {
         description="It may have been deleted, or you may not have access to it."
       >
         <Button asChild variant="outline">
-          <ViewTransitionLink to="/collections" up>
+          <ViewTransitionLink to={listPath} up>
             All collections
           </ViewTransitionLink>
         </Button>
@@ -78,7 +69,7 @@ export default function CollectionEditor() {
   if (collection && isImportedCollection(collection)) {
     return (
       <div className="page-shell relative space-y-6 py-4 sm:py-6">
-        <PageBack to="/collections" up />
+        <PageBack to={listPath} up />
         <div className="mt-10 sm:mt-12">
           <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{collection.name}</h1>
           <p className="page-subtitle mt-1 text-sm sm:text-base">
@@ -90,7 +81,8 @@ export default function CollectionEditor() {
           key={collection.id}
           collection={collection}
           etag={snapshot!.etag}
-          onClose={() => navigate("/collections")}
+          onSaved={rebase}
+          onClose={() => navigate(listPath)}
         />
       </div>
     );
@@ -100,7 +92,7 @@ export default function CollectionEditor() {
   if (!collection || collection.collection_type === "manual") {
     return (
       <div className="page-shell relative space-y-6 py-4 sm:py-6">
-        <PageBack to="/collections" up />
+        <PageBack to={listPath} up />
         <div className="mt-10 sm:mt-12">
           <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">
             {collection ? `Edit ${collection.name}` : "New Collection"}
@@ -114,9 +106,9 @@ export default function CollectionEditor() {
         <UserCollectionForm
           collection={collection}
           etag={snapshot?.etag}
-          onClose={() => navigate("/collections")}
+          onClose={() => navigate(listPath)}
         />
-        {collection && (
+        {snapshot && collection && (
           <section className="space-y-3">
             <h2 className="text-lg font-semibold">Items</h2>
             {capabilities?.item_reorder && (
@@ -126,7 +118,8 @@ export default function CollectionEditor() {
             )}
             <ManualCollectionItemsEditor
               collectionId={collection.id}
-              readOnly={isCollectionReadOnly(collection, profile?.id)}
+              scope={PERSONAL_SCOPE}
+              readOnly={PERSONAL_SCOPE.isReadOnly(snapshot.view, profile?.id)}
             />
           </section>
         )}
@@ -139,7 +132,7 @@ export default function CollectionEditor() {
       mode="user"
       collection={collection}
       etag={snapshot?.etag}
-      onClose={() => navigate("/collections")}
+      onClose={() => navigate(listPath)}
     />
   );
 }

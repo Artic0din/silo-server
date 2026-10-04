@@ -12656,6 +12656,11 @@ export interface components {
        * @enum {string}
        */
       state: "available" | "disabled" | "not_configured" | "unsupported";
+      /**
+       * @description listAdminCollectionTemplateBundles returns each bundle's templates
+       * @example true
+       */
+      template_summaries: boolean;
     };
     AdminCollectionCreate: {
       backdrop_url?: string;
@@ -19666,7 +19671,7 @@ export interface components {
       /** @example true */
       collection_sort_preferences: boolean;
       /**
-       * @description createCollection accepts description
+       * @description createCollection stores a description for the acting account
        * @example true
        */
       create_description: boolean;
@@ -24613,7 +24618,7 @@ export interface components {
        */
       collection_type?: "manual" | "smart";
       /**
-       * @description Empty when omitted. Accepted when getCollectionCapabilities reports create_description
+       * @description Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails
        * @example For wet afternoons
        */
       description?: string;
@@ -25987,6 +25992,11 @@ export interface components {
        * @example true
        */
       customized: boolean;
+      /**
+       * @description The administrator's title for this row; title shows it unless the profile saved a title override. Empty for a section the profile built
+       * @example Continue Watching
+       */
+      default_title: string;
       /** @example false */
       featured: boolean;
       /**
@@ -26016,7 +26026,10 @@ export interface components {
        * @example continue_watching
        */
       section_type: string;
-      /** @example Continue Watching */
+      /**
+       * @description The title this profile sees: its own title override, or the administrator's title
+       * @example Continue Watching
+       */
       title: string;
     };
     ProfileSectionSettingCollection: {
@@ -85817,6 +85830,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };

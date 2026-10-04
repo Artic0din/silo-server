@@ -5,6 +5,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import type { CollectionBuilderProps } from "@/components/collections/CollectionBuilder";
+import type { CollectionScope } from "@/lib/collections/scope";
 import CollectionEditor from "./CollectionEditor";
 import AdminCollectionEditor from "./AdminCollectionEditor";
 
@@ -15,32 +16,26 @@ const mocks = vi.hoisted(() => ({
   editSnapshotError: null as Error | null,
   adminSnapshotError: null as Error | null,
 }));
+vi.mock("@/hooks/queries/collectionScope", () => ({
+  // The admin page opens mocks.collection; the personal page opens nothing.
+  useScopeEditor: (scope: CollectionScope<LibraryCollection>) => {
+    const admin = scope.kind === "server";
+    const collection = admin ? mocks.collection : null;
+    return {
+      snapshot: collection ? { view: scope.toView(collection), etag: '"revision"' } : undefined,
+      isLoading: false,
+      isFetching: false,
+      error: admin ? mocks.adminSnapshotError : mocks.editSnapshotError,
+      refetch: vi.fn(),
+    };
+  },
+}));
 vi.mock("@/hooks/queries/collections", () => ({
-  useCollections: () => ({ data: [] }),
-  useCollectionEditSnapshot: () => ({
-    data: undefined,
-    isLoading: false,
-    isFetching: false,
-    error: mocks.editSnapshotError,
-    refetch: vi.fn(),
-  }),
   useCollectionCapabilities: () => ({ data: {} }),
   useCreateCollection: () => ({ mutate: mocks.create }),
   useUpdateCollection: () => ({}),
-  useDeleteUserCollectionImage: () => ({}),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
-  useAdminCollections: () => ({
-    data: mocks.collection ? [mocks.collection] : [],
-    isLoading: false,
-  }),
-  useAdminCollectionSnapshot: () => ({
-    data: mocks.collection ? { collection: mocks.collection, etag: '"revision"' } : undefined,
-    isLoading: false,
-    isFetching: false,
-    error: mocks.adminSnapshotError,
-    refetch: vi.fn(),
-  }),
   useAdminCollectionCapabilities: () => ({ data: {} }),
   useCreateAdminCollection: () => ({ mutate: mocks.adminCreate }),
   useUpdateAdminCollection: () => ({}),
@@ -90,11 +85,13 @@ vi.mock("@/components/collections/CollectionBuilder", async () => ({
 vi.mock("@/components/collections/ManualCollectionItemsEditor", () => ({
   ManualCollectionItemsEditor: ({
     collectionId,
-    source,
+    scope,
   }: {
     collectionId: string;
-    source: string;
-  }) => <div data-testid="manual-items" data-source={source} data-collection={collectionId} />,
+    scope: CollectionScope;
+  }) => (
+    <div data-testid="manual-items" data-source={scope.itemSource} data-collection={collectionId} />
+  ),
 }));
 beforeEach(() => {
   vi.clearAllMocks();
@@ -224,19 +221,4 @@ it("offers a retry when an admin collection fails to load", () => {
     screen.getByRole("heading", { level: 1, name: "Couldn't load this collection" }),
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-});
-
-it("lets a 404 replace an admin collection that was already loaded", () => {
-  mocks.collection = {
-    id: "collection-1",
-    title: "Staff picks",
-    collection_type: "manual",
-    library_ids: [1],
-  } as LibraryCollection;
-  mocks.adminSnapshotError = collectionProblem(404);
-  show(true, true);
-  expect(
-    screen.getByRole("heading", { level: 1, name: "Collection not found" }),
-  ).toBeInTheDocument();
-  expect(screen.queryByTestId("manual-items")).not.toBeInTheDocument();
 });

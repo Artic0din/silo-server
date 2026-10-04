@@ -286,6 +286,8 @@ export const sectionKeys = {
     ["sections", "library", libraryId, "items", sectionId] as const,
   adminList: (scope: string, libraryId?: number) =>
     ["sections", "admin", scope, libraryId] as const,
+  /** Mutation key on every admin row write, so the Home rows list can wait for them. */
+  adminWrite: () => ["sections", "admin-write"] as const,
   profileOverrides: (scope: string, libraryId?: string) =>
     ["sections", "profile", scope, libraryId] as const,
   profileOverridesRaw: (scope: string, libraryId?: string) =>

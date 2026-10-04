@@ -10,12 +10,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { ManualCollectionItemsEditor } from "@/components/collections/ManualCollectionItemsEditor";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
-import { useAdminCollections, useAdminCollectionSnapshot } from "@/hooks/queries/admin/collections";
+import { useScopeEditor } from "@/hooks/queries/collectionScope";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { isListBackedCollectionType } from "@/lib/collectionTypes";
+import { SERVER_SCOPE } from "@/lib/collections/scope";
+import { isListBackedCollectionType } from "@/lib/collections/types";
 
 import {
-  buildAdminCollectionsReturnPath,
   CollectionEditForm,
   CollectionForm,
   MDBListImportForm,
@@ -37,29 +37,12 @@ export default function AdminCollectionEditor() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const initialLibraryId = Number(searchParams.get("libraryId")) || null;
-  const returnPath = buildAdminCollectionsReturnPath(initialLibraryId);
+  const returnPath = SERVER_SCOPE.paths.list({ libraryId: initialLibraryId });
   const isCreate = !id;
   const { data: libraries = [] } = useAdminLibraries();
-  const { data: collections = [], isLoading } = useAdminCollections();
-  const snapshot = useAdminCollectionSnapshot(id);
-  const [frozen, setFrozen] = useState<typeof snapshot.data>(undefined);
-  if (snapshot.data && !isLoading && frozen?.collection.id !== id) {
-    const listed = collections.find((entry) => entry.id === id);
-    setFrozen({
-      ...snapshot.data,
-      collection: {
-        ...snapshot.data.collection,
-        poster_url: listed?.poster_url ?? "",
-        backdrop_url: listed?.backdrop_url ?? "",
-      },
-    });
-  }
-  // The frozen copy survives background refetches so an edit is never
-  // clobbered, but a 404 means the collection is gone and outranks it.
-  const collection =
-    frozen && frozen.collection.id === id && !isNotFoundProblem(snapshot.error)
-      ? frozen.collection
-      : null;
+  const editor = useScopeEditor(SERVER_SCOPE, id);
+  const frozen = editor.snapshot;
+  const collection = frozen?.view.raw ?? null;
   const [sourceType, setSourceType] = useState<CollectionSourceType | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
 
@@ -83,20 +66,20 @@ export default function AdminCollectionEditor() {
       ? "Choose how this collection should be created."
       : "Build the collection in a full-page editor instead of a cramped dialog.";
 
-  useDocumentTitle(!isCreate && isNotFoundProblem(snapshot.error) ? "Not found" : title);
+  useDocumentTitle(!isCreate && isNotFoundProblem(editor.error) ? "Not found" : title);
 
-  if ((!isCreate && (snapshot.isLoading || isLoading)) || (isLoading && libraries.length === 0)) {
+  if (editor.isLoading && (!isCreate || libraries.length === 0)) {
     return <div className="page-shell py-8">Loading collection editor...</div>;
   }
 
-  if (!isCreate && !collection && !isLoading) {
-    if (snapshot.error && !isNotFoundProblem(snapshot.error)) {
+  if (!isCreate && !collection) {
+    if (editor.error && !isNotFoundProblem(editor.error)) {
       return (
         <PageUnavailable
           title="Couldn't load this collection"
           description="Something went wrong while loading it. Try again in a moment."
-          onRetry={() => void snapshot.refetch()}
-          retrying={snapshot.isFetching}
+          onRetry={() => void editor.refetch()}
+          retrying={editor.isFetching}
         />
       );
     }
@@ -212,7 +195,7 @@ export default function AdminCollectionEditor() {
       {collection?.collection_type === "manual" && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Items</h2>
-          <ManualCollectionItemsEditor collectionId={collection.id} source="library" />
+          <ManualCollectionItemsEditor collectionId={collection.id} scope={SERVER_SCOPE} />
         </section>
       )}
 
