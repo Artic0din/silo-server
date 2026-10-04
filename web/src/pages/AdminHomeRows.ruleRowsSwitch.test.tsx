@@ -255,4 +255,13 @@ describe("Let profiles add rule rows", () => {
     expect(item).toHaveAccessibleDescription("This action is not available in demo mode.");
     expect(mocks.error).toHaveBeenCalledWith("This action is not available in demo mode.");
   });
+
+  it("draws every menu icon in the same muted color", async () => {
+    await setup();
+    await openMore();
+    const items = [...screen.getAllByRole("menuitem"), ...screen.getAllByRole("menuitemcheckbox")];
+    expect(items.length).toBeGreaterThan(1);
+    for (const item of items)
+      expect(item.querySelector("svg")).toHaveClass("text-muted-foreground");
+  });
 });

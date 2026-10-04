@@ -594,9 +594,17 @@ describe("rule rows", () => {
   it("says where profiles get rule rows when this surface has that switch", async () => {
     profileRuleRowsSwitch = true;
     await open(editSession({ sectionType: "custom_filter", config: structuredClone(MULTI_GROUP) }));
-    expect(screen.getByText(/Only admins can add rule rows unless/).textContent).toBe(
+    const note = screen.getByText(/Only admins can add rule rows unless/);
+    expect(note.textContent).toBe(
       "Only admins can add rule rows unless Let profiles add rule rows is on in More.",
     );
+    // Last in the form, after the name and More options.
+    const more = screen.getByRole("button", { name: /More options/ });
+    expect(more.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      screen.getByLabelText("Row name").compareDocumentPosition(note) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("has no note about the profile switch on a surface without it", async () => {

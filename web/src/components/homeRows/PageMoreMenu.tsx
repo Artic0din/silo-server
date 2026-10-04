@@ -59,7 +59,7 @@ const ITEM_CLASS = "items-start gap-3 rounded-[9px] px-2.5 py-2.5";
 function ItemText({ id, item }: { id: string; item: PageMoreMenuEntry }) {
   return (
     <>
-      <item.icon className="mt-0.5" />
+      <item.icon className="text-muted-foreground mt-0.5" />
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span id={`${id}-label`} className="font-medium">
           {item.label}

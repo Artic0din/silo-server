@@ -67,13 +67,11 @@ function KindControl({
   onChange,
   choices,
   libraries,
-  ruleRowsNote,
 }: {
   draft: RowDraft;
   onChange: (draft: RowDraft) => void;
   choices: CollectionChoices;
   libraries: ParamLibrary[];
-  ruleRowsNote: boolean;
 }) {
   if (draft.sectionType === "collection") {
     return (
@@ -89,24 +87,12 @@ function KindControl({
   }
   if (FILTER_SECTION_TYPES.has(draft.sectionType)) {
     return (
-      <>
-        <RuleBuilder
-          value={queryDefinitionFromSectionConfig(draft.config)}
-          onChange={(query) => onChange(withRules(draft, query))}
-          libraries={libraries}
-          allowPersonalized
-        />
-        {ruleRowsNote ? (
-          <p className="text-muted-foreground flex items-start gap-2 text-[13px]">
-            <Info aria-hidden className="mt-0.5 size-[15px] shrink-0" />
-            <span>
-              Only admins can add rule rows unless{" "}
-              <strong className="text-foreground font-medium">Let profiles add rule rows</strong> is
-              on in More.
-            </span>
-          </p>
-        ) : null}
-      </>
+      <RuleBuilder
+        value={queryDefinitionFromSectionConfig(draft.config)}
+        onChange={(query) => onChange(withRules(draft, query))}
+        libraries={libraries}
+        allowPersonalized
+      />
     );
   }
   if (draft.sectionType === "admin_curated_list") {
@@ -159,7 +145,7 @@ export function RowForm({
   collectionChoices: CollectionChoices;
   /** Add row on a library page, for a kind that can be copied: the pages it may also go to. */
   libraryPages?: { pages: LibraryPage[]; currentId: number };
-  /** Under the rule builder, say which switch lets profiles add rule rows too. */
+  /** On a rule row, end the form by saying which switch lets profiles add rule rows too. */
   ruleRowsNote?: boolean;
 }) {
   const nameId = useId();
@@ -171,7 +157,6 @@ export function RowForm({
       onChange={onChange}
       choices={collectionChoices}
       libraries={libraries}
-      ruleRowsNote={ruleRowsNote}
     />
   );
   const setConfig = (config: Record<string, unknown>) => onChange({ ...draft, config });
@@ -263,6 +248,15 @@ export function RowForm({
         ) : null}
         <ParamFields {...fieldProps} slot="more" />
       </MoreOptions>
+      {rules && ruleRowsNote ? (
+        <p className="bg-accent/70 text-foreground/75 flex items-start gap-2.5 rounded-xl px-3.5 py-[11px] text-[13px] leading-normal">
+          <Info aria-hidden className="text-muted-foreground mt-0.5 size-[15px] shrink-0" />
+          <span>
+            Only admins can add rule rows unless{" "}
+            <strong className="font-semibold">Let profiles add rule rows</strong> is on in More.
+          </span>
+        </p>
+      ) : null}
     </div>
   );
 }
