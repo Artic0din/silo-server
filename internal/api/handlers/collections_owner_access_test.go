@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Silo-Server/silo-server/internal/access"
+	apimw "github.com/Silo-Server/silo-server/internal/api/middleware"
 	"github.com/Silo-Server/silo-server/internal/auth"
 	"github.com/Silo-Server/silo-server/internal/catalog"
 	"github.com/Silo-Server/silo-server/internal/policy"
@@ -78,7 +79,13 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 	// A display filter moves the count onto the dynamic count path.
 	displayed := shared("Displayed", "manual", "", `{"match":"all","groups":[{"match":"all","rules":[{"field":"type","op":"is","value":"movie"}]}]}`)
 	smart := shared("Smart", "smart", fmt.Sprintf(`{"library_ids":[%d,%d],"media_scope":"movie","match":"all","groups":[],"sort":{"field":"title","order":"asc"}}`, f.library, f.hidden), "")
-	collections := []*userstore.Collection{manual, displayed, smart}
+	// A default sort moves the home row onto the sorted query path.
+	sorted := shared("Sorted", "manual", "", "")
+	sortConfig := `{"field":"title","order":"asc"}`
+	if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: sorted.ID, RequestProfileID: "owner", SortConfig: &sortConfig}); err != nil {
+		t.Fatal(err)
+	}
+	collections := []*userstore.Collection{manual, displayed, smart, sorted}
 
 	engine, err := policy.NewEngine(ctx)
 	if err != nil {
@@ -103,6 +110,23 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		fetcher.CollectionOwners = o
 	}
 	wire(owners)
+	sectionHandler := NewSectionHandler(sections.NewRepository(f.pool), fetcher)
+	sectionHandler.StoreProvider = provider
+	// Each profile's home page carries a row of every collection.
+	for _, profile := range []string{"owner", "viewer"} {
+		rows := make([]userstore.SectionOverride, 0, len(collections))
+		for i, c := range collections {
+			position, limit := 1000+i, 50
+			rows = append(rows, userstore.SectionOverride{
+				ID: "row-" + c.ID, Scope: "home", Position: &position, ItemLimit: &limit, IsUserAdded: true,
+				UserSectionType: string(sections.SectionCollection), UserTitle: c.Name,
+				UserConfig: fmt.Sprintf(`{"user_collection_id":%q}`, c.ID),
+			})
+		}
+		if err := store.SaveSectionOverrides(ctx, profile, "home", "", rows); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	setProfile := func(t *testing.T, id, rating string, libraries []int) {
 		t.Helper()
@@ -124,7 +148,9 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reqCtx := access.SetScope(ctx, scope)
+		reqCtx := apimw.SetClaims(ctx, &auth.Claims{UserID: f.account})
+		reqCtx = apimw.SetProfileID(reqCtx, profileID)
+		reqCtx = access.SetScope(reqCtx, scope)
 		filter := AccessFilterFromContext(reqCtx, "")
 		filter.UserID, filter.ProfileID = f.account, profileID
 		return reqCtx, filter
@@ -242,10 +268,9 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 				t.Errorf("%s: catalog facet search = %v, want %v", c.Name, got, expectedGenres)
 			}
 
-			row, err := fetcher.FetchOne(reqCtx, sections.ResolvedSection{
-				ID: "row-" + c.ID, SectionType: sections.SectionCollection, Title: c.Name, ItemLimit: 50,
-				Config: json.RawMessage(fmt.Sprintf(`{"user_collection_id":%q}`, c.ID)),
-			}, nil, nil, f.account, profileID, filter)
+			// The home row goes through the production path, which also
+			// scopes the row to the viewer's own allowed libraries.
+			row, err := sectionHandler.HomeSectionItems(reqCtx, "row-"+c.ID, SectionViewer{Access: filter})
 			if err != nil {
 				t.Fatalf("%s: home row: %v", c.Name, err)
 			}
@@ -289,6 +314,30 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		assertMembers(t, "viewer", 1, 2, 3, 4)
 		setProfile(t, "owner", "", nil)
 		assertMembers(t, "viewer", 0, 1, 2, 3, 4)
+	})
+	t.Run("a restricted viewer sees only the narrower owner's libraries", func(t *testing.T) {
+		reset(t)
+		setProfile(t, "viewer", "", []int{f.library, f.hidden})
+		setProfile(t, "owner", "", []int{f.library})
+		assertMembers(t, "viewer", 1, 2, 3, 4)
+		setProfile(t, "owner", "", []int{f.hidden})
+		assertMembers(t, "viewer", 0)
+		// A viewer allowed no library sees no home row member, even of an
+		// unrestricted owner's collection. (The library tab and other
+		// surfaces answer not found for such a viewer, so only the row is
+		// checked.)
+		setProfile(t, "owner", "", nil)
+		setProfile(t, "viewer", "", []int{})
+		reqCtx, filter := readerContext(t, "viewer")
+		for _, c := range collections {
+			row, err := sectionHandler.HomeSectionItems(reqCtx, "row-"+c.ID, SectionViewer{Access: filter})
+			if err != nil {
+				t.Fatalf("%s: home row: %v", c.Name, err)
+			}
+			if len(row.Items) != 0 {
+				t.Errorf("%s: home row shows %d items to a viewer allowed no library, want none", c.Name, len(row.Items))
+			}
+		}
 	})
 	t.Run("both limits apply together", func(t *testing.T) {
 		reset(t)
@@ -372,7 +421,7 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantOrder := []string{manual.ID, displayed.ID, smart.ID}
+		wantOrder := []string{manual.ID, displayed.ID, smart.ID, sorted.ID}
 		if got := ids(slices.Clone(order.OrderedIDs)); !slices.Equal(got, ids(wantOrder)) {
 			t.Errorf("order editor = %v, want %v", order.OrderedIDs, wantOrder)
 		}

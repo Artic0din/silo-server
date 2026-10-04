@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1408,7 +1409,10 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 		return items, total, nil
 	}
 
-	// Exact collection: fetch stored items.
+	// Exact collection: fetch stored items. The lookups below prefer the
+	// section's library scope over filter.AllowedLibraryIDs, so limit that
+	// scope to the owner-narrowed filter first.
+	libraryIDs = narrowLibraryScope(libraryIDs, filter.AllowedLibraryIDs)
 	collectionItems, err := store.ListCollectionItems(ctx, collectionID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("listing user collection items: %w", err)
@@ -2809,6 +2813,23 @@ func effectiveFetchLibraryIDs(libraryIDs []int, filter catalog.AccessFilter) []i
 	return nil
 }
 
+// narrowLibraryScope limits a caller's library scope to allowed so the scope
+// can never widen access. Nil on either side is unrestricted; when both are
+// set the result is their intersection, empty but non-nil when they share no
+// library so it still denies everything.
+func narrowLibraryScope(scope, allowed []int) []int {
+	switch {
+	case allowed == nil:
+		return scope
+	case scope == nil:
+		return allowed
+	}
+	if narrowed := intersectLibraryIDs(scope, allowed); narrowed != nil {
+		return narrowed
+	}
+	return []int{}
+}
+
 func applyEpisodeTargetLibraryAccess(
 	filter catalog.AccessFilter,
 	libraryID *int,
@@ -2831,11 +2852,8 @@ func collectionRailQueryAccess(filter catalog.AccessFilter, libraryID *int, libr
 	result := filter
 	effectiveLibraryIDs := effectiveFetchLibraryIDs(libraryIDs, filter)
 	if libraryID == nil {
-		if effectiveLibraryIDs == nil {
-			result.AllowedLibraryIDs = nil
-		} else {
-			result.AllowedLibraryIDs = append([]int(nil), effectiveLibraryIDs...)
-		}
+		// Clone keeps an empty scope non-nil, so it still denies everything.
+		result.AllowedLibraryIDs = slices.Clone(effectiveLibraryIDs)
 		return result
 	}
 
