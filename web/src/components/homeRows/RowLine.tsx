@@ -36,6 +36,14 @@ export interface RowLineProps {
   dragging?: boolean;
 }
 
+function Dot() {
+  return (
+    <span aria-hidden className="mx-[7px] inline-block opacity-55">
+      ·
+    </span>
+  );
+}
+
 function Description({ parts }: { parts: DescriptionPart[] }) {
   return parts.map((part, index) =>
     typeof part === "string" ? (
@@ -78,11 +86,11 @@ export function RowLine({
       style={style}
       data-row-id={row.id}
       className={cn(
-        "hover:bg-accent/60 relative grid items-center gap-3.5 rounded-[18px] py-[11px] pr-3 pl-2",
+        "hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
         "before:bg-border/75 before:absolute before:top-0 before:right-4 before:left-[124px] before:h-px first:before:hidden hover:before:hidden [&:hover+li]:before:hidden",
         selection
-          ? "grid-cols-[20px_28px_74px_minmax(0,1fr)_auto_36px]"
-          : "grid-cols-[28px_74px_minmax(0,1fr)_auto_36px]",
+          ? "grid-cols-[20px_28px_48px_minmax(0,1fr)_auto_36px] sm:grid-cols-[20px_28px_74px_minmax(0,1fr)_auto_36px]"
+          : "grid-cols-[28px_48px_minmax(0,1fr)_auto_36px] sm:grid-cols-[28px_74px_minmax(0,1fr)_auto_36px]",
         collapsed &&
           "border-muted-foreground/30 bg-background/40 my-1.5 border border-dashed py-[5px] before:hidden [&+li]:before:hidden",
         selection?.selected && "bg-accent/75",
@@ -112,7 +120,7 @@ export function RowLine({
       {collapsed ? (
         <div
           aria-hidden
-          className="text-muted-foreground grid h-[30px] w-[74px] place-items-center"
+          className="text-muted-foreground grid h-[30px] w-12 place-items-center sm:w-[74px]"
         >
           <EyeOff className="size-[17px]" />
         </div>
@@ -130,7 +138,7 @@ export function RowLine({
             <div className="flex min-w-0 items-center gap-2 text-[15px] font-semibold tracking-[-0.01em]">
               <span className="truncate">{row.title}</span>
               {row.hero ? (
-                <span className="bg-warning/15 text-warning ring-warning/30 inline-flex h-[22px] shrink-0 items-center gap-1 rounded-full px-2 text-[11.5px] font-semibold ring-1 ring-inset">
+                <span className="bg-warning/15 text-warning ring-warning/30 inline-flex h-[22px] shrink-0 items-center gap-1 rounded-full px-2 text-[11.5px] font-semibold ring-1 ring-inset max-sm:hidden">
                   <Star className="size-3" aria-hidden />
                   Hero banner
                 </span>
@@ -142,10 +150,16 @@ export function RowLine({
               ) : null}
             </div>
             <p className="text-muted-foreground mt-1 truncate text-[13px] leading-[1.45]">
+              {row.hero ? (
+                // Phones have no room for the tag next to the name.
+                <span className="text-warning font-semibold sm:hidden">
+                  <Star className="mr-1 inline size-3 align-[-1px]" aria-hidden />
+                  Hero banner
+                  <Dot />
+                </span>
+              ) : null}
               <Description parts={description} />
-              <span aria-hidden className="mx-[7px] inline-block opacity-55">
-                ·
-              </span>
+              <Dot />
               {titleCount(row.itemLimit)}
             </p>
           </>

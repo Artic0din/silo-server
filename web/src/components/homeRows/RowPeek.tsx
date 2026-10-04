@@ -19,8 +19,7 @@ export function RowPeek({ sectionType }: { sectionType: string }) {
   return (
     <div
       aria-hidden
-      data-testid="row-peek"
-      className="bg-accent/80 text-muted-foreground ring-border grid h-[50px] w-[74px] place-items-center rounded-xl ring-1 ring-inset"
+      className="bg-accent/80 text-muted-foreground ring-border grid h-[50px] w-12 place-items-center rounded-xl ring-1 ring-inset sm:w-[74px]"
     >
       <Icon className="size-5" />
     </div>

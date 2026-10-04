@@ -509,7 +509,11 @@ describe("admin Home rows list", () => {
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.args.path?.id).toBe("b");
     expect(writes[0]!.args.body).toEqual({ featured: true });
-    expect(await screen.findByText("Hero banner")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("listitem").find((item) => item.dataset.rowId === "b"),
+      ).toHaveTextContent("Hero banner"),
+    );
   });
 
   it("moves focus to the next row's menu after a delete, or to Add Section after the last", async () => {
