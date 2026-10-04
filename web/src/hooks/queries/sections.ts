@@ -167,6 +167,7 @@ export function useCreateSection() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: createAdminSection,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
@@ -193,6 +194,7 @@ export function useBulkCreateSections() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: bulkCreateAdminSections,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
@@ -204,6 +206,7 @@ export function useUpdateSection() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: updateAdminSection,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
@@ -215,6 +218,7 @@ export function useDeleteSection() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: deleteAdminSection,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
@@ -229,6 +233,7 @@ export function useDeleteSections() {
 
   const mutation = useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     onMutate: (targets) => {
       setProgress({ completed: 0, total: new Set(targets.map((target) => target.id)).size });
     },
@@ -348,6 +353,7 @@ export function useRestoreDefaultSections() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: restoreAdminSections,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });

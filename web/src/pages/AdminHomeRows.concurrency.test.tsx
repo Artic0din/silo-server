@@ -284,6 +284,26 @@ describe("admin section captured snapshots", () => {
     expect(writes[0]!.args.body?.reset_profiles).toBe(false);
     expect(dialog).toBeInTheDocument();
   });
+  it("keeps Restore Defaults off until a row write and its refetch land", async () => {
+    await setup();
+    const implementation = mocks.request.getMockImplementation()!;
+    let releasePatch!: () => void;
+    mocks.request.mockImplementation(async (operation: string, args: Args) => {
+      if (operation === "PATCH /api/v2/admin/sections/{id}")
+        await new Promise<void>((resolve) => {
+          releasePatch = resolve;
+        });
+      return implementation(operation, args);
+    });
+    const restore = screen.getByRole("button", { name: "Restore Defaults" });
+    expect(restore).toBeEnabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Original A is on for everyone" }));
+    await waitFor(() => expect(releasePatch).toBeTypeOf("function"));
+    expect(restore).toBeDisabled();
+    releasePatch();
+    await waitFor(() => expect(restore).toBeEnabled());
+    expect(writes.map((write) => write.operation)).toEqual(["PATCH /api/v2/admin/sections/{id}"]);
+  });
   it("restricts the admin editor collection picker to library collections", async () => {
     rows[0]!.section_type = "collection";
     rows[0]!.config = { library_collection_id: "public" };

@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { MemoryRouter, useSearchParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { v2Problem } from "@/api/v2/problems.test-support";
+import { useDeleteSection } from "@/hooks/queries/sections";
 import { useAdminHomeRows } from "./useAdminHomeRows";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn(), error: vi.fn() }));
@@ -100,6 +101,11 @@ beforeEach(() => {
       rows = rows.map((entry) => (entry.id === args.path?.id ? { ...entry, ...changes } : entry));
       return rows.find((entry) => entry.id === args.path?.id);
     }
+    if (operation === "DELETE /api/v2/admin/sections/{id}") {
+      revision++;
+      rows = rows.filter((entry) => entry.id !== args.path?.id);
+      return undefined;
+    }
     if (operation === "PUT /api/v2/admin/sections/order") {
       revision++;
       const ids = args.body?.ordered_ids as string[];
@@ -123,9 +129,14 @@ function setup(initialEntry = "/admin/home-rows") {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     </MemoryRouter>
   );
-  const hook = renderHook(() => ({ adapter: useAdminHomeRows(), params: useSearchParams()[0] }), {
-    wrapper,
-  });
+  const hook = renderHook(
+    () => ({
+      adapter: useAdminHomeRows(),
+      params: useSearchParams()[0],
+      deleteRow: useDeleteSection(),
+    }),
+    { wrapper },
+  );
   return { ...hook, client };
 }
 
@@ -283,5 +294,31 @@ describe("useAdminHomeRows", () => {
     hold = null;
     await act(async () => done);
     expect(result.current.adapter.rows.map((entry) => entry.id)).toEqual(["b", "a"]);
+  });
+
+  it("holds reorders while another row write and its refetch are in flight", async () => {
+    const { result } = setup();
+    await ready(result);
+    hold = { operation: "DELETE /api/v2/admin/sections/{id}" };
+    act(() => result.current.deleteRow.mutate({ id: "b", etag: '"rev-1"' }));
+    await waitFor(() => expect(hold?.release).toBeTypeOf("function"));
+    expect(result.current.adapter.pending).toBe(true);
+    expect(result.current.adapter.canReorder).toBe(false);
+
+    const releaseDelete = hold.release!;
+    hold = { operation: "GET /api/v2/admin/sections" };
+    releaseDelete();
+    await waitFor(() => expect(result.current.deleteRow.isSuccess).toBe(true));
+    // The delete landed but the list still holds the old version: a reorder now would 412.
+    await waitFor(() => expect(hold?.release).toBeTypeOf("function"));
+    expect(result.current.adapter.orderToken).toBe('"rev-1"');
+    expect(result.current.adapter.pending).toBe(true);
+    expect(result.current.adapter.canReorder).toBe(false);
+
+    hold.release!();
+    hold = null;
+    await waitFor(() => expect(result.current.adapter.pending).toBe(false));
+    expect(result.current.adapter.orderToken).toBe('"rev-2"');
+    expect(result.current.adapter.canReorder).toBe(true);
   });
 });

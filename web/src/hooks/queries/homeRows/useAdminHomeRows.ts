@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
@@ -90,10 +90,11 @@ export interface AdminHomeRows extends HomeRowsAdapter {
 
 /**
  * The admin Home rows adapter. Reads one page's rows and runs every list write
- * (switch, hero, reorder) one at a time. Each write keeps `pending` set until
- * the refetch after it lands, because any row write bumps the page version a
- * reorder is checked against. Quick actions first read the row and refuse to
- * write when it no longer matches what the page shows.
+ * (switch, hero, reorder) one at a time. `pending` stays set while any admin
+ * row write is in flight and until the refetch after it lands, because any row
+ * write bumps the page version a reorder is checked against. Quick actions
+ * first read the row and refuse to write when it no longer matches what the
+ * page shows.
  */
 export function useAdminHomeRows(): AdminHomeRows {
   const queryClient = useQueryClient();
@@ -130,7 +131,12 @@ export function useAdminHomeRows(): AdminHomeRows {
   >({});
   const [pendingCount, setPendingCount] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const pending = pendingCount > 0;
+  // Writes made outside this hook (add, edit, delete, restore) and the refetch
+  // after them hold the list too: until the new version arrives, a reorder would
+  // be checked against the old one and fail.
+  const otherWrites = useIsMutating({ mutationKey: sectionKeys.adminWrite() });
+  const refetching = list.isFetching && list.data !== undefined;
+  const pending = pendingCount > 0 || otherWrites > 0 || refetching;
 
   const sections = useMemo(() => list.data?.sections ?? [], [list.data?.sections]);
   const rows = useMemo(

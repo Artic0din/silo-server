@@ -481,9 +481,8 @@ export default function AdminHomeRows() {
             <Button
               size="sm"
               variant="outline"
-              disabled={
-                !canManageCurrentScope || snapshotLoading || restoreDefaultsMutation.isPending
-              }
+              // The restore itself is an admin row write, so `pending` covers it.
+              disabled={!canManageCurrentScope || snapshotLoading || adapter.pending}
               onClick={openRestore}
             >
               <RotateCcw className="mr-1 h-4 w-4" /> Restore Defaults
