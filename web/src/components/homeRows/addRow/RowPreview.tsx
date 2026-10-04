@@ -52,7 +52,7 @@ export function RowPreview({
   return (
     <section
       aria-label={`Preview of ${title || "this row"}`}
-      aria-busy={state.status === "loading"}
+      aria-busy={state.status === "loading" || (state.status === "ready" && state.refreshing)}
       className="ring-border/85 relative overflow-hidden rounded-2xl bg-[radial-gradient(120%_140%_at_0%_0%,rgb(255_255_255/0.05),transparent_50%)] py-4 pl-4 ring-1 ring-inset sm:pl-[18px]"
     >
       <div className="mb-3 flex items-baseline justify-between gap-3 pr-4 sm:pr-[18px]">
@@ -60,7 +60,13 @@ export function RowPreview({
           {title || "Untitled row"}
         </span>
         {state.status === "off" ? null : countUpTo !== undefined && state.status === "ready" ? (
-          <span className="text-muted-foreground shrink-0 text-xs">
+          <span
+            className={cn(
+              "text-muted-foreground shrink-0 text-xs transition-opacity",
+              state.refreshing && "opacity-50",
+            )}
+          >
+            {state.refreshing ? <span className="sr-only">Updating: </span> : null}
             <b className="text-foreground font-semibold">{state.totalCount}</b>
             {state.totalCount === 1 ? " title matches" : " titles match"}
             <span aria-hidden className="mx-1.5">
