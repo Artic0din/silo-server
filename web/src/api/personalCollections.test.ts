@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { components } from "@/api/v2/schema";
 import {
+  collectionsFromV2,
   collectionUpdateToV2,
   discoveryFromV2,
   importBodyToV2,
@@ -19,7 +20,6 @@ const collection: components["schemas"]["PersonalCollection"] = {
   description: "",
   collection_type: "manual",
   is_shared: false,
-  allowed_profile_ids: ["owner"],
   query_definition: {},
   sort_config: {},
   sort_order: 0,
@@ -40,9 +40,22 @@ const collection: components["schemas"]["PersonalCollection"] = {
 };
 
 describe("personal collection v2 adapter", () => {
-  it("preserves group removal and converts library IDs without clearing omitted settings", () => {
-    expect(collectionUpdateToV2({ group_id: null, library_ids: [7], max_items: 0 })).toEqual({
-      group_id: null,
+  it("lists own and shared collections without personal collection groups", () => {
+    const shared = { ...collection, id: "theirs", creator_profile_id: "parent", is_shared: true };
+    const result = collectionsFromV2(
+      v2Fixture<"GET /api/v2/collections">({ items: [collection, shared], groups: [] }),
+    );
+    expect(result).toEqual({
+      collections: [
+        expect.objectContaining({ id: "saved", creator_profile_id: "owner" }),
+        expect.objectContaining({ id: "theirs", creator_profile_id: "parent", is_shared: true }),
+      ],
+    });
+  });
+
+  it("sends the sharing switch and converts library IDs without clearing omitted settings", () => {
+    expect(collectionUpdateToV2({ is_shared: true, library_ids: [7], max_items: 0 })).toEqual({
+      is_shared: true,
       library_ids: ["7"],
       max_items: 0,
     });

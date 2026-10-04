@@ -1,49 +1,72 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({ isActingAdmin: false }));
-
-vi.mock("@/hooks/useIsActingAdmin", () => ({
-  useIsActingAdmin: () => mocks.isActingAdmin,
-}));
-
-vi.mock("@/hooks/queries/libraryCollections", () => ({
-  useLibraryCollections: () => ({
-    data: { groups: [], ungrouped: { collections: [], sort_order: 0 } },
-    isLoading: false,
-  }),
-}));
+import { describe, expect, it, vi } from "vitest";
 
 import LibraryCollections from "./LibraryCollections";
 
-function render() {
-  return renderToStaticMarkup(
-    <MemoryRouter>
-      <LibraryCollections libraryId={7} />
-    </MemoryRouter>,
-  );
-}
+vi.mock("@/hooks/queries/libraryCollections", () => ({
+  useLibraryCollections: () => ({
+    isLoading: false,
+    data: {
+      groups: [
+        {
+          id: "lcg_user_1",
+          name: "My collections",
+          kind: "user_collections",
+          sort_mode: "manual",
+          sort_order: 0,
+          collections: [
+            {
+              id: "mine",
+              title: "Rainy days",
+              poster_url: "",
+              item_count: 3,
+              creator_profile_id: "p-me",
+            },
+            {
+              id: "theirs",
+              title: "Family night",
+              poster_url: "",
+              item_count: 5,
+              creator_profile_id: "p-parent",
+            },
+          ],
+        },
+      ],
+      ungrouped: null,
+    },
+  }),
+}));
+vi.mock("@/hooks/queries/profiles", () => ({
+  useProfiles: () => ({
+    data: [
+      { id: "p-me", name: "Me" },
+      { id: "p-parent", name: "Parent" },
+    ],
+  }),
+}));
+vi.mock("@/hooks/useCurrentProfile", () => ({
+  useCurrentProfile: () => ({ profile: { id: "p-me" } }),
+}));
+vi.mock("@/hooks/useUICustomization", () => ({
+  useUICustomization: () => ({
+    cardPresentation: { poster_size: "medium", caption: "title_metadata" },
+  }),
+}));
+vi.mock("@/hooks/queries/sidebarPins", () => ({
+  useToggleSidebarPin: () => ({ togglePin: vi.fn(), isPinned: () => false, canToggle: false }),
+}));
+vi.mock("@/hooks/useViewTransition", () => ({ useViewTransitionNavigate: () => vi.fn() }));
 
-describe("LibraryCollections empty state", () => {
-  beforeEach(() => {
-    mocks.isActingAdmin = false;
-  });
-
-  it("gives regular users a plain message without admin directions", () => {
-    const markup = render();
-
-    expect(markup).toContain("No collections yet");
-    expect(markup).not.toContain("admin");
-    expect(markup).not.toContain("<a");
-  });
-
-  it("links admins to Admin Collections for this library", () => {
-    mocks.isActingAdmin = true;
-
-    const markup = render();
-
-    expect(markup).toContain("No collections yet");
-    expect(markup).toContain('href="/admin/collections?libraryId=7"');
+describe("LibraryCollections", () => {
+  it("labels another profile's shared collection with its owner", () => {
+    render(
+      <MemoryRouter>
+        <LibraryCollections libraryId={1} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("by Parent")).toBeTruthy();
+    expect(screen.queryByText("by Me")).toBeNull();
+    expect(screen.getByText("User collection")).toBeTruthy();
   });
 });

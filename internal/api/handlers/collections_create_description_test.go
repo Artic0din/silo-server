@@ -165,7 +165,7 @@ func TestPersonalCollectionCreateDescriptionDB(t *testing.T) {
 	})
 	t.Run("another profile cannot change a shared collection", func(t *testing.T) {
 		shared, err := h.CreatePersonalCollection(ctx, PersonalCollectionCreateCommand{UserID: f.account, ProfileID: "owner", Request: PersonalCollectionCreateRequest{
-			Name: "Shared", Description: "Ours", IsShared: true, AllowedProfileIDs: []string{"viewer"},
+			Name: "Shared", Description: "Ours", IsShared: true,
 		}})
 		if err != nil {
 			t.Fatal(err)
