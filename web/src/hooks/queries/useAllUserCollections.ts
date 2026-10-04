@@ -12,12 +12,15 @@ export interface CollectionOption {
   library_id?: number;
   library_name?: string;
   collection_type?: LibraryCollection["collection_type"];
-  source_config?: LibraryCollection["source_config"];
   last_sync_status?: LibraryCollection["last_sync_status"];
+  item_count?: number;
+  poster_url?: string;
+  poster_thumbhash?: string;
 }
 
 type LibrarySummary = { id: number; name: string };
-type UserCollectionSummary = Pick<Collection, "id" | "name">;
+type UserCollectionSummary = Pick<Collection, "id" | "name"> &
+  Partial<Pick<Collection, "collection_type" | "item_count" | "poster_url" | "poster_thumbhash">>;
 
 export function buildAllUserCollectionOptions(
   libraries: readonly LibrarySummary[],
@@ -32,6 +35,10 @@ export function buildAllUserCollectionOptions(
       title: collection.name,
       source: "user",
       group: "My Collections",
+      collection_type: collection.collection_type,
+      item_count: collection.item_count,
+      poster_url: collection.poster_url,
+      poster_thumbhash: collection.poster_thumbhash,
     });
   }
 
@@ -59,8 +66,10 @@ export function buildAllUserCollectionOptions(
         library_id: library.id,
         library_name: library.name,
         collection_type: collection.collection_type,
-        source_config: collection.source_config,
         last_sync_status: collection.last_sync_status,
+        item_count: collection.item_count,
+        poster_url: collection.poster_url,
+        poster_thumbhash: collection.poster_thumbhash,
       };
       libraryOptions.set(collection.id, { option, libraryNames: [library.name] });
       collections.push(option);

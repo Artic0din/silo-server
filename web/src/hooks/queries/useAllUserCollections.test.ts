@@ -26,6 +26,25 @@ describe("buildAllUserCollectionOptions", () => {
     ]);
   });
 
+  it("leaves the source config out of a library collection option", () => {
+    const options = buildAllUserCollectionOptions([{ id: 1, name: "Movies" }], undefined, [
+      [{ ...libraryCollection("library", "Staff Picks"), source_config: { mode: "x" } }],
+    ]);
+
+    expect(options).toEqual([
+      {
+        id: "library",
+        title: "Staff Picks",
+        source: "library",
+        group: "Movies",
+        library_id: 1,
+        library_name: "Movies",
+        collection_type: "smart",
+        last_sync_status: "success",
+      },
+    ]);
+  });
+
   it("lists a multi-library collection once with its combined scope", () => {
     const shared = libraryCollection("shared", "Network Originals");
 
@@ -64,6 +83,57 @@ describe("buildAllUserCollectionOptions", () => {
     expect(options.map(({ id, group }) => ({ id, group }))).toEqual([
       { id: "movies", group: "Movies" },
       { id: "shows", group: "TV Shows" },
+    ]);
+  });
+
+  it("carries the poster, title count and type of both sources for the row picker", () => {
+    const options = buildAllUserCollectionOptions(
+      [{ id: 1, name: "Movies" }],
+      [
+        {
+          id: "personal",
+          name: "Weekend Picks",
+          collection_type: "mdblist",
+          item_count: 12,
+          poster_url: "/p.jpg",
+          poster_thumbhash: "abc",
+        },
+      ],
+      [
+        [
+          {
+            ...libraryCollection("library", "Staff Picks"),
+            collection_type: "manual",
+            item_count: 23,
+            poster_url: "/l.jpg",
+            poster_thumbhash: "def",
+          },
+        ],
+      ],
+    );
+    expect(
+      options.map(({ id, collection_type, item_count, poster_url, poster_thumbhash }) => ({
+        id,
+        collection_type,
+        item_count,
+        poster_url,
+        poster_thumbhash,
+      })),
+    ).toEqual([
+      {
+        id: "personal",
+        collection_type: "mdblist",
+        item_count: 12,
+        poster_url: "/p.jpg",
+        poster_thumbhash: "abc",
+      },
+      {
+        id: "library",
+        collection_type: "manual",
+        item_count: 23,
+        poster_url: "/l.jpg",
+        poster_thumbhash: "def",
+      },
     ]);
   });
 });

@@ -21,11 +21,14 @@ import { filterRecipeCatalog } from "@/lib/sectionTypes";
 
 import {
   buildAdminSectionPayload,
+  buildBulkCopyPayload,
   buildGalleryAddPayload,
   buildGalleryBulkCreateRequest,
   buildGalleryCreateRequest,
   buildProfileGallerySection,
   buildProfileSectionSaveEntry,
+  buildRowCreateRequest,
+  collectionIdOf,
   type BuildAdminSectionPayloadInput,
   type BuildProfileSectionSaveEntryInput,
 } from "./payloads";
@@ -34,6 +37,8 @@ import {
   everyRecipe,
   recipeCatalogFixture,
 } from "./recipeCatalogFixture.test-support";
+import { canCopyToLibraries } from "./bulkCopy";
+import { draftForPreset } from "./rowDraft";
 
 const uuid = vi.hoisted(() => ({ next: 0 }));
 vi.mock("@/lib/uuid", () => ({ randomUUID: () => `uuid-${++uuid.next}` }));
@@ -102,13 +107,6 @@ function profileRow(overrides: Partial<SettingsSectionEntry>): SettingsSectionEn
 }
 
 // The drawer's open effect: the draft starts from the row as stored.
-function collectionIdOf(config?: Record<string, unknown>): string {
-  const user = config?.user_collection_id;
-  if (typeof user === "string" && user) return user;
-  const library = config?.library_collection_id;
-  return typeof library === "string" ? library : "";
-}
-
 function draftOf(row: {
   section_type: string;
   title: string;
@@ -137,6 +135,7 @@ function editAdminRow(
     currentLibraryId: row.library_id,
     enabled: row.enabled,
     ...draftOf(row),
+    selectedCollectionId: collectionIdOf(row.config, "admin"),
     ...changes,
   });
 }
@@ -428,6 +427,59 @@ describe("admin bulk create", () => {
     }
   });
 
+  it("sends an Add row draft's library copies with the single create body apart from the libraries", async () => {
+    for (const { def, preset } of everyPreset()) {
+      const draft = draftForPreset(def, preset);
+      if (!canCopyToLibraries(draft)) continue;
+      const page = { kind: "library", libraryId: LIBRARY_ID } as const;
+      const single = await sent(() =>
+        createAdminSection(buildRowCreateRequest(draft, draft.title, page, 3)),
+      );
+      const bulk = await sent(() =>
+        bulkCreateAdminSections(buildBulkCopyPayload({ ...draft, enabled: true }, [LIBRARY_ID, 8])),
+      );
+      const {
+        library_id: _library,
+        position: _position,
+        ...singleRest
+      } = single.body as Record<string, unknown>;
+      const { library_ids: bulkLibraries, ...bulkRest } = bulk.body as Record<string, unknown>;
+      expect(bulk.route).toBe("POST /api/v2/admin/sections/bulk");
+      expect(bulkLibraries).toEqual([String(LIBRARY_ID), "8"]);
+      expect(bulkRest, `${def.type}/${preset.key}`).toEqual(singleRest);
+    }
+  });
+
+  it("copies an existing row as it is, never as a hero banner", async () => {
+    const copy = await sent(() =>
+      bulkCreateAdminSections(
+        buildBulkCopyPayload(
+          {
+            sectionType: "trending_on_server",
+            title: "Trending This Week",
+            itemLimit: 30,
+            config: { window: "7d" },
+            enabled: false,
+          },
+          [8, 9],
+        ),
+      ),
+    );
+    expect(copy).toEqual({
+      route: "POST /api/v2/admin/sections/bulk",
+      body: {
+        scope: "library",
+        library_ids: ["8", "9"],
+        section_type: "trending_on_server",
+        title: "Trending This Week",
+        item_limit: 30,
+        featured: false,
+        enabled: false,
+        config: { window: "7d" },
+      },
+    });
+  });
+
   it("marks the confirmation payload as applied to all chosen libraries", () => {
     const fields = galleryFields("recently_added", "Recently Added", {});
     expect(buildGalleryAddPayload(fields)).toMatchObject({ apply_to_all_libraries: false });
@@ -595,11 +647,10 @@ describe("profile entries", () => {
     expect(buildSectionOverrides([gallery])[0]).not.toHaveProperty("customized");
   });
 
-  // Known bug: an unchanged collection selection can still rewrite the row's
-  // stored config. The fix keeps the row's collection key when the id isn't in
-  // the picker list, and flips each `it.fails` to `it`.
-  describe("collection id key (known bug)", () => {
-    it.fails("keeps a personal collection row's key when its id is not in the options", () => {
+  // An unchanged collection selection keeps the row's stored config, whatever
+  // the picker list holds; only a picked collection writes a new id key.
+  describe("collection id key", () => {
+    it("keeps a personal collection row's key when its id is not in the options", () => {
       const row = profileRow({
         section_type: "collection",
         config: { user_collection_id: "gone" },
@@ -608,18 +659,85 @@ describe("profile entries", () => {
       expect(saved.config).toEqual({ user_collection_id: "gone" });
     });
 
-    it.fails("keeps a collection row's other keys while the options are still loading", () => {
+    it("keeps a collection row's other keys while the options are still loading", () => {
       const config = { library_collection_id: "lib-1", generated_source: "collection_auto" };
       const row = profileRow({ section_type: "collection", config });
       const saved = editProfileRow(row, { title: "Renamed", collections: [] });
       expect(saved.config).toEqual(config);
     });
 
-    it.fails("keeps a collection row's other keys on a hero toggle", () => {
+    it("keeps a collection row's other keys on a hero toggle", () => {
       const config = { user_collection_id: "user-1", sort_by: "release_date" };
       const row = profileRow({ section_type: "collection", config });
       const saved = editProfileRow(row, { featured: true, collections: COLLECTION_OPTIONS });
       expect(saved.config).toEqual(config);
+    });
+
+    it("writes the picked collection's key and drops the old one", () => {
+      const row = profileRow({
+        section_type: "collection",
+        config: { user_collection_id: "user-1", sort_by: "release_date" },
+      });
+      const toLibrary = editProfileRow(row, {
+        selectedCollectionId: "lib-1",
+        collections: COLLECTION_OPTIONS,
+      });
+      expect(toLibrary.config).toEqual({ library_collection_id: "lib-1", sort_by: "release_date" });
+
+      const libraryRow = profileRow({
+        section_type: "collection",
+        config: { library_collection_id: "lib-1" },
+      });
+      const toUser = editProfileRow(libraryRow, {
+        selectedCollectionId: "user-1",
+        collections: COLLECTION_OPTIONS,
+      });
+      expect(toUser.config).toEqual({ user_collection_id: "user-1" });
+    });
+
+    it("starts a row that becomes a collection row from the picked key alone", () => {
+      const row = profileRow({ section_type: "recently_added", config: { filter_library_id: 2 } });
+      const saved = editProfileRow(row, {
+        sectionType: "collection",
+        selectedCollectionId: "user-1",
+        collections: COLLECTION_OPTIONS,
+      });
+      expect(saved.config).toEqual({ user_collection_id: "user-1" });
+    });
+
+    it("keeps an admin row's stored config when the selection is unchanged", () => {
+      const config = { library_collection_id: "lib-gone", sort_by: "title" };
+      const row = adminRow({ section_type: "collection", config });
+      expect(editAdminRow(row, { title: "Renamed" }).config).toEqual(config);
+      expect(editAdminRow(row, { featured: true, collections: [] }).config).toEqual(config);
+    });
+
+    // The admin endpoint rejects a collection row without library_collection_id,
+    // so a legacy user_collection_id is no selection there.
+    it("never sends a legacy personal collection key from an admin row", () => {
+      const row = adminRow({
+        section_type: "collection",
+        config: { user_collection_id: "legacy", sort_by: "title" },
+      });
+      expect(collectionIdOf(row.config, "admin")).toBe("");
+      expect(editAdminRow(row, { title: "Renamed" }).config).not.toHaveProperty(
+        "user_collection_id",
+      );
+      expect(editAdminRow(row, { selectedCollectionId: "legacy" }).config).toEqual({
+        library_collection_id: "legacy",
+        sort_by: "title",
+      });
+    });
+
+    it("writes a library key when an admin picks another collection", () => {
+      const row = adminRow({
+        section_type: "collection",
+        config: { user_collection_id: "legacy", sort_by: "title" },
+      });
+      expect(editAdminRow(row, { selectedCollectionId: "lib-1" }).config).toEqual({
+        library_collection_id: "lib-1",
+        sort_by: "title",
+      });
     });
   });
 });
