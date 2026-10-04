@@ -13,12 +13,8 @@ import {
   buildProfileRowUpdate,
   nextAppendPosition,
 } from "@/lib/homeRows/payloads";
-import {
-  peekItemsOf,
-  profilePeekKey,
-  profilePeekSeed,
-  type PeekRequest,
-} from "@/lib/homeRows/peek";
+import type { PeekRequest } from "@/components/calm/usePeekLimiter";
+import { peekItemsOf, profilePeekKey, profilePeekSeed } from "@/lib/homeRows/peek";
 import { draftFromRow, mergeReloadedDraft, type RowDraft } from "@/lib/homeRows/rowDraft";
 import { ruleRowKinds } from "@/lib/homeRows/ruleRows";
 import type {

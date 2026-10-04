@@ -1,19 +1,25 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { ArrowDownToLine, ArrowUpToLine, Plus } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, House, Plus } from "lucide-react";
+import {
+  ActionMenu,
+  type ActionMenuAction,
+  type ActionMenuItem,
+} from "@/components/calm/ActionMenu";
+import { CalmPage } from "@/components/calm/CalmPage";
+import { PageMoreMenu, type PageMoreMenuItem } from "@/components/calm/PageMoreMenu";
+import { PillSwitcher } from "@/components/calm/PillSwitcher";
+import { SelectAllHeader } from "@/components/calm/SelectModeBar";
 import { Button } from "@/components/ui/button";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { describeRow, type DescribeContext } from "@/lib/homeRows/describe";
-import { pageLabel } from "@/lib/homeRows/pages";
+import { pageLabel, pageParam } from "@/lib/homeRows/pages";
 import type { HomeRow, HomeRowsAdapter } from "@/lib/homeRows/types";
 import { cn } from "@/lib/utils";
 import { MobileDockBar } from "./MobileDockBar";
 import { ConflictBanner, LibraryPageNote, ReorderHint } from "./notes";
-import { PageMoreMenu, type PageMoreMenuItem } from "./PageMoreMenu";
-import { PageSwitcher } from "./PageSwitcher";
 import { RowLine } from "./RowLine";
 import { RowList } from "./RowList";
-import { RowMenu, type RowMenuItem } from "./RowMenu";
-import { SelectAllHeader } from "./SelectModeBar";
+import { MAX_SELECTED_ROWS } from "./SelectModeBar";
 import type { RowFocus } from "./useRowFocus";
 
 /** Select mode. While it is on, rows carry checkboxes instead of grips and cannot be dragged. */
@@ -33,8 +39,8 @@ const NARROW_QUERY = "(max-width: 1023px)";
 
 /** Menu items every surface offers; the surface decides where they go. */
 export interface SharedRowMenuItems {
-  moveToTop: RowMenuItem;
-  moveToBottom: RowMenuItem;
+  moveToTop: ActionMenuAction;
+  moveToBottom: ActionMenuAction;
 }
 
 /**
@@ -67,7 +73,7 @@ export function HomeRowsPage({
   onMoreOpenChange?: (open: boolean) => void;
   addRow: { onClick: () => void; disabled?: boolean };
   notices?: ReactNode;
-  rowMenuItems: (row: HomeRow, shared: SharedRowMenuItems) => RowMenuItem[];
+  rowMenuItems: (row: HomeRow, shared: SharedRowMenuItems) => ActionMenuItem[];
   onOpenRow?: (row: HomeRow) => void;
   collection?: DescribeContext["collection"];
   /** Present while select mode is on. */
@@ -179,42 +185,36 @@ export function HomeRowsPage({
   );
 
   return (
-    // One column that may shrink below its content's width, so the page pills
-    // scroll instead of pushing the list past the right edge of a phone.
-    <div
-      className={cn(
-        "mx-auto grid max-w-[1000px] grid-cols-[minmax(0,1fr)] gap-7",
-        (narrow || selectMode) && "pb-24",
-      )}
-    >
-      <header className="page-header gap-5">
-        {surface === "admin" ? (
-          <div className="space-y-3">
-            <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{title}</h1>
-            <p className="page-subtitle max-w-[76ch] text-sm sm:text-base">{subtitle}</p>
-          </div>
-        ) : (
-          // Settings > Home Screen sits under the Settings page's own heading.
-          <div className="space-y-3">
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h2>
-            <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">{subtitle}</p>
-          </div>
-        )}
-        {narrow ? null : (
-          // Stays at the right when the header wraps, so More's menu opens over the list.
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+    <CalmPage
+      // Settings > Home Screen sits under the Settings page's own heading.
+      heading={surface === "admin" ? "page" : "section"}
+      title={title}
+      subtitle={subtitle}
+      actions={
+        narrow ? null : (
+          <>
             {more}
             {addButton}
-          </div>
-        )}
-      </header>
-
+          </>
+        )
+      }
+      padBottom={narrow || selectMode}
+    >
       {notices}
 
-      <PageSwitcher
-        pages={adapter.pages}
-        value={page}
-        onChange={adapter.setPage}
+      <PillSwitcher
+        label="Page"
+        options={adapter.pages.map((option, index) => ({
+          value: pageParam(option.ref),
+          label: option.label,
+          icon: option.ref.kind === "home" ? House : undefined,
+          separated: index === 1,
+        }))}
+        value={pageParam(page)}
+        onChange={(value) => {
+          const next = adapter.pages.find((option) => pageParam(option.ref) === value);
+          if (next) adapter.setPage(next.ref);
+        }}
         disabled={adapter.pending}
         summary={summary}
       />
@@ -240,8 +240,10 @@ export function HomeRowsPage({
             {selection ? (
               <SelectAllHeader
                 ref={selectAll}
-                rowCount={rows.length}
+                count={rows.length}
                 selectedCount={selectedCount}
+                limit={MAX_SELECTED_ROWS}
+                noun="rows"
                 onSelectAll={selection.onSelectAll}
                 onDone={selection.onExit}
               />
@@ -286,8 +288,8 @@ export function HomeRowsPage({
                       onShownChange={(shown) => void adapter.setShown(row.id, shown)}
                       onOpen={onOpenRow ? () => onOpenRow(row) : undefined}
                       menu={
-                        <RowMenu
-                          rowTitle={row.title}
+                        <ActionMenu
+                          label={`More for ${row.title}`}
                           triggerRef={focus.attachMenuTrigger(row.id)}
                           items={rowMenuItems(row, sharedItems(row, rows.indexOf(row)))}
                         />
@@ -304,6 +306,6 @@ export function HomeRowsPage({
       )}
       {narrow && !selectMode ? <MobileDockBar more={more} addRow={addButton} /> : null}
       {children}
-    </div>
+    </CalmPage>
   );
 }

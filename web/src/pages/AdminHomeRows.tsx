@@ -36,7 +36,7 @@ import {
 import { V2ProblemError } from "@/api/v2/request";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
 import { DeleteRowDialog, DeleteRowsDialog } from "@/components/homeRows/DeleteRowDialog";
-import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
+import type { PageMoreMenuItem } from "@/components/calm/PageMoreMenu";
 import { RestoreDialog } from "@/components/homeRows/RestoreDialog";
 import { RuleRowsOffDialog } from "@/components/homeRows/RuleRowsOffDialog";
 import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
@@ -44,7 +44,7 @@ import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { AddToOtherLibrariesDialog } from "@/components/homeRows/AddToOtherLibrariesDialog";
 import { canCopyToLibraries, copyTargetPages } from "@/lib/homeRows/bulkCopy";
 import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe";
-import type { RowMenuItem } from "@/components/homeRows/RowMenu";
+import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
 import { libraryPagesOf, pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
@@ -377,7 +377,7 @@ export default function AdminHomeRows() {
     });
   }
 
-  function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): RowMenuItem[] {
+  function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): ActionMenuItem[] {
     const section = sectionFor(row);
     const busy = !canManageCurrentScope || snapshotLoading || !section;
     return [

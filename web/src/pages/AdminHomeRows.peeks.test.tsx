@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PEEK_STALE_MS } from "@/lib/homeRows/peek";
+import { PEEK_STALE_MS } from "@/components/calm/usePeekLimiter";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import AdminHomeRows from "./AdminHomeRows";
 

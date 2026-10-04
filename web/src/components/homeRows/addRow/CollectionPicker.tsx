@@ -6,7 +6,7 @@ import { RadioDot, RadioGroup } from "@/components/ui/radio-group";
 import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import { collectionKind, titleCount } from "@/lib/homeRows/describe";
 import type { RowCollections } from "@/lib/homeRows/types";
-import { PosterArt } from "../PosterTile";
+import { PosterArt } from "@/components/calm/PosterTile";
 
 const FILTERS = ["All", "Manual", "Smart", "Synced list"] as const;
 type Filter = (typeof FILTERS)[number];

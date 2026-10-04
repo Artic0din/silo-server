@@ -21,10 +21,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { HomeRow } from "@/lib/homeRows/types";
-import type { RowLineProps } from "./RowLine";
+import type { ListRowProps } from "@/components/calm/ListRow";
 
 /** What the list hands each row so it can be dragged by its grip only. */
-export type SortableRowProps = Pick<RowLineProps, "handleProps" | "ref" | "style" | "dragging">;
+export type SortableRowProps = Pick<ListRowProps, "handleProps" | "ref" | "style" | "dragging">;
 
 const TOUCH_DRAG_DELAY_MS = 200;
 
