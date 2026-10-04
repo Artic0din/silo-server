@@ -62,7 +62,6 @@ func (h *CollectionHandler) UpdatePersonalCollection(ctx context.Context, cmd Pe
 		RequestProfileID:           profileID,
 		Name:                       req.Name,
 		Description:                req.Description,
-		AllowedProfileIDs:          req.AllowedProfileIDs,
 		IncludeInServerCollections: req.IncludeInServerCollections,
 	}
 	if req.DisplayQueryDefinition != nil {

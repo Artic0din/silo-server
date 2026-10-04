@@ -16,6 +16,7 @@ import {
   queryDefinitionToDisplayFilters,
 } from "@/lib/collectionDisplayFilters";
 import { CollectionLibraryPicker } from "@/pages/adminCollectionsShared";
+import { isOwnCollection, ownerName } from "@/lib/collections/personalOwnership";
 import CollectionBuilder, {
   createCollectionBuilderValue,
   type CollectionBuilderValue,
@@ -45,10 +46,7 @@ export function toUserCollectionBuilderValue(
     collection_type: builderCollectionType(collection?.collection_type ?? "smart"),
     query_definition: collection?.query_definition,
     sort_config: collection?.sort_config ?? {},
-    access: {
-      is_shared: collection?.is_shared ?? false,
-      allowed_profile_ids: collection?.allowed_profile_ids ?? [],
-    },
+    is_shared: collection?.is_shared ?? false,
     include_in_server_collections: collection?.include_in_server_collections ?? false,
     display_query_definition: collection?.display_query_definition,
   });
@@ -58,8 +56,7 @@ export function toCreateCollectionBody(value: CollectionBuilderValue): CreateCol
   const body: CreateCollectionRequest = {
     name: value.title,
     collection_type: value.collection_type,
-    is_shared: value.access.is_shared,
-    allowed_profile_ids: value.access.allowed_profile_ids,
+    is_shared: value.is_shared,
     query_definition: value.collection_type === "smart" ? value.query_definition : undefined,
     sort_config: value.collection_type === "smart" ? value.sort_config : undefined,
     include_in_server_collections: value.include_in_server_collections,
@@ -73,8 +70,7 @@ export function toCreateCollectionBody(value: CollectionBuilderValue): CreateCol
 export function toUpdateCollectionBody(value: CollectionBuilderValue): UpdateCollectionRequest {
   const body: UpdateCollectionRequest = {
     name: value.title,
-    is_shared: value.access.is_shared,
-    allowed_profile_ids: value.access.allowed_profile_ids,
+    is_shared: value.is_shared,
     query_definition: value.collection_type === "smart" ? value.query_definition : undefined,
     sort_config: value.collection_type === "smart" ? value.sort_config : undefined,
     include_in_server_collections: value.include_in_server_collections,
@@ -85,6 +81,7 @@ export function toUpdateCollectionBody(value: CollectionBuilderValue): UpdateCol
   return body;
 }
 
+/** Another profile's collection opens read-only (only its creator changes it). */
 export function isCollectionReadOnly(
   collection: Collection | null,
   currentProfileId?: string | null,
@@ -92,7 +89,7 @@ export function isCollectionReadOnly(
   if (!collection || !currentProfileId) {
     return false;
   }
-  return collection.creator_profile_id !== currentProfileId;
+  return !isOwnCollection(collection, currentProfileId);
 }
 
 function UserCollectionSummary({
@@ -104,11 +101,6 @@ function UserCollectionSummary({
   collection: Collection | null;
   libraries: Array<{ id: number; name: string }>;
 }) {
-  const profileSummary =
-    draft.access.allowed_profile_ids.length > 0
-      ? `${draft.access.allowed_profile_ids.length} selected`
-      : "All profiles";
-
   const { watch: displayWatch, media: displayMedia } = queryDefinitionToDisplayFilters(
     draft.display_query_definition,
   );
@@ -137,8 +129,7 @@ function UserCollectionSummary({
             <SummaryRow label="Content" value={collectionMediaFilterLabel(displayMedia)} />
           </>
         ) : null}
-        <SummaryRow label="Shared" value={draft.access.is_shared ? "Yes" : "No"} />
-        <SummaryRow label="Profiles" value={profileSummary} />
+        <SummaryRow label="Show to other profiles" value={draft.is_shared ? "Yes" : "No"} />
         <SummaryRow
           label="In my library tab"
           value={draft.include_in_server_collections ? "Yes" : "No"}
@@ -222,14 +213,13 @@ export function UserCollectionForm({
       onChange={setDraft}
       onSubmit={handleSubmit}
       submitLabel="Save Collection"
-      profiles={profiles.map((entry) => ({ id: entry.id, name: entry.name }))}
       libraries={builderLibraries}
       allowAccessControls
       allowLibrarySelection
       isPending={isPending}
       readOnly={readOnly}
       lockCollectionType={Boolean(collection)}
-      creatorProfileId={collection?.creator_profile_id ?? null}
+      ownerName={collection ? ownerName(profiles, collection.creator_profile_id) : null}
       previewLayout="sidebar"
       sidebarContent={
         <UserCollectionSummary draft={draft} collection={collection} libraries={builderLibraries} />
