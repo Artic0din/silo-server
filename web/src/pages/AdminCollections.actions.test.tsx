@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
@@ -44,9 +45,8 @@ vi.mock("@/hooks/queries/admin/collectionGroups", () => ({
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollectionCapabilities: () => ({ data: { groups: false, imports: true } }),
   useAdminCollections: () => ({ data: state.collections, isLoading: false }),
-  useDeleteAdminCollection: idle,
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
-  useSyncAdminCollection: () => ({ ...idle(), variables: undefined }),
+  useSetAdminCollectionVisibility: idle,
   useTemplateBundleApplyJobs: () => ({ data: [] }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
@@ -100,40 +100,28 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("AdminCollections actions", () => {
-  it("offers Sync on the all-libraries list only for list-backed collections", () => {
-    state.collections = [
-      collection("Top Rated", "mdblist"),
-      collection("Action Night", "smart"),
-      collection("Staff Picks", "manual"),
-    ];
-    renderPage("/admin/collections");
-
-    expect(screen.getByRole("button", { name: "Sync Top Rated" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sync Action Night" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sync Staff Picks" })).not.toBeInTheDocument();
-  });
-
-  it("says a library board delete removes a shared collection from every library", async () => {
+describe("AdminCollections Arrange actions", () => {
+  it("says a board delete removes a shared collection from every library it's in", async () => {
     state.collections = [collection("Shared", "manual", [1, 2, 3])];
     renderPage("/admin/collections?libraryId=1");
 
     fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
 
-    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      'Delete collection "Shared"? It will be removed from all 3 libraries it belongs to.',
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Shared?" });
+    expect(dialog).toHaveTextContent(
+      "It's removed from Movies, Kids and 4K for everyone. This can't be undone.",
     );
   });
 
-  it("does not mention other libraries for a single-library collection", async () => {
+  it("names only its own library for a single-library collection", async () => {
     state.collections = [collection("Solo", "manual")];
     renderPage("/admin/collections?libraryId=1");
 
     fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
 
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent('Delete collection "Solo"? This action cannot be undone.');
-    expect(dialog).not.toHaveTextContent("libraries");
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Solo?" });
+    expect(dialog).toHaveTextContent("It's removed from Movies for everyone.");
+    expect(dialog).not.toHaveTextContent("Kids");
   });
 
   it("says a library board bulk delete removes shared collections from their other libraries", async () => {
@@ -163,16 +151,18 @@ describe("AdminCollections actions", () => {
     );
   });
 
-  it("warns on the all-libraries list when a selected collection is in more than one library", async () => {
-    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
-    renderPage("/admin/collections");
+  it("deletes only what the List's filters show from More", async () => {
+    state.collections = [collection("Top Rated", "mdblist"), collection("Solo", "manual")];
+    renderPage("/admin/collections?type=synced");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shared in Movies" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete all in this view…" }));
 
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Delete 1 selected collection? Collections in more than one library will be removed from all of them.",
+      "Delete all 1 collections in this view?",
     );
+    expect(state.prepareDeletes).toHaveBeenCalledWith(["Top Rated"]);
   });
 
   it("does not mention other libraries when no selected collection is shared", async () => {
