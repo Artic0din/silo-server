@@ -17,7 +17,7 @@ import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
 import { useAdminRowCollections } from "./useRowCollectionOptions";
-import { pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
+import { libraryPagesOf, pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
 import {
   adminPeekKey,
   fetchRowPreview,
@@ -166,6 +166,7 @@ export function useAdminHomeRows(): AdminHomeRows {
       ...libraries.map((library) => ({
         ref: { kind: "library" as const, libraryId: library.id },
         label: library.name,
+        libraryType: library.type,
       })),
     ],
     [libraries],
@@ -366,7 +367,7 @@ export function useAdminHomeRows(): AdminHomeRows {
   const create = useCallback(
     (draft: RowDraft) =>
       enqueue(async () => {
-        const copies = libraryCopyIds(draft, page);
+        const copies = libraryCopyIds(draft, page, libraryPagesOf(pages));
         if (page.kind === "library" && copies.length > 0) {
           // One transaction puts the row at the bottom of each page. It returns
           // no ids, so the new row here is the one the refetch adds.
@@ -389,7 +390,7 @@ export function useAdminHomeRows(): AdminHomeRows {
         await refresh();
         return { newIds: [created.id] };
       }),
-    [currentList, enqueue, page, refresh],
+    [currentList, enqueue, page, pages, refresh],
   );
 
   const copyToLibraries = useCallback(

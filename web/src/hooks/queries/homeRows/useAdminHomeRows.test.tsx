@@ -188,7 +188,7 @@ describe("useAdminHomeRows", () => {
     ]);
     expect(result.current.adapter.pages).toEqual([
       { ref: { kind: "home" }, label: "Home" },
-      { ref: { kind: "library", libraryId: 7 }, label: "Movies" },
+      { ref: { kind: "library", libraryId: 7 }, label: "Movies", libraryType: "movies" },
     ]);
   });
 

@@ -15,6 +15,15 @@ export type PageRef = { kind: "home" } | { kind: "library"; libraryId: number };
 export interface HomeRowsPageOption {
   ref: PageRef;
   label: string;
+  /** A library page's library type ("movies", "series", ...), when known. */
+  libraryType?: string;
+}
+
+/** A library page a row can be added to. */
+export interface LibraryPage {
+  id: number;
+  label: string;
+  libraryType?: string;
 }
 
 export interface HomeRow {

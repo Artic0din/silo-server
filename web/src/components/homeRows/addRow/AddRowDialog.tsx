@@ -20,7 +20,7 @@ import {
   rowKindSentence,
   type PickerCard,
 } from "@/lib/homeRows/catalog";
-import { canCopyToLibraries, libraryCopyIds } from "@/lib/homeRows/bulkCopy";
+import { canCopyToLibraries, copyTargetPages, libraryCopyIds } from "@/lib/homeRows/bulkCopy";
 import { pageLabel as labelOfPage, libraryPagesOf } from "@/lib/homeRows/pages";
 import { collectionIdOf } from "@/lib/homeRows/payloads";
 import {
@@ -194,17 +194,20 @@ export function AddRowDialog({
   else if (adapter.capabilities.draftPreview && previewWait) previewOffText = previewWait;
   const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
   // A new row on a library page may go to other library pages too, when its
-  // settings can be copied as they are.
-  const copyPages =
+  // settings can be copied as they are, but only to pages it fits.
+  const targetPages =
     !editing &&
     adapter.capabilities.libraryCopies &&
     adapter.page.kind === "library" &&
-    libraryPages.length > 1 &&
     draft !== null &&
     canCopyToLibraries(draft)
-      ? { pages: libraryPages, currentId: adapter.page.libraryId }
+      ? copyTargetPages(draft.config, libraryPages, adapter.page.libraryId)
+      : [];
+  const copyPages =
+    adapter.page.kind === "library" && targetPages.length > 1
+      ? { pages: targetPages, currentId: adapter.page.libraryId }
       : undefined;
-  const copies = copyPages && draft ? libraryCopyIds(draft, adapter.page) : [];
+  const copies = copyPages && draft ? libraryCopyIds(draft, adapter.page, libraryPages) : [];
   const preview = useRowPreview(
     draft ?? { sectionType: "", config: {} },
     adapter.page,

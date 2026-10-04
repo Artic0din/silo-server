@@ -31,7 +31,7 @@ import { RestoreDialog } from "@/components/homeRows/RestoreDialog";
 import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { AddToOtherLibrariesDialog } from "@/components/homeRows/AddToOtherLibrariesDialog";
-import { canCopyToLibraries } from "@/lib/homeRows/bulkCopy";
+import { canCopyToLibraries, copyTargetPages } from "@/lib/homeRows/bulkCopy";
 import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
@@ -132,7 +132,9 @@ export default function AdminHomeRows() {
   // ⋯ Add to other libraries…: the row being copied.
   const [copyRow, setCopyRow] = useState<HomeRow | null>(null);
   const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
-  const offerLibraryCopies = adapter.capabilities.libraryCopies && libraryPages.length > 1;
+  /** The library pages a row on this page fits, this page included. */
+  const copyPagesFor = (row: HomeRow) =>
+    activeLibraryId === null ? [] : copyTargetPages(row.config, libraryPages, activeLibraryId);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -355,7 +357,9 @@ export default function AdminHomeRows() {
       },
       shared.moveToTop,
       shared.moveToBottom,
-      ...(offerLibraryCopies && canCopyToLibraries(row)
+      ...(adapter.capabilities.libraryCopies &&
+      canCopyToLibraries(row) &&
+      copyPagesFor(row).length > 1
         ? [
             {
               key: "copy",
@@ -502,7 +506,7 @@ export default function AdminHomeRows() {
         {copyRow && activeLibraryId !== null ? (
           <AddToOtherLibrariesDialog
             row={copyRow}
-            pages={libraryPages}
+            pages={copyPagesFor(copyRow)}
             currentId={activeLibraryId}
             onCopy={(ids) => adapter.copyToLibraries(copyRow.id, ids)}
             onClose={() => {
