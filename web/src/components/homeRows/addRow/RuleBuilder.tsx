@@ -19,15 +19,16 @@ import { normalizeQuerySortForScope, querySortScopeForMediaScope } from "@/lib/q
 
 type MediaScope = NonNullable<QueryDefinition["media_scope"]> | "all";
 
+// Lower-case: each name reads inside the sentence ("Show movies from …").
 const SCOPES: ReadonlyArray<[MediaScope, string]> = [
-  ["all", "All titles"],
-  ["video", "Movies & shows"],
-  ["movie", "Movies"],
-  ["series", "Shows"],
-  ["episode", "Episodes"],
-  ["audiobook", "Audiobooks"],
-  ["ebook", "Ebooks"],
-  ["manga", "Manga"],
+  ["all", "all titles"],
+  ["video", "movies and shows"],
+  ["movie", "movies"],
+  ["series", "shows"],
+  ["episode", "episodes"],
+  ["audiobook", "audiobooks"],
+  ["ebook", "ebooks"],
+  ["manga", "manga"],
 ];
 
 const INLINE_TRIGGER = "h-9 w-auto gap-1.5 px-3 text-sm font-medium";
@@ -61,8 +62,9 @@ const RULE_NAMES = { all: "all", any: "any" };
 const GROUP_JOIN_NAMES = { all: "and", any: "or" };
 
 /**
- * Step 2 of a rule row: "Show [kind] from [libraries] that match [all/any]
- * of these:", then one line per rule. More groups keep a stored multi-group
+ * Step 2 of a rule row: "Show [movies] from the [Movies, 4K Movies] libraries
+ * that match [all/any] of these:" ("from [all libraries]" when none are
+ * picked), then one line per rule. More groups keep a stored multi-group
  * filter intact; a new group joins with "or" unless the stored groups
  * already join with "and". Rules these controls can't show stay read-only
  * until removed.
@@ -83,6 +85,10 @@ export function RuleBuilder({
   const scope: MediaScope = value.media_scope ?? "all";
   const fieldOptions = getFilterRuleFieldOptions(allowPersonalized, scope);
   const several = groups.length > 1;
+  // Follows the picker's summary: only names it shows get "library"/"libraries" after them.
+  const namedLibraries = value.library_ids.filter((id) =>
+    libraries.some((library) => library.id === id),
+  ).length;
 
   const setGroups = (next: QueryGroup[]) => onChange({ ...value, groups: next });
   const setGroup = (index: number, group: QueryGroup) =>
@@ -169,15 +175,16 @@ export function RuleBuilder({
             ))}
           </SelectContent>
         </Select>
-        <span>from</span>
+        <span>{value.library_ids.length > 0 ? "from the" : "from"}</span>
         <LibraryMultiSelect
           libraries={libraries}
           value={value.library_ids}
           onChange={(libraryIds) => onChange({ ...value, library_ids: libraryIds })}
-          emptyLabel="All libraries"
+          emptyLabel="all libraries"
           triggerLabel="Libraries"
           triggerClassName={`${INLINE_TRIGGER} justify-between`}
         />
+        {namedLibraries > 0 ? <span>{namedLibraries === 1 ? "library" : "libraries"}</span> : null}
         {groups.length > 0 ? (
           <>
             <span>that match</span>
