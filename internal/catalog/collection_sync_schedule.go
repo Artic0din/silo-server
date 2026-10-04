@@ -43,11 +43,16 @@ func computeNextSyncAt(schedule *string) *time.Time {
 // scheduled time after the given reference time, with a small random jitter
 // (0-15 minutes) to prevent thundering herd on subsequent cycles. The
 // expression is evaluated on the node's local clock (time.Local), whatever
-// zone after is in, and the result keeps after's location.
+// zone after is in, and the result keeps after's location. A TZ= or CRON_TZ=
+// prefix stored before ParseCronExpression rejected them is ignored, so every
+// schedule runs in the zone collection capabilities report.
 func ComputeNextSyncAtFrom(schedule string, after time.Time) *time.Time {
 	sched, err := cronParser.Parse(schedule)
 	if err != nil {
 		return nil
+	}
+	if spec, ok := sched.(*cron.SpecSchedule); ok {
+		spec.Location = time.Local
 	}
 	next := sched.Next(after.In(time.Local)).In(after.Location())
 	jitter := time.Duration(rand.IntN(15*60)) * time.Second
