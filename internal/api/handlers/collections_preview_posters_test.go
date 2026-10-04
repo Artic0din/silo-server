@@ -29,7 +29,7 @@ func (f *fakeItemPosters) PresignImageURLs(_ context.Context, paths []string, im
 
 // TestPersonalCollectionPreviewPostersDB covers the poster each smart preview
 // item carries for /api/v2, the frozen /api/v1 preview body that never had
-// one, and #193 S3/S4: a PG profile's preview holds no title above its
+// one (and so signs none), and #193 S3/S4: a PG profile's preview holds no title above its
 // ceiling and none from a library it cannot see, and signs no poster for them.
 func TestPersonalCollectionPreviewPostersDB(t *testing.T) {
 	f := newPagingIntegrationFixture(t)
@@ -51,7 +51,7 @@ func TestPersonalCollectionPreviewPostersDB(t *testing.T) {
 
 	t.Run("items carry a signed poster only when they have one", func(t *testing.T) {
 		signer.batches = nil
-		got, err := h.PreviewPersonalCollection(t.Context(), PersonalCollectionPreviewRequest{QueryDefinition: []byte(query), Limit: 20}, filter)
+		got, err := h.PreviewPersonalCollection(t.Context(), PersonalCollectionPreviewRequest{QueryDefinition: []byte(query), Limit: 20, WithPosters: true}, filter)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +75,7 @@ func TestPersonalCollectionPreviewPostersDB(t *testing.T) {
 	t.Run("without a poster signer items carry no poster", func(t *testing.T) {
 		unsigned := NewCollectionHandler(pgstore.NewPostgresProvider(f.pool))
 		unsigned.Executor = h.Executor
-		got, err := unsigned.PreviewPersonalCollection(t.Context(), PersonalCollectionPreviewRequest{QueryDefinition: []byte(query), Limit: 20}, filter)
+		got, err := unsigned.PreviewPersonalCollection(t.Context(), PersonalCollectionPreviewRequest{QueryDefinition: []byte(query), Limit: 20, WithPosters: true}, filter)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,14 +86,19 @@ func TestPersonalCollectionPreviewPostersDB(t *testing.T) {
 		}
 	})
 
-	t.Run("v1 preview body is unchanged", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/collections/preview", strings.NewReader(`{"query_definition":`+query+`,"limit":20}`))
+	t.Run("v1 preview body is unchanged and signs no posters", func(t *testing.T) {
+		signer.batches = nil
+		// A client cannot opt the frozen route into posters through the body.
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/collections/preview", strings.NewReader(`{"query_definition":`+query+`,"limit":20,"WithPosters":true}`))
 		req = req.WithContext(access.SetScope(req.Context(), scope))
 		rec := httptest.NewRecorder()
 		h.HandlePreviewCollection(rec, req)
 		want := fmt.Sprintf(`{"items":[{"content_id":%q,"title":"Preview 1","type":"movie"},{"content_id":%q,"title":"Preview 3","type":"movie"}],"total":2}`+"\n", f.ids[1], f.ids[3])
 		if rec.Code != http.StatusOK || rec.Body.String() != want {
 			t.Fatalf("v1 preview = %d %s, want %s", rec.Code, rec.Body.String(), want)
+		}
+		if len(signer.batches) != 0 {
+			t.Fatalf("v1 preview signed batches %v, want none", signer.batches)
 		}
 	})
 }

@@ -42,7 +42,7 @@ func TestPreviewCollectionPosterURLs(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
-	if preview.req.Limit != 5 || string(preview.req.QueryDefinition) != `{"match":"all","groups":[]}` {
+	if preview.req.Limit != 5 || !preview.req.WithPosters || string(preview.req.QueryDefinition) != `{"match":"all","groups":[]}` {
 		t.Fatalf("request = %+v", preview.req)
 	}
 	var body struct {

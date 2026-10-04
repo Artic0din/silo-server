@@ -196,7 +196,10 @@ func (h *CollectionHandler) PreviewPersonalCollection(ctx context.Context, req P
 		return none, apiError(http.StatusBadRequest, "bad_request", err.Error())
 	}
 
-	posters := h.previewPosterURLs(ctx, items)
+	var posters map[string]string
+	if req.WithPosters {
+		posters = h.previewPosterURLs(ctx, items)
+	}
 	resp := PersonalCollectionPreviewView{Items: make([]PersonalCollectionPreviewItemView, 0, len(items)), Total: total}
 	for _, item := range items {
 		resp.Items = append(resp.Items, PersonalCollectionPreviewItemView{

@@ -295,7 +295,7 @@ func (reg *Registry) previewPersonalCollection(ctx context.Context, in *Personal
 	if p != nil {
 		return nil, p
 	}
-	v, e := s.PreviewPersonalCollection(ctx, handlers.PersonalCollectionPreviewRequest{QueryDefinition: in.Body.QueryDefinition, Limit: in.Body.Limit}, handlers.AccessFilterFromContext(ctx, ""))
+	v, e := s.PreviewPersonalCollection(ctx, handlers.PersonalCollectionPreviewRequest{QueryDefinition: in.Body.QueryDefinition, Limit: in.Body.Limit, WithPosters: true}, handlers.AccessFilterFromContext(ctx, ""))
 	if e != nil {
 		return nil, collectionProblem(e)
 	}

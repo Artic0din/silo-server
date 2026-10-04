@@ -177,6 +177,9 @@ type PersonalCollectionItemsView struct {
 type PersonalCollectionPreviewRequest struct {
 	QueryDefinition json.RawMessage `json:"query_definition"`
 	Limit           int             `json:"limit"`
+	// WithPosters signs each item's poster. Only the /api/v2 adapter sets it;
+	// the frozen /api/v1 body drops posters, so it skips the presign batch.
+	WithPosters bool `json:"-"`
 }
 
 type PersonalCollectionPreviewView struct {
