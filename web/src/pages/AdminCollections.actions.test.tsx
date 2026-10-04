@@ -53,6 +53,22 @@ vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() 
 vi.mock("@/components/CollectionTemplateGallery", () => ({
   CollectionTemplateGallery: () => null,
 }));
+vi.mock("@/components/collections/StarterPacksDialog", () => ({
+  StarterPacksDialog: ({
+    initialLibraryId,
+    onClose,
+  }: {
+    initialLibraryId: number | null;
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label="Starter packs">
+      Opened on {String(initialLibraryId)}
+      <button type="button" onClick={onClose}>
+        Close
+      </button>
+    </div>
+  ),
+}));
 
 function collection(
   id: string,
@@ -183,5 +199,37 @@ describe("AdminCollections actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
 
     expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("other libraries");
+  });
+
+  it("opens Starter packs from the header and closes it again", () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    renderPage("/admin/collections?libraryId=2");
+
+    expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Starter packs…" }));
+    expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent("Opened on 2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
+  });
+
+  it("opens Starter packs from a link", () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    renderPage("/admin/collections?dialog=starter-packs");
+
+    expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent(
+      "Opened on null",
+    );
+  });
+
+  it.each([
+    ["every library", "/admin/collections"],
+    ["one library", "/admin/collections?libraryId=1"],
+  ])("offers a starter pack when %s has no collections", (_, path) => {
+    state.collections = [];
+    renderPage(path);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add a starter pack" }));
+    expect(screen.getByRole("dialog", { name: "Starter packs" })).toBeInTheDocument();
   });
 });

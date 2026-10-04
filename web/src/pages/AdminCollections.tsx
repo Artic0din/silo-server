@@ -45,6 +45,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   AlertCircle,
   CheckCircle2,
+  Layers3,
   Library as LibraryIcon,
   Loader2,
   Pencil,
@@ -54,10 +55,14 @@ import {
   Trash2,
 } from "lucide-react";
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
+import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 import { isListBackedCollectionType } from "@/lib/collections/types";
 import { buildAdminCollectionEditorPath, collectionsInAdminScope } from "./adminCollectionsShared";
+
+/** `?dialog=starter-packs` opens Starter packs, so a link can open it. */
+const STARTER_PACKS_DIALOG = "starter-packs";
 
 export default function AdminCollections() {
   const queryClient = useQueryClient();
@@ -69,6 +74,14 @@ export default function AdminCollections() {
     Number.isFinite(requestedLibraryId) && requestedLibraryId > 0 ? requestedLibraryId : null;
   const selectedLibraryId = initialLibraryId;
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const starterPacksOpen = searchParams.get("dialog") === STARTER_PACKS_DIALOG;
+  const setStarterPacksOpen = (open: boolean) =>
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (open) next.set("dialog", STARTER_PACKS_DIALOG);
+      else next.delete("dialog");
+      return next;
+    });
   const [editingGroup, setEditingGroup] = useState<{
     mode: "create" | "edit";
     id?: string;
@@ -326,6 +339,14 @@ export default function AdminCollections() {
           >
             <Sparkles className="mr-1 h-4 w-4" /> Browse Templates
           </Button>
+          <Button
+            disabled={!capabilities?.imports}
+            size="sm"
+            variant="outline"
+            onClick={() => setStarterPacksOpen(true)}
+          >
+            <Layers3 className="mr-1 h-4 w-4" /> Starter packs…
+          </Button>
           {selectedCollections.length > 0 ? (
             <>
               <Badge variant="secondary">{selectedCollections.length} selected</Badge>
@@ -375,6 +396,14 @@ export default function AdminCollections() {
         initialLibraryId={selectedLibraryId}
       />
 
+      {starterPacksOpen ? (
+        <StarterPacksDialog
+          libraries={libraries}
+          initialLibraryId={selectedLibraryId}
+          onClose={() => setStarterPacksOpen(false)}
+        />
+      ) : null}
+
       {isAllLibraries ? (
         <AllLibraryCollectionsOverview
           libraries={libraries}
@@ -394,7 +423,7 @@ export default function AdminCollections() {
             })
           }
           onCreate={() => navigate(buildAdminCollectionEditorPath("new", null))}
-          onOpenTemplates={capabilities?.imports ? () => setGalleryOpen(true) : undefined}
+          onOpenStarterPacks={capabilities?.imports ? () => setStarterPacksOpen(true) : undefined}
         />
       ) : null}
 
@@ -442,9 +471,9 @@ export default function AdminCollections() {
               disabled={!capabilities?.imports}
               variant="outline"
               size="sm"
-              onClick={() => setGalleryOpen(true)}
+              onClick={() => setStarterPacksOpen(true)}
             >
-              <Sparkles className="mr-1 h-4 w-4" /> Start from a template
+              <Layers3 className="mr-1 h-4 w-4" /> Add a starter pack
             </Button>
             <Button
               variant="ghost"
@@ -517,7 +546,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults apply failed</p>
+            <p className="text-sm font-medium">Couldn't add the starter pack</p>
             <p className="text-xs">{job.error_message || job.message || "The job failed."}</p>
           </div>
         </div>
@@ -531,7 +560,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults applied</p>
+            <p className="text-sm font-medium">Starter pack added</p>
             <p className="text-muted-foreground text-xs">{templateBundleApplySummary(job)}</p>
           </div>
         </div>
@@ -545,7 +574,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <Loader2 className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0 animate-spin" />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">Applying collection defaults</p>
+            <p className="text-sm font-medium">Adding a starter pack</p>
             <p className="text-muted-foreground text-xs">{job.message || "Working..."}</p>
           </div>
           <div className="progress-bar">
@@ -636,7 +665,7 @@ function AllLibraryCollectionsOverview({
   onDelete,
   onSync,
   onCreate,
-  onOpenTemplates,
+  onOpenStarterPacks,
 }: {
   libraries: Library[];
   collections: LibraryCollection[];
@@ -648,7 +677,7 @@ function AllLibraryCollectionsOverview({
   onDelete: (collection: LibraryCollection) => void;
   onSync: (collection: LibraryCollection, libraryId: number) => void;
   onCreate: () => void;
-  onOpenTemplates?: () => void;
+  onOpenStarterPacks?: () => void;
 }) {
   const sections = useMemo(
     () => buildAllLibrarySections(libraries, collections),
@@ -711,8 +740,13 @@ function AllLibraryCollectionsOverview({
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button disabled={!onOpenTemplates} variant="outline" size="sm" onClick={onOpenTemplates}>
-            <Sparkles className="mr-1 h-4 w-4" /> Start from a template
+          <Button
+            disabled={!onOpenStarterPacks}
+            variant="outline"
+            size="sm"
+            onClick={onOpenStarterPacks}
+          >
+            <Layers3 className="mr-1 h-4 w-4" /> Add a starter pack
           </Button>
           <Button variant="ghost" size="sm" onClick={onCreate}>
             <Plus className="mr-1 h-4 w-4" /> Create from scratch
