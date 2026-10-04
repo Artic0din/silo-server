@@ -132,6 +132,7 @@ type AdminCollectionCapabilityOutputBody struct {
 	TemplateSummaries bool                       `json:"template_summaries" doc:"listAdminCollectionTemplateBundles returns each bundle's templates" example:"true"`
 	MDBListSearch     bool                       `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
 	ScheduleTimeZone  CollectionScheduleTimeZone `json:"schedule_time_zone"`
+	SectionReferences bool                       `json:"section_references" doc:"listAdminCollectionSections lists the rows that show a collection, and listAdminCollections items carry home_row_count and row_count" example:"true"`
 }
 
 func adminCollectionOperation(method, path, id, summary string, guarded bool) Operation {
@@ -164,6 +165,7 @@ func registerAdminCollections(reg *Registry) {
 		out := &AdminCollectionCapabilityOutput{}
 		out.Body.MDBListSearch = reg.mdblistSearch()
 		out.Body.ScheduleTimeZone = reg.scheduleTimeZone()
+		out.Body.SectionReferences = reg.adminCollectionSections() != nil
 		if !ok {
 			out.Body.State = StateNotConfigured
 			return out, nil
@@ -179,6 +181,7 @@ func registerAdminCollections(reg *Registry) {
 	})
 	registerAdminCollectionGroups(reg)
 	registerAdminCollectionExtras(reg)
+	registerAdminCollectionSections(reg)
 }
 func adminGroupOf(g handlers.AdminCollectionGroupView) AdminCollectionGroup {
 	return AdminCollectionGroup{ID: ID(g.ID), LibraryID: IDFromInt(int64(g.LibraryID)), Name: g.Name, Slug: g.Slug, Kind: g.Kind, DefaultSortMode: g.DefaultSortMode, SortOrder: g.SortOrder}
@@ -253,6 +256,9 @@ func (reg *Registry) listAdminCollections(ctx context.Context, in *AdminCollecti
 	groups := make([]AdminCollectionGroup, 0, len(v.Groups))
 	for _, c := range v.Collections {
 		items = append(items, adminCollectionOf(c))
+	}
+	if e := reg.withAdminCollectionRowCounts(ctx, items); e != nil {
+		return nil, adminCollectionError(e)
 	}
 	for _, g := range v.Groups {
 		groups = append(groups, adminGroupOf(g))

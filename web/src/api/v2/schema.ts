@@ -887,6 +887,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v2/admin/collections/{id}/sections": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List the administrator Home and library page rows that show a collection. Rows profiles added themselves are not listed. */
+    get: operations["listAdminCollectionSections"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v2/admin/collections/{id}/sync": {
     parameters: {
       query?: never;
@@ -12540,6 +12557,11 @@ export interface components {
        */
       group_id: string | null;
       /**
+       * Format: int64
+       * @description Turned-on rows on the administrator Home page that show this collection; turned-off rows are not counted. Set on listAdminCollections items only. Rows profiles added themselves are not counted.
+       */
+      home_row_count?: number;
+      /**
        * @description Opaque identifier
        * @example 1
        */
@@ -12570,6 +12592,11 @@ export interface components {
       poster_thumbhash?: string;
       poster_url: string;
       query_definition: unknown;
+      /**
+       * Format: int64
+       * @description Rows on the administrator Home and library pages that show this collection, turned-off rows included. Set on listAdminCollections items only. Rows profiles added themselves are not counted.
+       */
+      row_count?: number;
       slug: string;
       sort_config: unknown;
       /** Format: int64 */
@@ -12619,6 +12646,11 @@ export interface components {
       /** @description Opaque revision of this document */
       revision: string;
       schedule_time_zone: components["schemas"]["CollectionScheduleTimeZone"];
+      /**
+       * @description listAdminCollectionSections lists the rows that show a collection, and listAdminCollections items carry home_row_count and row_count
+       * @example true
+       */
+      section_references: boolean;
       /**
        * @description Support and configuration state, not health
        * @enum {string}
@@ -12758,6 +12790,32 @@ export interface components {
       page?: components["schemas"]["PageInfo"];
       /** Format: int64 */
       total: number;
+    };
+    AdminCollectionSection: {
+      enabled: boolean;
+      /** @description The row is its page's hero banner. */
+      featured: boolean;
+      /**
+       * @description Opaque identifier
+       * @example 1
+       */
+      id: string;
+      /**
+       * @description The library whose page holds the row; null for a Home row.
+       * @example 1
+       */
+      library_id: string | null;
+      /**
+       * Format: int64
+       * @description Rows on the page that holds this row, turned-off rows included.
+       */
+      page_row_count: number;
+      /** Format: int64 */
+      position: number;
+      /** @enum {string} */
+      scope: "home" | "library";
+      section_type: string;
+      title: string;
     };
     AdminCollectionSyncRun: {
       /**
@@ -19402,6 +19460,12 @@ export interface components {
     CollectionAdminCollectionMember: {
       /** @description The page's items; empty, never null */
       items: components["schemas"]["AdminCollectionMember"][];
+      /** @description Cursor state; absent for bounded unpaginated collections */
+      page?: components["schemas"]["PageInfo"];
+    };
+    CollectionAdminCollectionSection: {
+      /** @description The page's items; empty, never null */
+      items: components["schemas"]["AdminCollectionSection"][];
       /** @description Cursor state; absent for bounded unpaginated collections */
       page?: components["schemas"]["PageInfo"];
     };
@@ -39165,6 +39229,117 @@ export interface operations {
       };
       /** @description Unsupported Media Type */
       415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  listAdminCollectionSections: {
+    parameters: {
+      query?: never;
+      header?: {
+        "If-Match"?: string;
+        "If-None-Match"?: string;
+        /** @description Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted. */
+        "X-Profile-Id"?: string;
+        /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
+        "X-Profile-Token"?: string;
+      };
+      path: {
+        /** @description Opaque identifier */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CollectionAdminCollectionSection"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Acceptable */
+      406: {
         headers: {
           [name: string]: unknown;
         };

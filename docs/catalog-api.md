@@ -130,6 +130,10 @@ Both collection capability documents, `getCollectionCapabilities` and
 `getCollectionCapabilities` also reports `sync_schedule_editable`, `true` when `updateCollection`
 accepts `sync_schedule`; see [Personal sync schedules](#personal-sync-schedules).
 
+`getAdminCollectionCapabilities` also reports `section_references`, `true` when
+`listAdminCollectionSections` is available and `listAdminCollections` items carry row counts; see
+[Rows that show a server collection](#rows-that-show-a-server-collection).
+
 ## Personal collection descriptions
 
 `createCollection` (`POST /api/v2/collections`) accepts an optional `description`, stored
@@ -459,6 +463,29 @@ no TMDB collection ID. Applying the bundle still creates that collection.
 
 The route requires acting administrator access. The frozen
 `/api/v1/admin/collections/template-bundles` response is unchanged and carries no `templates`.
+
+## Rows that show a server collection
+
+`listAdminCollectionSections` (`GET /api/v2/admin/collections/{id}/sections`) lists the rows on
+the administrator Home and library pages that show a server collection. Each item carries the
+row's `id`, `scope` (`home` or `library`), `library_id` (the library whose page holds the row;
+`null` for Home), `section_type`, `title`, `featured` (the row is its page's hero banner),
+`enabled`, `position`, and `page_row_count`, the number of rows on that page. Home rows come
+first, then library pages by library, each in page order. Rows a template bundle generated as a
+hero are listed like any other row. An unknown collection answers `404`; a collection no row
+shows answers an empty `items` list.
+
+Each `listAdminCollections` item carries `home_row_count`, the number of turned-on Home rows that
+show the collection, and `row_count`, the number of Home and library page rows that show it,
+turned-off rows included. One count covers the whole list. Both are absent from
+`getAdminCollection` and every other response that returns one collection.
+
+The rows list includes turned-off rows. Both routes read the administrator page layouts only: rows a
+profile added to its own Home are not listed or counted. A collection that `row_count` reports as
+used cannot be deleted (`409`) until those rows stop showing it.
+
+Both routes require acting administrator access. The frozen `/api/v1/admin/collections` list is
+unchanged and carries no counts.
 
 ## Advisory age
 

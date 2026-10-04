@@ -2266,6 +2266,11 @@ alone would allow that snapshot to miss a newly committed reference. Missing out
 can still be removed or replaced. Section-managed cleanup also checks management mode under the
 parent lock and reports whether it actually deleted the collection.
 
+`listAdminCollectionSections` and the `home_row_count` and `row_count` members of
+`listAdminCollections` items read those JSON references from the administrator page layouts
+without locks; the counts come from one grouped query per list request. Profile-added rows live
+in profile overrides and are not counted. The counts stay off the canonical collection read.
+
 Section storage writers use serializable transactions with sorted collection parents, section
 targets, and scope counters. Durable section and scope revisions cover definition, enabled,
 featured, membership, and order changes, including generated sections and default replacement.
