@@ -1318,7 +1318,10 @@ types or an undecodable image is `422` at `body.avatar`, an oversized avatar is 
 server without an upload store answers `503`; section overrides drop the `/reset` suffix
 (`DELETE` on the same resource), take `scope` and `library_id` as query parameters on every
 method, and read back in `snake_case` like the write (the Phase 1 catalogs flagged v1's GET/PUT
-casing mismatch). Every profile mutation in the section is demo-restricted on v2 (v1's demo guard lists none of them), and `createProfile`'s `Location` names the `PATCH`/`DELETE` resource; the created profile is read back through `listProfiles`.
+casing mismatch). `getProfileSectionSettings` also returns `default_title`, the administrator's
+own title for each admin row next to the profile's effective `title`, so a client can show that a
+profile renamed a row and offer the original name back (saving an empty `title` override restores
+it); it is empty for a profile-built row, and v1 does not return it. Every profile mutation in the section is demo-restricted on v2 (v1's demo guard lists none of them), and `createProfile`'s `Location` names the `PATCH`/`DELETE` resource; the created profile is read back through `listProfiles`.
 
 **Settings section (Phase 4).** Operations: `getSettingsContract` (serves both v1
 `/settings/contract` and `/settings/manifest`), `getSettingsContractCapabilities` (also v1
