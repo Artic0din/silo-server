@@ -126,9 +126,11 @@ type AdminCollectionCapabilityOutputBody struct {
 	Groups  bool `json:"groups"`
 	Imports bool `json:"imports"`
 	// ImportSources lists the sources a new collection can be imported from.
-	ImportSources []string `json:"import_sources" enum:"mdblist,tmdb,tmdb_list" doc:"Import sources a new collection can be created from; empty when imports is false" example:"[\"mdblist\",\"tmdb\",\"tmdb_list\"]"`
-	Artwork       bool     `json:"artwork"`
-	ItemReorder   bool     `json:"item_reorder"`
+	ImportSources    []string                   `json:"import_sources" enum:"mdblist,tmdb,tmdb_list" doc:"Import sources a new collection can be created from; empty when imports is false" example:"[\"mdblist\",\"tmdb\",\"tmdb_list\"]"`
+	Artwork          bool                       `json:"artwork"`
+	ItemReorder      bool                       `json:"item_reorder"`
+	MDBListSearch    bool                       `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
+	ScheduleTimeZone CollectionScheduleTimeZone `json:"schedule_time_zone"`
 }
 
 func adminCollectionOperation(method, path, id, summary string, guarded bool) Operation {
@@ -158,11 +160,14 @@ func registerAdminCollections(reg *Registry) {
 		svc, ok := reg.deps.AdminCollections.(interface {
 			AdminCollectionFeatures(context.Context) userstore.CollectionFeatures
 		})
+		out := &AdminCollectionCapabilityOutput{}
+		out.Body.MDBListSearch = reg.mdblistSearch()
+		out.Body.ScheduleTimeZone = reg.scheduleTimeZone()
 		if !ok {
-			return &AdminCollectionCapabilityOutput{Body: AdminCollectionCapabilityOutputBody{Capability: Capability{State: StateNotConfigured}}}, nil
+			out.Body.State = StateNotConfigured
+			return out, nil
 		}
 		v := svc.AdminCollectionFeatures(ctx)
-		out := &AdminCollectionCapabilityOutput{}
 		out.Body.Groups = v.Groups
 		out.Body.Imports = v.Imports
 		out.Body.ImportSources = collectionImportSources(v.Imports)

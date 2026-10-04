@@ -104,6 +104,21 @@ from (`mdblist`, `tmdb`, `tmdb_list`); it is empty when `imports` is false. Chec
 which follows a public TMDB list. The administrator capability document
 (`getAdminCollectionCapabilities`) carries the same field for `importAdminTMDBList`.
 
+Both collection capability documents, `getCollectionCapabilities` and
+`getAdminCollectionCapabilities`, also report:
+
+- `mdblist_search`: `true` when `searchMDBListLists` and `listTopMDBListLists` return
+  lists. It is `false` when the server has no MDBList API key; those operations then answer
+  `configured: false` with no lists. Importing a pasted MDBList link does not need the key.
+- `schedule_time_zone`: the time zone the answering node runs cron collection schedules in.
+  `utc_offset` is the current offset from UTC as `±hh:mm` (for example `-05:00`), daylight
+  saving time included. `abbreviation` is the current abbreviation the node's time zone
+  database reports (for example `CDT`; some zones report a numeric form such as `-03`).
+  `name` is the IANA zone name (for example `America/Chicago`) and is present only when the
+  node's `TZ` environment variable names a zone. Each node reports its own zone, and the
+  offset changes with daylight saving time, so read it with the schedule rather than
+  storing it.
+
 ## Personal collection descriptions
 
 `createCollection` (`POST /api/v2/collections`) accepts an optional `description`, stored

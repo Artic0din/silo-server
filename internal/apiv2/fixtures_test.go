@@ -1741,7 +1741,23 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, externalSignInFixtureCases()...)
 	cases = append(cases, personalCollectionCreateFixtureCases()...)
 	cases = append(cases, personalCollectionPreviewFixtureCases()...)
-	return append(cases, adminTemplateBundleFixtureCases()...)
+	cases = append(cases, adminTemplateBundleFixtureCases()...)
+	return append(cases, adminCollectionCapabilityFixtureCases()...)
+}
+
+// adminCollectionCapabilityFixtureCases pin the administrator collection
+// capability document with MDBList search configured and the fixed fixture
+// schedule time zone.
+func adminCollectionCapabilityFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "get_admin_collection_capabilities_ok", operationID: "getAdminCollectionCapabilities", scenario: "Administrator collection features, including MDBList search and the time zone the answering node runs cron schedules in.", method: http.MethodGet, path: "/api/v2/admin/collections/capabilities", headers: bearer(adminToken), status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/AdminCollectionCapabilityOutputBody"},
+	}
+}
+
+// fixtureScheduleTimeZone is a node on Chicago daylight time with TZ set, so
+// the capability fixtures do not depend on the generating machine's zone.
+func fixtureScheduleTimeZone() CollectionScheduleTimeZone {
+	return CollectionScheduleTimeZone{UTCOffset: "-05:00", Abbreviation: "CDT", Name: "America/Chicago"}
 }
 
 // adminTemplateBundleFixtureCases pin a bundle list whose bundles carry a
@@ -1777,7 +1793,7 @@ func personalCollectionCreateFixtureCases() []fixtureCase {
 	viewer := viewerHeaders()
 	return []fixtureCase{
 		{name: "create_collection_with_description_ok", operationID: "createCollection", scenario: "A manual collection created with its description.", method: http.MethodPost, path: "/api/v2/collections", body: `{"name":"Rainy days","description":"For wet afternoons","collection_type":"manual"}`, headers: viewer, status: 201, assertHeaders: []string{"Content-Type", "Location"}, schema: "#/components/schemas/PersonalCollection"},
-		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
+		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create, MDBList search and the time zone the answering node runs cron schedules in.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
 	}
 }
 
@@ -1857,6 +1873,7 @@ func fixtureDeps() Dependencies {
 	adminCollections.view.SourceConfig = json.RawMessage(`{}`)
 	adminCollections.job = &models.AdminJob{ID: "collection-job", JobType: adminjob.JobTypeTemplateBundleApply, Status: adminjob.StatusQueued, RequestedAt: fixedTime()}
 	adminCollections.bundles = fixtureTemplateBundles()
+	deps.ScheduleZone = fixtureScheduleTimeZone
 	deps.AdminCollections = adminCollections
 	deps.AdminSections = newFakeAdminSections()
 	adminPolicy := newFakeAdminPolicy()

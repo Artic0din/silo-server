@@ -5738,6 +5738,27 @@
       "body_file": "get_account_password_capability_secondary_profile.json"
     },
     {
+      "name": "get_admin_collection_capabilities_ok",
+      "operation_id": "getAdminCollectionCapabilities",
+      "scenario": "Administrator collection features, including MDBList search and the time zone the answering node runs cron schedules in.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections/capabilities",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Cache-Control": "private, no-cache",
+        "Content-Type": "application/json",
+        "ETag": "\"2e24790d74548b33794feb4b30d6218697419e0921d19a8363f0d08b9991f99f\""
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/AdminCollectionCapabilityOutputBody",
+      "body_file": "get_admin_collection_capabilities_ok.json"
+    },
+    {
       "name": "get_admin_collection_ok",
       "operation_id": "getAdminCollection",
       "scenario": "Canonical administrator collection editor uses string library identifiers and a strong validator, without expiring artwork URLs.",
@@ -6105,7 +6126,7 @@
     {
       "name": "get_collection_capabilities_ok",
       "operation_id": "getCollectionCapabilities",
-      "scenario": "Personal collection features, including a description on create.",
+      "scenario": "Personal collection features, including a description on create, MDBList search and the time zone the answering node runs cron schedules in.",
       "request": {
         "method": "GET",
         "path": "/api/v2/collections/capabilities",
@@ -6118,7 +6139,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"92aca442aaaf91295c9d76550bae4f28ad8f76f333cec7fb7ec9d90baec9ee61\""
+        "ETag": "\"ad513d4ad18e08beb14ec7ab6cf9d7b8ab2492c659d57a51712dc368840cd2c8\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",

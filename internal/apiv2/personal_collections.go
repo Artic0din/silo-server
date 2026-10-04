@@ -130,6 +130,8 @@ type CollectionCapabilities struct {
 	EffectiveCollectionSort   bool                           `json:"effective_collection_sort" example:"true"`
 	SortPreferenceKinds       []string                       `json:"sort_preference_kinds" doc:"collection_kind values the sort-preference operations accept" example:"[\"library\",\"user\",\"watchlist\",\"favorites\"]"`
 	CreateDescription         bool                           `json:"create_description" doc:"createCollection accepts description" example:"true"`
+	MDBListSearch             bool                           `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
+	ScheduleTimeZone          CollectionScheduleTimeZone     `json:"schedule_time_zone"`
 }
 
 // importableCollectionSources are the import sources a new collection can be
@@ -365,6 +367,7 @@ type CollectionImportService interface {
 	ImportTrakt(ctx context.Context, userID int, profileID string, req handlers.UserImportTraktRequest) (handlers.UserImportView, error)
 	SearchMDBList(ctx context.Context, query string) (handlers.MDBListDiscoveryView, error)
 	TopMDBList(ctx context.Context) (handlers.MDBListDiscoveryView, error)
+	MDBListConfigured() bool
 }
 
 const (
@@ -571,7 +574,7 @@ func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*Persona
 func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *CapabilityInput) (*CollectionCapabilitiesOutput, error) {
 	svc := reg.deps.PersonalCollections
 	if svc == nil {
-		return &CollectionCapabilitiesOutput{Body: CollectionCapabilities{Capability: Capability{State: StateNotConfigured}, DisplayFilterFields: []string{}, DisplayFilterPresets: CollectionDisplayFilterPresets{Watched: []string{}, Media: []string{}}, SortPreferenceKinds: []string{}}}, nil
+		return &CollectionCapabilitiesOutput{Body: CollectionCapabilities{Capability: Capability{State: StateNotConfigured}, DisplayFilterFields: []string{}, DisplayFilterPresets: CollectionDisplayFilterPresets{Watched: []string{}, Media: []string{}}, SortPreferenceKinds: []string{}, MDBListSearch: reg.mdblistSearch(), ScheduleTimeZone: reg.scheduleTimeZone()}}, nil
 	}
 	v := svc.Capabilities()
 	features := userstore.CollectionFeatures{}
@@ -600,6 +603,8 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		EffectiveCollectionSort:   v.EffectiveCollectionSort,
 		SortPreferenceKinds:       NonNil(v.SortPreferenceKinds),
 		CreateDescription:         true,
+		MDBListSearch:             reg.mdblistSearch(),
+		ScheduleTimeZone:          reg.scheduleTimeZone(),
 	}}, nil
 }
 

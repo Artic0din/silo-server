@@ -1,5 +1,5 @@
 {
-  "revision": "210da97e0cc8f852a8a8a38893a1a8da504a7f5ac4eb61710888f7c6a114c345",
+  "revision": "202e39c99e4924924758690a7d16d860271e3cdaa7824ce0578c641863fde301",
   "state": "available",
   "allowed": true,
   "groups": false,
@@ -32,5 +32,11 @@
     "watchlist",
     "favorites"
   ],
-  "create_description": true
+  "create_description": true,
+  "mdblist_search": true,
+  "schedule_time_zone": {
+    "utc_offset": "-05:00",
+    "abbreviation": "CDT",
+    "name": "America/Chicago"
+  }
 }

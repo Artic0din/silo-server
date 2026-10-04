@@ -12611,8 +12611,14 @@ export interface components {
       import_sources: ("mdblist" | "tmdb" | "tmdb_list")[];
       imports: boolean;
       item_reorder: boolean;
+      /**
+       * @description searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key
+       * @example true
+       */
+      mdblist_search: boolean;
       /** @description Opaque revision of this document */
       revision: string;
+      schedule_time_zone: components["schemas"]["CollectionScheduleTimeZone"];
       /**
        * @description Support and configuration state, not health
        * @enum {string}
@@ -19626,8 +19632,14 @@ export interface components {
       imports: boolean;
       /** @description The acting account supports reordering collection items */
       item_reorder: boolean;
+      /**
+       * @description searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key
+       * @example true
+       */
+      mdblist_search: boolean;
       /** @description Opaque revision of this document */
       revision: string;
+      schedule_time_zone: components["schemas"]["CollectionScheduleTimeZone"];
       /**
        * @description collection_kind values the sort-preference operations accept
        * @example [
@@ -19810,6 +19822,23 @@ export interface components {
       items: components["schemas"]["PlaybackSubtitleFont"][];
       /** @description Cursor state; absent for bounded unpaginated collections */
       page?: components["schemas"]["PageInfo"];
+    };
+    CollectionScheduleTimeZone: {
+      /**
+       * @description Current zone abbreviation as the node's time zone database reports it; some zones report a numeric form such as -03
+       * @example CDT
+       */
+      abbreviation: string;
+      /**
+       * @description IANA zone name; omitted unless the node's TZ environment variable names one
+       * @example America/Chicago
+       */
+      name?: string;
+      /**
+       * @description Current offset from UTC, daylight saving time included
+       * @example -05:00
+       */
+      utc_offset: string;
     };
     CollectionSortPreference: {
       /**
