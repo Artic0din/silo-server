@@ -139,6 +139,14 @@ describe("CollectionPicker", () => {
     expect(screen.queryByRole("radio", { checked: true })).toBeNull();
   });
 
+  it("doesn't call a row's collection missing when the list didn't load", () => {
+    render(<Harness initial="ghibli" source={collections({ options: [], failed: true })} />);
+    expect(
+      screen.getByText("Collections didn't load. Close this and try again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/isn't in this list/)).toBeNull();
+  });
+
   it("says when collections are loading, failed or there are none", () => {
     const { rerender } = render(<Harness source={collections({ options: [], loading: true })} />);
     expect(screen.getByText("Loading collections…")).toBeInTheDocument();

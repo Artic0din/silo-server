@@ -56,7 +56,10 @@ export function CollectionPicker({
     [options, filter, needle],
   );
   const missing =
-    value !== "" && !collections.loading && !options.some((option) => option.id === value);
+    value !== "" &&
+    !collections.loading &&
+    !collections.failed &&
+    !options.some((option) => option.id === value);
 
   return (
     <div className="grid gap-2">
