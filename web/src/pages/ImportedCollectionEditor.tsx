@@ -102,12 +102,15 @@ const SOURCE_THEMES: Record<ImportedType, SourceTheme> = {
 interface ImportedCollectionEditorProps {
   collection: Collection;
   etag: string;
+  /** The save landed and its refetch finished; the page can adopt the saved collection. */
+  onSaved: () => void;
   onClose: () => void;
 }
 
 export function ImportedCollectionEditor({
   collection,
   etag,
+  onSaved,
   onClose,
 }: ImportedCollectionEditorProps) {
   const importedType = collection.collection_type as ImportedType;
@@ -241,6 +244,8 @@ export function ImportedCollectionEditor({
         onSuccess: () => {
           setPosterFile(null);
           setPosterSourceUrl("");
+          setPosterRemoved(false);
+          onSaved();
         },
       },
     );
