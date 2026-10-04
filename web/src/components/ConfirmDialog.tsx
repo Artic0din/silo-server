@@ -25,6 +25,8 @@ interface ConfirmDialogProps {
   bullets?: { label: string; items: string[] };
   /** Says "This can't be undone." beside the buttons. */
   irreversible?: boolean;
+  /** Where focus goes on close, when the control that opened it is gone (e.g. a menu item). */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function ConfirmDialog({
@@ -39,6 +41,7 @@ export function ConfirmDialog({
   isPending,
   bullets,
   irreversible = false,
+  onCloseAutoFocus,
 }: ConfirmDialogProps) {
   const id = useId();
   const items = bullets?.items ?? [];
@@ -73,7 +76,7 @@ export function ConfirmDialog({
   );
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent aria-describedby={describedBy}>
+      <AlertDialogContent aria-describedby={describedBy} onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>

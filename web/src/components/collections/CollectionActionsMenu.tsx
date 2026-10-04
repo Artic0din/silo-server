@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Pencil, RefreshCw, Trash2, Users } from "lucide-react";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/calm/ActionMenu";
@@ -17,12 +18,14 @@ export function CollectionActionsMenu({
   sync,
   share,
   onDelete,
+  triggerRef,
 }: {
   name: string;
   onEdit: () => void;
   sync?: { onSync: () => void; syncing: boolean };
   share?: { shared: boolean; onChange: (shared: boolean) => void; disabled?: boolean };
   onDelete: () => void;
+  triggerRef?: Ref<HTMLButtonElement>;
 }) {
   const items: ActionMenuItem[] = [
     { key: "edit", label: "Edit collection", icon: Pencil, onSelect: onEdit },
@@ -60,6 +63,7 @@ export function CollectionActionsMenu({
     <ActionMenu
       label={`More for ${name}`}
       items={items}
+      triggerRef={triggerRef}
       // Over a poster: a dark chip that stays readable on any artwork.
       triggerClassName="size-8 max-lg:size-9 bg-black/55 text-white backdrop-blur-sm hover:bg-black/70 hover:text-white data-[state=open]:bg-black/80 data-[state=open]:text-white"
     />

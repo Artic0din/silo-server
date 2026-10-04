@@ -5,11 +5,11 @@ import {
 } from "@/api/personalCollections";
 import { toast } from "sonner";
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEventHandler,
-  type PointerEventHandler,
   type ReactNode,
 } from "react";
 import { Link, useNavigate } from "react-router";
@@ -23,6 +23,7 @@ import {
   useSensors,
   type Announcements,
   type DragEndEvent,
+  type DragStartEvent,
   type UniqueIdentifier,
 } from "@dnd-kit/core";
 import {
@@ -301,6 +302,16 @@ function YourCollections({
   const [confirmUnshare, setConfirmUnshare] = useState<Collection | null>(null);
   const dragSnapshot = useRef<Promise<string>>(undefined);
   const ids = collections.map((collection) => collection.id);
+  // The confirm dialogs open from a menu item that is gone once they close,
+  // so focus goes back to the ⋯ of the collection they were about (spec §7).
+  const menuTriggers = useRef(new Map<string, HTMLButtonElement>());
+  const confirmFor = useRef<string>(undefined);
+  function focusMenuTrigger(event: Event) {
+    const trigger = menuTriggers.current.get(confirmFor.current ?? "");
+    if (!trigger?.isConnected) return;
+    event.preventDefault();
+    trigger.focus();
+  }
 
   // A drag reads the server's order validator as it starts, and refuses to
   // reorder when the server's own-collection order differs from the page.
@@ -324,7 +335,10 @@ function YourCollections({
   function setShared(collection: Collection, shared: boolean) {
     // Turning sharing off takes it away from other profiles: ask first.
     if (shared) share.mutate({ id: collection.id, shared });
-    else setConfirmUnshare(collection);
+    else {
+      confirmFor.current = collection.id;
+      setConfirmUnshare(collection);
+    }
   }
 
   return (
@@ -343,6 +357,7 @@ function YourCollections({
         description={personalDeleteDescription(confirmDelete?.collection.is_shared ?? false)}
         confirmLabel="Delete"
         variant="destructive"
+        onCloseAutoFocus={focusMenuTrigger}
         onConfirm={() => {
           if (confirmDelete)
             remove.mutate({ id: confirmDelete.collection.id, etag: confirmDelete.etag });
@@ -357,6 +372,7 @@ function YourCollections({
         title={`Stop sharing ${confirmUnshare?.name}?`}
         description={unshareConsequence(otherProfileNames)}
         confirmLabel="Stop sharing"
+        onCloseAutoFocus={focusMenuTrigger}
         onConfirm={() => {
           if (confirmUnshare) share.mutate({ id: confirmUnshare.id, shared: false });
           setConfirmUnshare(null);
@@ -388,6 +404,10 @@ function YourCollections({
                   menu={
                     <CollectionActionsMenu
                       name={collection.name}
+                      triggerRef={(node) => {
+                        if (node) menuTriggers.current.set(collection.id, node);
+                        else menuTriggers.current.delete(collection.id);
+                      }}
                       onEdit={() => navigate(PERSONAL_SCOPE.paths.edit(collection.id))}
                       sync={
                         canSync && synced
@@ -404,6 +424,7 @@ function YourCollections({
                           : undefined
                       }
                       onDelete={() => {
+                        confirmFor.current = collection.id;
                         void fetchCollectionEditSnapshot(collection.id)
                           .then(setConfirmDelete)
                           .catch((error) => toast.error(error.message));
@@ -480,7 +501,13 @@ function SortableCollectionGrid({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  const blockClicks = useClickBlockAfterPointerDrag();
+  function handleDragStart(event: DragStartEvent) {
+    blockClicks.start(event);
+    onBeginDrag();
+  }
   function handleDragEnd({ active, over }: DragEndEvent) {
+    blockClicks.settle();
     if (!over || active.id === over.id) return;
     const from = ids.indexOf(String(active.id));
     const to = ids.indexOf(String(over.id));
@@ -492,14 +519,38 @@ function SortableCollectionGrid({
       sensors={sensors}
       collisionDetection={closestCenter}
       accessibility={{ announcements: moveAnnouncements(collections) }}
-      onDragStart={onBeginDrag}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={blockClicks.settle}
     >
       <SortableContext items={ids} strategy={rectSortingStrategy} disabled={disabled}>
         <ul className={POSTER_GRID}>{children}</ul>
       </SortableContext>
     </DndContext>
   );
+}
+
+// useClickBlockAfterPointerDrag keeps the click that ends a pointer drag from
+// opening the card under the pointer. dnd-kit stops that click's propagation
+// at the document, so React Router never sees it and the browser would follow
+// the link's href; a window listener runs first and cancels it. It stays for
+// 50ms after the drop, as dnd-kit's own guard does.
+function useClickBlockAfterPointerDrag() {
+  const release = useRef<() => void>(undefined);
+  useEffect(() => () => release.current?.(), []);
+  return {
+    start({ activatorEvent }: DragStartEvent) {
+      if (release.current || !activatorEvent?.type.startsWith("pointer")) return;
+      const block = (event: MouseEvent) => event.preventDefault();
+      window.addEventListener("click", block, true);
+      release.current = () => window.removeEventListener("click", block, true);
+    },
+    settle() {
+      const done = release.current;
+      release.current = undefined;
+      if (done) setTimeout(done, 50);
+    },
+  };
 }
 
 // SortableCollectionCard is one of the profile's own collections, with its ⋯
@@ -530,7 +581,16 @@ function SortableCollectionCard({
     <li
       ref={setNodeRef}
       data-collection-id={collection.id}
-      onPointerDown={canReorder ? (listeners?.onPointerDown as PointerEventHandler) : undefined}
+      onPointerDown={
+        canReorder
+          ? (event) => {
+              // The ⋯ menu renders in a portal, but React still bubbles its
+              // presses here: only a press on the card itself starts a drag.
+              if (!event.currentTarget.contains(event.target as Node)) return;
+              listeners?.onPointerDown?.(event);
+            }
+          : undefined
+      }
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
