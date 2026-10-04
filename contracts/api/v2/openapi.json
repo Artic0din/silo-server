@@ -37773,6 +37773,13 @@
             ],
             "type": "boolean"
           },
+          "default_title": {
+            "description": "The administrator's title for this row; title shows it unless the profile saved a title override. Empty for a section the profile built",
+            "examples": [
+              "Continue Watching"
+            ],
+            "type": "string"
+          },
           "featured": {
             "examples": [
               false
@@ -37821,6 +37828,7 @@
             "type": "string"
           },
           "title": {
+            "description": "The title this profile sees: its own title override, or the administrator's title",
             "examples": [
               "Continue Watching"
             ],
@@ -37831,6 +37839,7 @@
           "id",
           "section_type",
           "title",
+          "default_title",
           "featured",
           "item_limit",
           "hidden",
