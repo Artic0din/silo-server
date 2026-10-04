@@ -14,6 +14,7 @@ import { COLUMNS_QUERY, PHONE_QUERY } from "@/components/collections/editor/Coll
 import {
   PERSONAL_TAB_HELP,
   SHOW_ON_TAB_LABEL,
+  SHOW_TO_OTHER_PROFILES_HELP,
   SHOW_TO_OTHER_PROFILES_LABEL,
   serverTabHelp,
   unshareWarning,
@@ -240,6 +241,9 @@ describe("titles save as you change them", () => {
     showPage("/collections/c1/edit");
     await addTitle("alien", "Alien");
     await screen.findByText("Saved");
+    // The tick sits by the heading, so the panel and its list are still just "Titles".
+    expect(screen.getByRole("region", { name: "Titles" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Titles" })).toBeTruthy();
     fireEvent.change(await nameField(), { target: { value: "Renamed" } });
     await save();
     await waitFor(() => expect(patches()).toHaveLength(1));
@@ -252,16 +256,17 @@ describe("titles save as you change them", () => {
   it("puts a removed title back at its position with Undo", async () => {
     members = [HEAT.content_id, ALIEN.content_id];
     showPage("/collections/c1/edit");
-    fireEvent.click(await screen.findByRole("button", { name: "Remove Alien" }));
-    const toast = await screen.findByText("Removed Alien");
+    // The first title, so putting it back at the end would be a different position.
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Heat" }));
+    const toast = await screen.findByText("Removed Heat");
     fireEvent.click(within(toast.closest("[role=status]")!).getByRole("button", { name: "Undo" }));
     await waitFor(() =>
       expect(writes().map((call) => [call.operation, call.body])).toEqual([
         ["DELETE /api/v2/collections/{id}/items/{item_id}", undefined],
-        ["PUT /api/v2/collections/{id}/items/{item_id}", { position: 1 }],
+        ["PUT /api/v2/collections/{id}/items/{item_id}", { position: 0 }],
       ]),
     );
-    expect(writes()[1]!.path).toBe("/api/v2/collections/c1/items/movie:alien-1979");
+    expect(writes()[1]!.path).toBe("/api/v2/collections/c1/items/movie:heat-1995");
   });
 
   it("drags titles with the token read after the last title write, then saves the rename", async () => {
@@ -370,6 +375,32 @@ describe("creating a Manual collection", () => {
     expect(screen.queryByRole("button", { name: "Create collection" })).toBeNull();
   });
 
+  it("moves to the edit page when the new collection can't be read back, and reads it before the next save", async () => {
+    let unreadable = true;
+    v2Recorder.answer("GET /api/v2/collections/{id}", () => {
+      if (!unreadable) return getCollectionOk;
+      unreadable = false;
+      throw new Error("Network error");
+    });
+    const router = showPage("/collections/new?type=manual");
+    await addTitle("heat", "Heat");
+    fireEvent.change(await nameField(), { target: { value: "Rainy days" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/collections/c1/edit"));
+    expect(screen.queryByRole("button", { name: "Create collection" })).toBeNull();
+    // Heat was added: nothing is left staged, and nothing waits for Save.
+    expect(screen.queryByText(/Created, but couldn't add/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull();
+    fireEvent.change(await nameField(), { target: { value: "Renamed" } });
+    await save();
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]!.headers["If-Match"]).toBe('"/api/v2/collections/c1#2"');
+    expect(patches()[0]!.body).toMatchObject({ name: "Renamed" });
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
+    );
+  });
+
   it("keeps titles that couldn't be added marked, and tries them again", async () => {
     let refuse = true;
     v2Recorder.answer("PUT /api/v2/collections/{id}/items/{item_id}", (call: RecordedCall) => {
@@ -438,6 +469,25 @@ describe("creating a Manual collection", () => {
     expect(within(bar()).getByRole("status")).toHaveTextContent(
       "Not created yet Name it, then create it.",
     );
+    expect(screen.getByRole("region", { name: "Titles" })).toBeTruthy();
+    expect(document.title).toMatch(/^New collection · /);
+  });
+
+  it("says a server collection needs a library before it can be created", async () => {
+    showPage("/admin/collections/new?type=manual");
+    fireEvent.change(await nameField(), { target: { value: "Staff picks" } });
+    expect(screen.getByRole("button", { name: "Create collection" })).toBeDisabled();
+    expect(within(bar()).getByRole("status")).toHaveTextContent(
+      "Not created yet Pick its libraries, then create it.",
+    );
+  });
+
+  it("names the page after the collection once it is created", async () => {
+    const router = showPage("/collections/new?type=manual");
+    fireEvent.change(await nameField(), { target: { value: "Rainy days" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/collections/c1/edit"));
+    await waitFor(() => expect(document.title).toMatch(/^Edit Rainy days · /));
   });
 });
 
@@ -563,6 +613,9 @@ describe("the save bar and Where it shows", () => {
     showPage("/collections/c1/edit");
     const sharing = await screen.findAllByRole("switch", { name: SHOW_TO_OTHER_PROFILES_LABEL });
     expect(sharing).toHaveLength(1);
+    // The same switch, and words, as every other place a personal collection is shared.
+    expect(sharing[0]).toHaveAccessibleDescription(SHOW_TO_OTHER_PROFILES_HELP);
+    expect(SHOW_TO_OTHER_PROFILES_HELP).toContain("Nobody else on the server can see it.");
     fireEvent.click(sharing[0]!);
     expect(await screen.findByText(unshareWarning(["Maya", "Leo"]))).toBeTruthy();
     expect(within(bar()).getByRole("status")).toHaveTextContent(
