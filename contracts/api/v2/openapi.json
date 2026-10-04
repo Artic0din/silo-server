@@ -61473,7 +61473,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List the collection templates an admin import route can create.",
+        "summary": "List the collection templates with an mdblist, tmdb or tmdb_list source.",
         "tags": [
           "admin-collections"
         ],

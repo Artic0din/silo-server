@@ -33,7 +33,7 @@ func getAdminTemplateCatalog(t *testing.T, f *fakeAdminCollections) templates.Ca
 }
 
 // TestAdminTemplateCatalogOffersOnlyCreatableTemplates checks that the admin
-// template list holds only templates an admin import route accepts. TMDB
+// template list holds only mdblist, tmdb and tmdb_list templates. TMDB
 // Discover and franchise templates reach admins through Starter packs, so a
 // single card for one of them could never be created.
 func TestAdminTemplateCatalogOffersOnlyCreatableTemplates(t *testing.T) {
@@ -60,7 +60,7 @@ func TestAdminTemplateCatalogOffersOnlyCreatableTemplates(t *testing.T) {
 		for _, tmpl := range group.Templates {
 			kept[tmpl.ID]++
 			if tmpl.Source == templates.SourceTMDBDiscover || tmpl.Source == templates.SourceTMDBCollection {
-				t.Errorf("template %s has source %s, which no admin import route accepts", tmpl.ID, tmpl.Source)
+				t.Errorf("template %s has source %s, which only a Starter pack can apply", tmpl.ID, tmpl.Source)
 			}
 		}
 	}

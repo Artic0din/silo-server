@@ -462,8 +462,8 @@ are unchanged. Frozen v1 membership responses do not expose this field.
 ## Admin template list
 
 `listAdminCollectionTemplates` (`GET /api/v2/admin/collections/templates`) lists only the
-templates an admin import route can create: `mdblist`, `tmdb` and `tmdb_list` sources, the same
-set the personal template list (`listCollectionTemplates`) offers. `tmdb_discover` and
+templates with an `mdblist`, `tmdb` or `tmdb_list` source, the set a single collection can be
+created from and the same set the personal template list (`listCollectionTemplates`) offers. `tmdb_discover` and
 `tmdb_collection` templates are left out because only a template bundle can apply them; read
 their summaries from the bundle list below. A category left with no templates is dropped; the
 rest keep their order. The response schema is unchanged.
