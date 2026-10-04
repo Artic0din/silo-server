@@ -256,12 +256,10 @@ export function useProfileHomeRowsAdapter(): ProfileHomeRowsAdapter {
 
   const reorder = useCallback(
     async (orderedIds: string[], _orderToken?: unknown, movedId?: string) => {
-      if (!canEdit || !movedId) return;
-      // A single move: the row lands where the row at its new index is now.
-      const overId = sections[orderedIds.indexOf(movedId)]?.id;
-      if (overId) move(movedId, overId);
+      // A single move, placed by the order captured when the drag started.
+      if (canEdit && movedId) move(movedId, orderedIds);
     },
-    [canEdit, move, sections],
+    [canEdit, move],
   );
 
   // A peek shows the row as this profile's Home or library page resolves it,

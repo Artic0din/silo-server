@@ -181,7 +181,7 @@ describe("useProfileHomeRows", () => {
 
     act(() => result.current.setHidden("a", true));
     act(() => result.current.setHidden("b", true));
-    act(() => result.current.move("c", "a"));
+    act(() => result.current.move("c", ["c", "a", "b"]));
 
     await settle("PUT /api/v2/profile/sections");
     await settle("PUT /api/v2/profile/sections");
@@ -352,6 +352,24 @@ describe("useProfileHomeRows", () => {
     expect(hiddenIds(puts[1]!.overrides)).toEqual(["b"]);
   });
 
+  it("places a moved row by the order the user saw, after the rows change underneath", async () => {
+    const { result } = await ready();
+    // The user drags c between a and b while a refetch brings a new row x.
+    pages.home!.rows = [
+      entry("x"),
+      ...pages.home!.rows.map((row) => ({ ...row, position: row.position + 1 })),
+    ];
+    await act(async () => result.current.reload());
+    await waitFor(() =>
+      expect(result.current.sections.map((s) => s.id)).toEqual(["x", "a", "b", "c"]),
+    );
+
+    act(() => result.current.move("c", ["a", "c", "b"]));
+    expect(result.current.sections.map((s) => s.id)).toEqual(["x", "a", "c", "b"]);
+    await waitFor(() => expect(result.current.pending).toBe(false));
+    expect(puts).toHaveLength(1);
+  });
+
   it("refuses a page switch while the page still has saves to send", async () => {
     const { result } = await ready();
     hold("PUT /api/v2/profile/sections");
@@ -431,7 +449,7 @@ describe("useProfileHomeRows", () => {
     expect(result.current.ready).toBe(false);
     expect(result.current.canEdit).toBe(false);
     act(() => result.current.setHidden("a", true));
-    act(() => result.current.move("c", "a"));
+    act(() => result.current.move("c", ["c", "a", "b"]));
     act(() => result.current.reset());
     expect(calls).not.toContain("PUT /api/v2/profile/sections");
     expect(calls).not.toContain("DELETE /api/v2/profile/sections");

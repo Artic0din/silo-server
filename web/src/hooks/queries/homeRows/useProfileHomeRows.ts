@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { arrayMove } from "@dnd-kit/sortable";
 import { toast } from "sonner";
 import {
   captureProfileRequestContext,
@@ -91,8 +90,12 @@ export interface ProfileHomeRows {
   /** A save or reset, or the refetch after it, is still in flight. */
   pending: boolean;
   setHidden(id: string, hidden: boolean): void;
-  /** Moves `activeId` to where `overId` is. */
-  move(activeId: string, overId: string): void;
+  /**
+   * Moves `activeId` to where `orderedIds` (the order the user saw, after the
+   * move) puts it: before the next row there still on the page, else after
+   * the one before it. Rows that came or went since then don't shift it.
+   */
+  move(activeId: string, orderedIds: readonly string[]): void;
   /** Replaces the row with the same id, or adds it at the bottom. */
   saveSection(section: SettingsSectionEntry): void;
   /** Removes server rows from this page and deletes the profile's own rows, in one save. */
@@ -272,12 +275,25 @@ export function useProfileHomeRows(): ProfileHomeRows {
   );
 
   const move = useCallback(
-    (activeId: string, overId: string) =>
+    (activeId: string, orderedIds: readonly string[]) =>
       change(activeId, (state) => {
-        const from = state.sections.findIndex((s) => s.id === activeId);
-        const to = state.sections.findIndex((s) => s.id === overId);
-        if (from === -1 || to === -1 || from === to) return null;
-        return { ...state, sections: arrayMove(state.sections, from, to) };
+        const moved = state.sections.find((s) => s.id === activeId);
+        const at = orderedIds.indexOf(activeId);
+        if (!moved || at === -1) return null;
+        const rest = state.sections.filter((s) => s !== moved);
+        const indexOf = (id: string) => rest.findIndex((s) => s.id === id);
+        const after = orderedIds.slice(at + 1).find((id) => indexOf(id) !== -1);
+        const before = orderedIds
+          .slice(0, at)
+          .reverse()
+          .find((id) => indexOf(id) !== -1);
+        let to: number;
+        if (after !== undefined) to = indexOf(after);
+        else if (before !== undefined) to = indexOf(before) + 1;
+        else return null;
+        const sections = [...rest.slice(0, to), moved, ...rest.slice(to)];
+        if (sections.every((s, index) => s === state.sections[index])) return null;
+        return { ...state, sections };
       }),
     [change],
   );
