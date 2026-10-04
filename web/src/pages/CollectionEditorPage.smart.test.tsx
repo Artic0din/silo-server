@@ -6,6 +6,7 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -103,11 +104,16 @@ beforeEach(() => {
 });
 
 /** The server collection `c1` is Smart with these rules (and this sort_config). */
-function showServerSmart(query: Record<string, unknown>, sortConfig: Record<string, unknown> = {}) {
+function showServerSmart(
+  query: Record<string, unknown>,
+  sortConfig: Record<string, unknown> = {},
+  fields: Record<string, unknown> = {},
+) {
   const smart = {
     ...adminSmartCollection(query),
     library_ids: (query.library_ids as number[]).map(String),
     sort_config: sortConfig,
+    ...fields,
   };
   v2Recorder.answer("GET /api/v2/admin/collections/{id}", smart);
   v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList(smart));
@@ -216,13 +222,21 @@ function viewport(width: number) {
 
 describe("the rules", () => {
   it("server: reads as the Home rows sentence with its libraries, and has no rule-rows note", async () => {
+    showServerSmart(rules(), {}, { item_count: 40 });
     showPage("/admin/collections/c1/edit");
     const words = within(await sentence());
     expect(words.getByText("from the")).toBeTruthy();
     expect(words.getByRole("button", { name: libraries("Movies, 4K Movies") })).toBeTruthy();
     expect(words.getByText("libraries")).toBeTruthy();
     expect(screen.getByText("Smart")).toBeTruthy();
-    expect(screen.getByText("Updates itself as titles are added")).toBeTruthy();
+    const meta = screen.getByText(
+      (_, element) =>
+        element?.tagName === "P" &&
+        /Updates itself as titles are added$/.test(element.textContent ?? ""),
+    );
+    expect(meta.textContent?.replace(/\s+/g, " ")).toMatch(
+      /^Movies, 4K Movies\W+40 titles\W+Updates itself as titles are added$/,
+    );
     expect(screen.queryByText(/rule rows/i)).toBeNull();
   });
 
@@ -265,6 +279,23 @@ describe("the rules", () => {
     expect(bar()).toHaveTextContent("The preview already shows them.");
     await save(1);
     expect(patchBody().query_definition).toMatchObject({ limit: 50 });
+  });
+
+  it("server: can't save once every library is unticked, and says why", async () => {
+    const user = userEvent.setup();
+    showPage("/admin/collections/c1/edit");
+    await sentence();
+    await user.click(screen.getByRole("button", { name: libraries("Movies, 4K Movies") }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Movies" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "4K Movies" }));
+    await user.keyboard("{Escape}");
+    expect(within(bar()).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(bar()).toHaveTextContent("Pick at least one library.");
+    const pane = screen.getByText(/Live preview/).closest("section")!;
+    expect(pane).toHaveTextContent("Pick at least one library.");
+    expect(pane).not.toHaveTextContent("then create it");
+    fireEvent.click(within(bar()).getByRole("button", { name: "Save" }));
+    expect(writes()).toEqual([]);
   });
 
   it("moves focus to the libraries in the sentence from Where it shows", async () => {
@@ -325,6 +356,10 @@ describe("the live preview", () => {
     expect(await screen.findByText("No titles match yet")).toBeTruthy();
     expect(screen.getByText(/You can still save/)).toBeTruthy();
     expect(screen.getByText("0 titles match")).toBeTruthy();
+    // The count is read out once; the empty message is not a second live region.
+    expect(
+      screen.getByText("No titles match yet").closest('[role="status"], [aria-live]'),
+    ).toBeNull();
     await rename();
     await save(1);
   });
@@ -377,6 +412,11 @@ describe("creating a Smart collection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
     await vi.waitFor(() => expect(router.state.location.pathname).toBe("/collections/c1/edit"));
     expect(await sentence()).toBeTruthy();
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: libraries("all my libraries") }),
+      ),
+    );
     expect(writes()[0]!.body).toMatchObject({
       name: "Comfort",
       collection_type: "smart",

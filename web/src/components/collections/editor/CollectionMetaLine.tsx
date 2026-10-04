@@ -4,7 +4,7 @@ import { MetaDot } from "@/components/calm/ListRow";
 
 /**
  * "Movies, Kids · 23 titles" under a collection's name; a Smart collection
- * says "Updates itself as titles are added" instead of a count.
+ * adds "Updates itself as titles are added" after its count.
  */
 export function CollectionMetaLine({
   libraryNames,

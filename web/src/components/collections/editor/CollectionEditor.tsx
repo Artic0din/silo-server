@@ -25,6 +25,7 @@ import {
   DRAFT_FIELD_LABEL,
   NAME_IT_THEN_CREATE,
   NOT_CREATED_YET,
+  PICK_A_LIBRARY,
   PICK_LIBRARIES_FIRST,
   PREVIEW_SHOWS_UNSAVED,
   SAVE_FAILED,
@@ -46,6 +47,7 @@ import type {
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
 import { LibrariesLine } from "../fields/LibrariesLine";
+import { focusLibrariesLine } from "../fields/librariesLineFocus";
 import { CollectionEditorShell } from "./CollectionEditorShell";
 import { CollectionMetaLine } from "./CollectionMetaLine";
 import { ConflictBanner } from "./ConflictBanner";
@@ -117,11 +119,14 @@ function useUntickWarning(
 function SmartContents<Raw extends WireCollection>({
   scope,
   draft,
+  offMessage,
   onChange,
   libraries,
 }: {
   scope: CollectionScope<Raw>;
   draft: CollectionDraft;
+  /** Why there is no preview while no library is picked. */
+  offMessage: string;
   onChange: (update: (draft: CollectionDraft) => CollectionDraft) => void;
   libraries: Array<{ id: number; name: string }>;
 }) {
@@ -135,7 +140,7 @@ function SmartContents<Raw extends WireCollection>({
         onChange={onChange}
         libraries={libraries}
       />
-      <CollectionPreviewPane preview={preview} offMessage={PICK_LIBRARIES_FIRST} />
+      <CollectionPreviewPane preview={preview} offMessage={offMessage} />
     </div>
   );
 }
@@ -206,9 +211,11 @@ export function CollectionEditor<Raw extends WireCollection>({
       navigate(leaving, { replace: true });
     } else if (moving && openEdit) {
       navigate(scope.paths.edit(openEdit, { libraryId }), { replace: true });
-      document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();
+      // Create unmounts its button; carry on where the contents start.
+      if (smart) focusLibrariesLine();
+      else document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();
     }
-  }, [hasUnsaved, leaving, libraryId, moving, navigate, openEdit, scope]);
+  }, [hasUnsaved, leaving, libraryId, moving, navigate, openEdit, scope, smart]);
 
   const libraryOptions = adminLibraries.map(({ id, name, type }) => ({ id, name, type }));
   const named = (ids: readonly number[]) =>
@@ -258,7 +265,10 @@ export function CollectionEditor<Raw extends WireCollection>({
       : null;
     createHint = NAME_IT_THEN_CREATE;
   }
-  if (needsLibraries) createHint = PICK_LIBRARIES_FIRST;
+  if (needsLibraries) {
+    afterPending = PICK_A_LIBRARY;
+    createHint = PICK_LIBRARIES_FIRST;
+  }
   const saveBar = created ? (
     <SaveBar
       placement="page"
@@ -266,7 +276,7 @@ export function CollectionEditor<Raw extends WireCollection>({
       visible={editor.isDirty || Boolean(editor.saveError)}
       isSaving={editor.isSaving}
       saveLabel={editor.saveError ? "Try again" : "Save"}
-      canSave={draft.name.trim() !== "" && editor.conflicts.length === 0}
+      canSave={draft.name.trim() !== "" && !needsLibraries && editor.conflicts.length === 0}
       onSave={() => void editor.save()}
       onDiscard={editor.discard}
       message={
@@ -307,18 +317,27 @@ export function CollectionEditor<Raw extends WireCollection>({
     />
   );
 
+  const previewOffMessage = created ? PICK_A_LIBRARY : PICK_LIBRARIES_FIRST;
   let contents: ReactNode;
   if (smart && isServer) {
     contents = (
       <SmartContents
         scope={scope}
         draft={draft}
+        offMessage={previewOffMessage}
         onChange={editor.setDraft}
         libraries={libraryOptions}
       />
     );
   } else if (smart) {
-    contents = <PersonalSmartContents scope={scope} draft={draft} onChange={editor.setDraft} />;
+    contents = (
+      <PersonalSmartContents
+        scope={scope}
+        draft={draft}
+        offMessage={previewOffMessage}
+        onChange={editor.setDraft}
+      />
+    );
   } else {
     contents = (
       <ManualContentsPanel
@@ -375,7 +394,7 @@ export function CollectionEditor<Raw extends WireCollection>({
                   libraryNames={
                     isServer ? savedLibraries.map((library) => library.name) : undefined
                   }
-                  itemCount={smart ? undefined : view.itemCount}
+                  itemCount={view.itemCount}
                   extra={smart ? SMART_UPDATES_ITSELF : undefined}
                 />
               ) : null

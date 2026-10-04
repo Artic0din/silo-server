@@ -123,6 +123,9 @@ export const SAVE_FAILED = "Couldn't save";
 /** Why Create waits on a server collection with no library yet. */
 export const PICK_LIBRARIES_FIRST = "Pick its libraries, then create it.";
 
+/** Why Save waits on a saved server collection with every library unticked. */
+export const PICK_A_LIBRARY = "Pick at least one library.";
+
 export const NAME_IT_THEN_CREATE = "Name it, then create it.";
 
 export function titlesReadyToAdd(count: number): string {

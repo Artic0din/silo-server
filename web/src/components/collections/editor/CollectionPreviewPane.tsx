@@ -113,6 +113,7 @@ function PreviewBody({ preview, offMessage }: { preview: ScopePreview; offMessag
       </>
     );
   }
+  // The count above already reads out "0 titles match"; announce only the other reasons.
   return (
     <div className="grid gap-4">
       <div aria-hidden className={GRID}>
@@ -123,7 +124,7 @@ function PreviewBody({ preview, offMessage }: { preview: ScopePreview; offMessag
           />
         ))}
       </div>
-      <div className="text-center" role="status">
+      <div className="text-center" role={preview.status === "ready" ? undefined : "status"}>
         {message}
       </div>
     </div>
