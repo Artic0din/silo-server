@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { v2 } from "@/api/v2/request";
-import { requiredETag } from "@/api/personalCollections";
+import { requiredETag } from "@/api/v2/etag";
 import {
   fetchAdminGroups,
   fetchAdminCollections,

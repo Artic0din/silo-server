@@ -35,6 +35,7 @@ import { ReadOnlyCollectionNotice } from "@/components/collections/ReadOnlyColle
 import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
 import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/personalCollectionCopy";
 import { ownerName } from "@/lib/collections/personalOwnership";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { useCatalogWindow } from "@/hooks/queries/catalog";
 import {
   useCreateCollection,
@@ -51,7 +52,6 @@ import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import {
-  isCollectionReadOnly,
   toCreateCollectionBody,
   toUpdateCollectionBody,
   toUserCollectionBuilderValue,
@@ -408,8 +408,10 @@ function Step2UserMetadata({
   const updateMutation = useUpdateCollection();
   const deletePosterMutation = useDeleteUserCollectionImage();
   const isPending = createMutation.isPending || updateMutation.isPending;
-  const readOnly = isCollectionReadOnly(wizard.collection, profile?.id);
   const collection = wizard.collection;
+  const readOnly =
+    collection !== null &&
+    PERSONAL_SCOPE.isReadOnly(PERSONAL_SCOPE.toView(collection), profile?.id);
   const canSave = !readOnly && draft.title.trim().length > 0;
 
   function handleSave() {

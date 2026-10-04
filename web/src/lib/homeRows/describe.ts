@@ -1,5 +1,5 @@
 import { queryDefinitionFromSectionConfig, type LibraryCollection } from "@/api/types";
-import { isListBackedCollectionType } from "@/lib/collectionTypes";
+import { isListBackedCollectionType } from "@/lib/collections/types";
 import { rowKindLabel } from "./catalog";
 import type { HomeRow, Surface } from "./types";
 

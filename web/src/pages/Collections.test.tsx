@@ -3,41 +3,12 @@ import type { Collection, QueryDefinition } from "@/api/types";
 
 import {
   buildUserCollectionCatalogHref,
-  buildUserCollectionEditorPath,
-  isCollectionReadOnly,
   toCreateCollectionBody,
   toUpdateCollectionBody,
   toUserCollectionBuilderValue,
 } from "./userCollectionsShared";
 
 describe("Collections helpers", () => {
-  it("marks non-creator collections as read only", () => {
-    expect(
-      isCollectionReadOnly(
-        {
-          id: "col-1",
-          profile_id: "profile-2",
-          creator_profile_id: "profile-2",
-          name: "Shared Picks",
-          collection_type: "smart",
-          is_shared: true,
-          query_definition: {
-            library_ids: [],
-            match: "all",
-            groups: [],
-            sort: { field: "added_at", order: "desc" },
-          },
-          sort_config: {},
-          sort_order: 0,
-          group_id: null,
-          created_at: "",
-          updated_at: "",
-        },
-        "profile-1",
-      ),
-    ).toBe(true);
-  });
-
   it("serializes the sharing switch, and no profile list, into the request bodies", () => {
     const builder = toUserCollectionBuilderValue(null);
     builder.title = "Action Night";
@@ -125,14 +96,6 @@ describe("Collections helpers", () => {
     const createBody = toCreateCollectionBody(builder);
     expect(createBody.display_query_definition).toBeUndefined();
     expect(createBody).not.toHaveProperty("watch_filter");
-  });
-
-  it("builds the create route for user collections", () => {
-    expect(buildUserCollectionEditorPath("new")).toBe("/collections/new");
-  });
-
-  it("builds the edit route for an existing user collection", () => {
-    expect(buildUserCollectionEditorPath("col-3")).toBe("/collections/col-3/edit");
   });
 
   it("builds the catalog route for viewing a user collection", () => {

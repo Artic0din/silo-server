@@ -2,19 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { v2 } from "@/api/v2/request";
-import {
-  discoveryFromV2,
-  importBodyToV2,
-  importFromV2,
-  syncFromV2,
-} from "@/api/personalCollections";
+import { discoveryFromV2, importBodyToV2, importFromV2 } from "@/api/personalCollections";
 import type {
   ImportUserMDBListCollectionRequest,
   ImportUserTMDBCollectionRequest,
   ImportUserTMDBListCollectionRequest,
 } from "@/api/types";
 import { TEMPLATE_STALE_TIME, type CollectionTemplateCatalog } from "@/lib/collectionTemplates";
-import { invalidateUserCollectionQueries } from "./collectionSurfaceRefresh";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { collectionKeys } from "./keys";
 
 export function useUserCollectionTemplates(enabled = true) {
@@ -64,7 +59,7 @@ export function useImportUserMDBListCollection() {
       ),
     onSuccess: (result) => {
       toast.success(importToastMessage("MDBList", result.sync?.status));
-      void invalidateUserCollectionQueries(queryClient);
+      void PERSONAL_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Import failed");
@@ -79,7 +74,7 @@ export function useImportUserTMDBCollection() {
       v2("POST /api/v2/collections/import/tmdb", { body: importBodyToV2(body) }).then(importFromV2),
     onSuccess: (result) => {
       toast.success(importToastMessage("TMDB collection", result.sync?.status));
-      void invalidateUserCollectionQueries(queryClient);
+      void PERSONAL_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Import failed");
@@ -96,7 +91,7 @@ export function useImportUserTMDBListCollection() {
       ),
     onSuccess: (result) => {
       toast.success(importToastMessage("TMDB list", result.sync?.status));
-      void invalidateUserCollectionQueries(queryClient);
+      void PERSONAL_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Import failed");
@@ -107,16 +102,15 @@ export function useImportUserTMDBListCollection() {
 export function useSyncUserCollection() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (collectionId: string) =>
-      v2("POST /api/v2/collections/{id}/sync", { path: { id: collectionId } }).then(syncFromV2),
+    mutationFn: (collectionId: string) => PERSONAL_SCOPE.sync(collectionId),
     onSuccess: (result, collectionId) => {
-      const matched = `${result.items_matched} item${result.items_matched === 1 ? "" : "s"}`;
+      const matched = `${result.itemsMatched} item${result.itemsMatched === 1 ? "" : "s"}`;
       const message =
         result.status === "warning"
           ? `Synced with warnings — matched ${matched}`
           : `Synced — matched ${matched}`;
       toast.success(message);
-      void invalidateUserCollectionQueries(queryClient, collectionId);
+      void PERSONAL_SCOPE.invalidate(queryClient, collectionId);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Sync failed");

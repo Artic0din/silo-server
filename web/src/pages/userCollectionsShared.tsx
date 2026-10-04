@@ -16,17 +16,14 @@ import {
   queryDefinitionToDisplayFilters,
 } from "@/lib/collectionDisplayFilters";
 import { CollectionLibraryPicker } from "@/pages/adminCollectionsShared";
-import { isOwnCollection, ownerName } from "@/lib/collections/personalOwnership";
+import { ownerName } from "@/lib/collections/personalOwnership";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import CollectionBuilder, {
   createCollectionBuilderValue,
   type CollectionBuilderValue,
 } from "@/components/collections/CollectionBuilder";
 import { ImageUploadField } from "@/components/ImageUploadField";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
-export function buildUserCollectionEditorPath(id: "new" | string) {
-  return id === "new" ? "/collections/new" : `/collections/${id}/edit`;
-}
 
 export function buildUserCollectionCatalogHref(id: string, title?: string) {
   return buildCatalogHrefForUserCollection(id, title);
@@ -79,17 +76,6 @@ export function toUpdateCollectionBody(value: CollectionBuilderValue): UpdateCol
     body.display_query_definition = value.display_query_definition;
   }
   return body;
-}
-
-/** Another profile's collection opens read-only (only its creator changes it). */
-export function isCollectionReadOnly(
-  collection: Collection | null,
-  currentProfileId?: string | null,
-): boolean {
-  if (!collection || !currentProfileId) {
-    return false;
-  }
-  return !isOwnCollection(collection, currentProfileId);
 }
 
 function UserCollectionSummary({
@@ -169,7 +155,10 @@ export function UserCollectionForm({
   const { data: libraries = [] } = useUserLibraries();
   const { profile } = useCurrentProfile();
   const isPending = createMutation.isPending || updateMutation.isPending;
-  const readOnly = isCollectionReadOnly(collection, profile?.id);
+  // Another profile's collection opens read-only: only its creator changes it.
+  const readOnly =
+    collection !== null &&
+    PERSONAL_SCOPE.isReadOnly(PERSONAL_SCOPE.toView(collection), profile?.id);
 
   useEffect(() => {
     setDraft(toUserCollectionBuilderValue(collection));

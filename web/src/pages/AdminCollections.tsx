@@ -56,7 +56,7 @@ import {
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
-import { isListBackedCollectionType } from "@/lib/collectionTypes";
+import { isListBackedCollectionType } from "@/lib/collections/types";
 import { buildAdminCollectionEditorPath, collectionsInAdminScope } from "./adminCollectionsShared";
 
 export default function AdminCollections() {
