@@ -4,7 +4,7 @@ import { GripVertical, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import type { LibraryCollection } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { isListBackedCollectionType } from "@/lib/collectionTypes";
+import { isListBackedCollectionType } from "@/lib/collections/types";
 import { cn } from "@/lib/utils";
 import { useSelection, type SelectionKind } from "./GroupsBoard";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";

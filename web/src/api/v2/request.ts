@@ -223,7 +223,8 @@ export type V2RequestOptions<K extends V2OperationKey> = CommonOptions &
       ? { headers?: V2Headers<K> }
       : { headers: V2Headers<K> });
 
-type RequestArgs<K extends V2OperationKey> =
+/** The arguments after the operation key: options, optional when nothing is required. */
+export type V2RequestArgs<K extends V2OperationKey> =
   Record<never, never> extends V2RequestOptions<K>
     ? [options?: V2RequestOptions<K>]
     : [options: V2RequestOptions<K>];
@@ -402,7 +403,7 @@ async function readBody(res: Response, operationId: string): Promise<unknown> {
  */
 export async function v2<K extends V2OperationKey>(
   key: K,
-  ...args: RequestArgs<K>
+  ...args: V2RequestArgs<K>
 ): Promise<V2Result<K>> {
   const [method, route] = key.split(" ", 2) as [string, string];
   const options = (args[0] ?? {}) as CommonOptions & {

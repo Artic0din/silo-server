@@ -34,6 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { ReadOnlyCollectionNotice } from "@/components/collections/ReadOnlyCollectionNotice";
 import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
 import { ownerName } from "@/lib/collections/personalOwnership";
+import { PERSONAL_SCOPE, personalCollectionLibraryIds } from "@/lib/collections/scope";
 import { ImageUploadField } from "@/components/ImageUploadField";
 import {
   useDeleteCollection,
@@ -56,7 +57,6 @@ import { CollectionDefaultSortField } from "@/components/collections/CollectionD
 import { changedSortConfig, sortConfigToSelectValue } from "@/lib/collectionSortConfig";
 import { CollectionLibraryPicker } from "@/pages/adminCollectionsShared";
 
-import { isCollectionReadOnly } from "./userCollectionsShared";
 import { formatDate as formatPreferredDate } from "@/lib/datetime";
 import { parseTMDBListID, TMDB_LIST_URL_PLACEHOLDER } from "@/lib/tmdbList";
 
@@ -122,12 +122,12 @@ export function ImportedCollectionEditor({
   const { data: libraries = [] } = useUserLibraries();
   const { data: collectionCapabilities } = useCollectionCapabilities();
   const { profile } = useCurrentProfile();
-  const readOnly = isCollectionReadOnly(collection, profile?.id);
+  const readOnly = PERSONAL_SCOPE.isReadOnly(PERSONAL_SCOPE.toView(collection), profile?.id);
 
   const initialMaxItems = readSourceConfigLimit(collection);
   const initialSourceUrl = collection.source_url ?? "";
   const initialDescription = collection.description ?? "";
-  const initialLibraryIds = readSourceConfigLibraryIDs(collection);
+  const initialLibraryIds = personalCollectionLibraryIds(collection);
   const initialDisplayFilters = queryDefinitionToDisplayFilters(
     collection.display_query_definition,
   );
@@ -1124,25 +1124,6 @@ function readSourceConfigLimit(collection: Collection): number | null {
     return Math.trunc(limit);
   }
   return null;
-}
-
-function sanitizeLibraryIDs(raw: unknown): number[] {
-  if (!Array.isArray(raw)) return [];
-  const ids = raw
-    .filter((id): id is number => typeof id === "number" && Number.isFinite(id) && id > 0)
-    .map((id) => Math.trunc(id));
-  return Array.from(new Set(ids));
-}
-
-function readSourceConfigLibraryIDs(collection: Collection): number[] {
-  const cfg = collection.source_config;
-  if (cfg && typeof cfg === "object") {
-    const raw = (cfg as Record<string, unknown>).library_ids;
-    if (Array.isArray(raw)) {
-      return sanitizeLibraryIDs(raw);
-    }
-  }
-  return sanitizeLibraryIDs(collection.query_definition.library_ids);
 }
 
 function parseMaxItemsInput(value: string): number | null {

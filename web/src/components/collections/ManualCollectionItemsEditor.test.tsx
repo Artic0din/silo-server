@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { ManualCollectionItemsEditor } from "./ManualCollectionItemsEditor";
 
 const mocks = vi.hoisted(() => ({
@@ -34,7 +35,7 @@ function show() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ManualCollectionItemsEditor collectionId="c" />
+      <ManualCollectionItemsEditor collectionId="c" scope={PERSONAL_SCOPE} />
     </QueryClientProvider>,
   );
 }

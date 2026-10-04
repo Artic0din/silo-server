@@ -49,6 +49,7 @@ import {
 import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { partitionPersonalCollections } from "@/lib/collections/personalOwnership";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
 import MediaCarousel from "@/components/MediaCarousel";
 import { useSyncUserCollection } from "@/hooks/queries/userCollectionImports";
@@ -61,10 +62,7 @@ import { CollectionTemplateGallery } from "@/components/CollectionTemplateGaller
 import { useUICustomization } from "@/hooks/useUICustomization";
 import { carouselCardWidthClasses } from "@/lib/uiCustomization";
 
-import {
-  buildUserCollectionCatalogHref,
-  buildUserCollectionEditorPath,
-} from "./userCollectionsShared";
+import { buildUserCollectionCatalogHref } from "./userCollectionsShared";
 
 type ImportedCollectionType = Extract<UserCollectionType, "mdblist" | "tmdb" | "trakt">;
 const SYNCABLE_TYPES = new Set<ImportedCollectionType>(["mdblist", "tmdb", "trakt"]);
@@ -171,7 +169,7 @@ function CollectionList() {
               <Sparkles className="mr-1 h-4 w-4" /> Browse Templates
             </Button>
           )}
-          <Button size="sm" onClick={() => navigate(buildUserCollectionEditorPath("new"))}>
+          <Button size="sm" onClick={() => navigate(PERSONAL_SCOPE.paths.create())}>
             <Plus className="mr-1 h-4 w-4" /> New Collection
           </Button>
         </div>
@@ -199,7 +197,7 @@ function CollectionList() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate(buildUserCollectionEditorPath("new"))}
+                onClick={() => navigate(PERSONAL_SCOPE.paths.create())}
               >
                 <Plus className="mr-1 h-4 w-4" /> Create from scratch
               </Button>
@@ -224,7 +222,7 @@ function CollectionList() {
                       capabilities?.imports === true && isImportedType(collection.collection_type),
                     isSyncing,
                     onSync: () => syncMutation.mutate(collection.id),
-                    onEdit: () => navigate(buildUserCollectionEditorPath(collection.id)),
+                    onEdit: () => navigate(PERSONAL_SCOPE.paths.edit(collection.id)),
                     onDelete: () => {
                       void fetchCollectionEditSnapshot(collection.id)
                         .then(setConfirmDeleteCollection)

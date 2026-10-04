@@ -12,6 +12,7 @@ import type {
   ServerCollectionsResponse,
 } from "@/api/types";
 import { normalizeQueryDefinition } from "@/api/types";
+import { withETag } from "@/api/v2/etag";
 import { v2, type V2Body, type V2Result } from "@/api/v2/request";
 import type { components } from "@/api/v2/schema";
 
@@ -129,39 +130,19 @@ export interface CollectionEditSnapshot {
   collection: Collection;
   etag: string;
 }
-export function requiredETag(etag: string | undefined | null): string {
-  if (!etag || etag === "*")
-    throw new Error("Reload this collection before editing; its version is unavailable.");
-  return etag;
-}
 export async function fetchCollectionEditSnapshot(id: string): Promise<CollectionEditSnapshot> {
-  let etag: string | null = null;
-  const collection = await v2("GET /api/v2/collections/{id}", {
-    path: { id },
-    onResponse: (response) => {
-      etag = response.headers.get("ETag");
-    },
-  });
-  return { collection: collectionFromV2(collection), etag: requiredETag(etag) };
+  const { body, etag } = await withETag("GET /api/v2/collections/{id}", { path: { id } });
+  return { collection: collectionFromV2(body), etag };
 }
 
 /** The acting profile's own collections in its order, with the order's validator. */
 export async function fetchCollectionOrderSnapshot() {
-  let etag: string | null = null;
-  const body = await v2("GET /api/v2/collections/order", {
-    onResponse: (response) => {
-      etag = response.headers.get("ETag");
-    },
-  });
-  return { ordered_ids: body.ordered_ids, etag: requiredETag(etag) };
+  const { body, etag } = await withETag("GET /api/v2/collections/order");
+  return { ordered_ids: body.ordered_ids, etag };
 }
 export async function fetchItemOrderSnapshot(id: string) {
-  let etag: string | null = null;
-  const body = await v2("GET /api/v2/collections/{id}/items/order", {
+  const { body, etag } = await withETag("GET /api/v2/collections/{id}/items/order", {
     path: { id },
-    onResponse: (response) => {
-      etag = response.headers.get("ETag");
-    },
   });
-  return { ...body, etag: requiredETag(etag) };
+  return { ...body, etag };
 }

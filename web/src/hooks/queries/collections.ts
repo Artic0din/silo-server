@@ -13,17 +13,16 @@ import type {
   CreateCollectionRequest,
   UpdateCollectionRequest,
 } from "@/api/types";
+import { requiredETag } from "@/api/v2/etag";
 import { v2, V2ProblemError } from "@/api/v2/request";
 import {
-  fetchCollectionEditSnapshot,
   fetchItemOrderSnapshot,
-  requiredETag,
-  collectionsFromV2,
   collectionCreateToV2,
   collectionUpdateToV2,
   saveCollectionPoster,
   serverCollectionsFromV2,
 } from "@/api/personalCollections";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { catalogKeys, collectionKeys } from "./keys";
 import { toast } from "sonner";
 import {
@@ -31,35 +30,19 @@ import {
   invalidateAdminCollectionQueries,
 } from "./collectionSurfaceRefresh";
 
-function fetchCollectionsList(): Promise<CollectionsListResponse> {
-  return v2("GET /api/v2/collections").then(collectionsFromV2);
-}
+const collectionMutationMessage = PERSONAL_SCOPE.errorMessage;
 
-export function useCollectionEditSnapshot(id?: string) {
-  return useQuery({
-    queryKey: ["collections", "edit", id],
-    queryFn: () => fetchCollectionEditSnapshot(id!),
-    enabled: !!id,
-  });
-}
-
-function collectionMutationMessage(error: unknown, fallback: string) {
-  if (error instanceof V2ProblemError && error.status === 412) {
-    return "This collection changed while you were editing. Reload it and review your changes before saving again.";
-  }
-  return error instanceof Error ? error.message : fallback;
-}
 export function useCollections() {
   return useQuery({
-    queryKey: collectionKeys.list(),
-    queryFn: fetchCollectionsList,
+    queryKey: PERSONAL_SCOPE.keys.list,
+    queryFn: PERSONAL_SCOPE.fetchList,
     select: (data) => data.collections,
   });
 }
 
 export function useCollectionCapabilities() {
   return useQuery({
-    queryKey: ["collections", "capabilities"],
+    queryKey: PERSONAL_SCOPE.keys.capabilities,
     queryFn: () =>
       v2("GET /api/v2/collections/capabilities").then((value) => ({
         ...value,
@@ -130,12 +113,12 @@ export function useCreateCollection() {
     onSuccess: ({ posterError }) => {
       toast.success("Collection created");
       if (posterError) toast.error(`Collection saved, but poster upload failed: ${posterError}`);
-      return invalidateUserCollectionQueries(queryClient);
+      return PERSONAL_SCOPE.invalidate(queryClient);
     },
     onError: (err) => {
       toast.error(collectionMutationMessage(err, "Failed to save"));
       if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
+        void PERSONAL_SCOPE.invalidate(queryClient);
     },
   });
 }
@@ -163,12 +146,12 @@ export function useUpdateCollection() {
     onSuccess: ({ posterError }, { id }) => {
       toast.success("Collection updated");
       if (posterError) toast.error(`Collection saved, but poster upload failed: ${posterError}`);
-      return invalidateUserCollectionQueries(queryClient, id);
+      return PERSONAL_SCOPE.invalidate(queryClient, id);
     },
     onError: (err) => {
       toast.error(collectionMutationMessage(err, "Failed to save"));
       if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
+        void PERSONAL_SCOPE.invalidate(queryClient);
     },
   });
 }
@@ -177,19 +160,15 @@ export function useDeleteCollection() {
   const queryClient = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: ({ id, etag }: { id: string; etag: string }) =>
-      v2("DELETE /api/v2/collections/{id}", {
-        path: { id },
-        headers: { "If-Match": requiredETag(etag) },
-      }),
+    mutationFn: PERSONAL_SCOPE.remove,
     onSuccess: (_data, { id }) => {
       toast.success("Collection deleted");
-      return invalidateUserCollectionQueries(queryClient, id);
+      return PERSONAL_SCOPE.invalidate(queryClient, id);
     },
     onError: (err) => {
       toast.error(collectionMutationMessage(err, "Failed to delete"));
       if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
+        void PERSONAL_SCOPE.invalidate(queryClient);
     },
   });
 }

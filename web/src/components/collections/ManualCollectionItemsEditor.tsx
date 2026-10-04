@@ -23,16 +23,13 @@ import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/cata
 import { catalogKeys } from "@/hooks/queries/keys";
 import { useSortableList } from "@/hooks/useSortableList";
 import { useDebounce } from "@/hooks/useDebounce";
+import type { CollectionScope } from "@/lib/collections/scope";
 
 interface ManualCollectionItemsEditorProps {
   collectionId: string;
   readOnly?: boolean;
-  /**
-   * Whether this collection lives under the admin /admin/collections/* route
-   * (library collection) or the user /collections/* route (personal). The
-   * add-item mutation needs to know to hit the right endpoint.
-   */
-  source?: "user" | "library";
+  /** Whether this is a server (library) or personal collection; picks the item routes. */
+  scope: CollectionScope;
 }
 
 const SEARCH_LIMIT = 12;
@@ -152,15 +149,17 @@ function AddItemPanel({
 export function ManualCollectionItemsEditor({
   collectionId,
   readOnly = false,
-  source = "user",
+  scope,
 }: ManualCollectionItemsEditorProps) {
+  const source = scope.itemSource;
   const [page, setPage] = useState({ collectionId, cursor: "" });
   const cursor = page.collectionId === collectionId ? page.cursor : "";
   const { data, isLoading, error, refetch } = useCollectionItems(collectionId, cursor, source);
   const items = useMemo(() => data?.items ?? [], [data]);
   const personalCapabilities = useCollectionCapabilities();
-  const adminCapabilities = useAdminCollectionCapabilities(source === "library");
-  const capabilities = source === "user" ? personalCapabilities.data : adminCapabilities.data;
+  const adminCapabilities = useAdminCollectionCapabilities(scope.kind === "server");
+  const capabilities =
+    scope.kind === "personal" ? personalCapabilities.data : adminCapabilities.data;
   const { data: orderSnapshot } = useCollectionItemOrderSnapshot(
     collectionId,
     capabilities?.item_reorder === true,
