@@ -21,6 +21,7 @@ import (
 	"github.com/Silo-Server/silo-server/internal/adminjob"
 	"github.com/Silo-Server/silo-server/internal/api/handlers"
 	catalogsvc "github.com/Silo-Server/silo-server/internal/catalog"
+	"github.com/Silo-Server/silo-server/internal/collections/templates"
 	"github.com/Silo-Server/silo-server/internal/downloads"
 	"github.com/Silo-Server/silo-server/internal/librarymonitor"
 	"github.com/Silo-Server/silo-server/internal/models"
@@ -1739,7 +1740,27 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, deviceSignInFixtureCases()...)
 	cases = append(cases, externalSignInFixtureCases()...)
 	cases = append(cases, personalCollectionCreateFixtureCases()...)
-	return append(cases, personalCollectionPreviewFixtureCases()...)
+	cases = append(cases, personalCollectionPreviewFixtureCases()...)
+	return append(cases, adminTemplateBundleFixtureCases()...)
+}
+
+// adminTemplateBundleFixtureCases pin a bundle list whose bundles carry a
+// summary of each template, with the franchise placeholder marked as needing
+// setup.
+func adminTemplateBundleFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "list_admin_collection_template_bundles_ok", operationID: "listAdminCollectionTemplateBundles", scenario: "Template bundles with a summary of each template in bundle order; a template that cannot sync until an administrator sets its source needs setup.", method: http.MethodGet, path: "/api/v2/admin/collections/template-bundles", headers: bearer(adminToken), status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/BundleCatalog"},
+	}
+}
+
+// fixtureTemplateBundles is a two-template franchise bundle: one curated
+// franchise with a poster and the placeholder an administrator completes.
+func fixtureTemplateBundles() []templates.BundleWithTemplates {
+	registry := templates.NewRegistry()
+	registry.Register(templates.Template{ID: "tmdb_franchise_star_wars", Title: "Star Wars", Category: templates.CategoryEditorial, Source: templates.SourceTMDBCollection, MediaKind: templates.MediaMovie, Featured: true, PosterPath: "/images/collection-templates/tmdb_franchise_star_wars.jpg", TMDBCollection: &templates.TMDBCollectionSpec{CollectionID: 10}})
+	registry.Register(templates.Template{ID: "tmdb_franchise_placeholder", Title: "TMDB Franchise", Category: templates.CategoryEditorial, Source: templates.SourceTMDBCollection, MediaKind: templates.MediaMovie, TMDBCollection: &templates.TMDBCollectionSpec{}})
+	registry.RegisterBundle(templates.Bundle{ID: "franchise_collections", Title: "Franchise Collections", Description: "TMDB franchise and saga collections.", TemplateIDs: []string{"tmdb_franchise_star_wars", "tmdb_franchise_placeholder"}})
+	return registry.BundlesWithTemplates()
 }
 
 // personalCollectionPreviewFixtureCases pin a smart preview whose items carry
@@ -1835,6 +1856,7 @@ func fixtureDeps() Dependencies {
 	adminCollections.view.SortConfig = json.RawMessage(`{}`)
 	adminCollections.view.SourceConfig = json.RawMessage(`{}`)
 	adminCollections.job = &models.AdminJob{ID: "collection-job", JobType: adminjob.JobTypeTemplateBundleApply, Status: adminjob.StatusQueued, RequestedAt: fixedTime()}
+	adminCollections.bundles = fixtureTemplateBundles()
 	deps.AdminCollections = adminCollections
 	deps.AdminSections = newFakeAdminSections()
 	adminPolicy := newFakeAdminPolicy()

@@ -387,6 +387,22 @@ titles through the existing viewer access filter; admin pages require acting
 administrator access. Membership identity, ordering and cursor revision checks
 are unchanged. Frozen v1 membership responses do not expose this field.
 
+## Template bundle summaries
+
+`listAdminCollectionTemplateBundles` (`GET /api/v2/admin/collections/template-bundles`) returns
+each bundle with `templates`, a summary of every template in `template_ids` order: `id`, `title`,
+`source`, `media_kind`, `featured`, `poster_path` (omitted when the template has no poster) and
+`needs_setup`. The list covers every source a bundle uses, including `tmdb_discover` and
+`tmdb_collection` templates, so a client can describe a bundle without the template catalog.
+
+`featured` is the pinned-first flag a collection created from the template starts with.
+`needs_setup` is true for a template whose collection is created empty and cannot sync until an
+administrator sets its source; today that is the `tmdb_franchise_placeholder` template, which has
+no TMDB collection ID. Applying the bundle still creates that collection.
+
+The route requires acting administrator access. The frozen
+`/api/v1/admin/collections/template-bundles` response is unchanged and carries no `templates`.
+
 ## Advisory age
 
 Movies and series may carry `advisory_age`, a recommended minimum viewer age from

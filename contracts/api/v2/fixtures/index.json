@@ -8266,6 +8266,25 @@
       "body_file": "list_account_identities_ok.json"
     },
     {
+      "name": "list_admin_collection_template_bundles_ok",
+      "operation_id": "listAdminCollectionTemplateBundles",
+      "scenario": "Template bundles with a summary of each template in bundle order; a template that cannot sync until an administrator sets its source needs setup.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections/template-bundles",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/BundleCatalog",
+      "body_file": "list_admin_collection_template_bundles_ok.json"
+    },
+    {
       "name": "list_admin_playback_history_ok",
       "operation_id": "listAdminPlaybackHistory",
       "scenario": "Administrator playback history page carries string IDs, instants, a nullable duration and a scoped cursor.",

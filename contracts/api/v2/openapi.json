@@ -23232,11 +23232,19 @@
             },
             "type": "array"
           },
+          "templates": {
+            "description": "The bundle's templates, in template_ids order.",
+            "items": {
+              "$ref": "#/components/schemas/CollectionTemplateSummary"
+            },
+            "type": "array"
+          },
           "title": {
             "type": "string"
           }
         },
         "required": [
+          "templates",
           "id",
           "title",
           "description",
@@ -23256,6 +23264,44 @@
         },
         "required": [
           "categories"
+        ],
+        "type": "object"
+      },
+      "CollectionTemplateSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "featured": {
+            "description": "Collections created from this template are pinned first on their shelf.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "needs_setup": {
+            "description": "Applying the template creates an empty collection that cannot sync until an administrator sets its source.",
+            "type": "boolean"
+          },
+          "poster_path": {
+            "description": "Server-relative path of the template's poster image.",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source",
+          "media_kind",
+          "featured",
+          "needs_setup"
         ],
         "type": "object"
       },
@@ -60688,7 +60734,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List collection template bundles.",
+        "summary": "List collection template bundles, each with a summary of its templates.",
         "tags": [
           "admin-collections"
         ],

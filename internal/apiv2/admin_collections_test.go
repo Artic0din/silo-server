@@ -11,6 +11,7 @@ import (
 	"github.com/Silo-Server/silo-server/internal/adminjob"
 	"github.com/Silo-Server/silo-server/internal/api/handlers"
 	catalogsvc "github.com/Silo-Server/silo-server/internal/catalog"
+	"github.com/Silo-Server/silo-server/internal/collections/templates"
 	"github.com/Silo-Server/silo-server/internal/models"
 )
 
@@ -25,6 +26,8 @@ type fakeAdminCollections struct {
 	job                                                *models.AdminJob
 	syncErr                                            error
 	template                                           handlers.AdminCollectionTemplateResult
+	bundles                                            []templates.BundleWithTemplates
+	bundleReads                                        int
 }
 
 func newFakeAdminCollections() *fakeAdminCollections {
