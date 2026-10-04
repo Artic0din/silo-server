@@ -122,6 +122,8 @@ func (r *Registry) BundlesWithTemplates() []BundleWithTemplates {
 	for _, b := range r.bundles {
 		listed := make([]Template, 0, len(b.TemplateIDs))
 		for _, id := range b.TemplateIDs {
+			// RegisterBundle panics on unknown template IDs, so every
+			// reference resolves and Templates always matches TemplateIDs.
 			if idx, ok := r.byID[id]; ok {
 				listed = append(listed, r.templates[idx])
 			}

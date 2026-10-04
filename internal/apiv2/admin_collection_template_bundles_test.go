@@ -66,8 +66,12 @@ func TestAdminTemplateBundlesListTheirTemplates(t *testing.T) {
 			if s.Featured == nil || *s.Featured != tmpl.Featured {
 				t.Errorf("%s/%s: featured %v, want %v", b.ID, s.ID, s.Featured, tmpl.Featured)
 			}
-			if s.PosterPath == nil || *s.PosterPath != tmpl.PosterPath {
-				t.Errorf("%s/%s: poster_path %v, want %q", b.ID, s.ID, s.PosterPath, tmpl.PosterPath)
+			gotPoster := ""
+			if s.PosterPath != nil {
+				gotPoster = *s.PosterPath
+			}
+			if gotPoster != tmpl.PosterPath {
+				t.Errorf("%s/%s: poster_path %q, want %q", b.ID, s.ID, gotPoster, tmpl.PosterPath)
 			}
 			wantSetup := s.ID == "tmdb_franchise_placeholder"
 			if s.NeedsSetup == nil || *s.NeedsSetup != wantSetup {
