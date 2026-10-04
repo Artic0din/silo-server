@@ -442,6 +442,17 @@ describe("rule rows", () => {
       sort: { field: "added_at", order: "desc" },
     });
   });
+
+  it("keeps a movies-and-shows scope through an edit to the rules", () => {
+    const original = draftFromRow(
+      row({ sectionType: "custom_filter", config: { media_scope: "video", groups: [] } }),
+      recipeCatalogFixture,
+    );
+    const query = queryDefinitionFromSectionConfig(original.config);
+    expect(query.media_scope).toBe("video");
+    const draft = withRules(original, { ...query, match: "any" });
+    expect(draft.config.media_scope).toBe("video");
+  });
 });
 
 describe("Editor's Picks rows", () => {

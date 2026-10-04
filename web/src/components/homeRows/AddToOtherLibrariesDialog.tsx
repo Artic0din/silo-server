@@ -10,8 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { RowChangedError, type HomeRow } from "@/lib/homeRows/types";
-import { LibraryPageChips, type LibraryPage } from "./addRow/LibraryPageChips";
+import { BULK_LIBRARY_LIMIT } from "@/lib/homeRows/bulkCopy";
+import { RowChangedError, type HomeRow, type LibraryPage } from "@/lib/homeRows/types";
+import { LibraryPageChips } from "./addRow/LibraryPageChips";
 
 const listFormat = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
 
@@ -87,6 +88,7 @@ export function AddToOtherLibrariesDialog({
           currentNote="already here"
           selectedIds={selectedIds}
           onChange={setSelectedIds}
+          maxSelected={BULK_LIBRARY_LIMIT}
           help={
             row.hero
               ? "The copies aren't hero banners; this page keeps its own."

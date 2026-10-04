@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,10 +7,17 @@ import golden from "@/lib/homeRows/payloads.golden.json";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import AdminHomeRows from "./AdminHomeRows";
 
+const THREE_LIBRARIES = [
+  { id: 7, name: "Movies", type: "movies" },
+  { id: 8, name: "TV Shows", type: "shows" },
+  { id: 9, name: "Kids", type: "movies" },
+];
+
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
+  libraries: [] as Array<{ id: number; name: string; type: string }>,
 }));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
@@ -20,13 +27,7 @@ vi.mock("sonner", () => ({
   toast: { success: mocks.success, error: mocks.error, warning: vi.fn() },
 }));
 vi.mock("@/hooks/queries/admin/libraries", () => ({
-  useAdminLibraries: () => ({
-    data: [
-      { id: 7, name: "Movies", type: "movies" },
-      { id: 8, name: "TV Shows", type: "shows" },
-      { id: 9, name: "Kids", type: "movies" },
-    ],
-  }),
+  useAdminLibraries: () => ({ data: mocks.libraries }),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollections: () => ({
@@ -105,6 +106,7 @@ let nextId: number;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.libraries = THREE_LIBRARIES;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -221,6 +223,20 @@ async function openRowMenu(title: string) {
 const pagesGroup = (form: HTMLElement) =>
   within(form).getByRole("group", { name: "Add to these library pages" });
 
+/** This page (Movies, 7) and `others` more movie libraries, 100 and up. */
+function manyLibraries(others: number) {
+  return [
+    { id: 7, name: "Movies", type: "movies" },
+    ...Array.from({ length: others }, (_, index) => ({
+      id: 100 + index,
+      name: `Library ${100 + index}`,
+      type: "movies",
+    })),
+  ];
+}
+
+const LIMIT_NOTE = "You can add a row to up to 100 pages at once.";
+
 describe("Add to these library pages", () => {
   it("is not offered on Home", async () => {
     const form = await pickTrending("/admin/home-rows");
@@ -295,6 +311,25 @@ describe("Add to these library pages", () => {
     expect(writes[0]!.operation).toBe("POST /api/v2/admin/sections");
     expect(writes[0]!.args.body).toMatchObject({ library_id: "7", featured: true });
   });
+
+  it("stops at the 100 pages one request can add to, this page included", async () => {
+    mocks.libraries = manyLibraries(100);
+    const form = await pickTrending();
+    const group = pagesGroup(form);
+    for (let id = 100; id < 199; id++)
+      fireEvent.click(within(group).getByRole("checkbox", { name: `Library ${id}` }));
+    expect(within(group).getByRole("checkbox", { name: "Library 199" })).toBeDisabled();
+    expect(within(form).getByText(LIMIT_NOTE)).toBeInTheDocument();
+    // Dropping one page frees a place again.
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Library 100" }));
+    expect(within(group).getByRole("checkbox", { name: "Library 199" })).toBeEnabled();
+    expect(within(form).queryByText(LIMIT_NOTE)).toBeNull();
+    fireEvent.click(within(group).getByRole("checkbox", { name: "Library 100" }));
+
+    await userEvent.click(within(form).getByRole("button", { name: "Add to 100 pages" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.args.body!.library_ids).toHaveLength(100);
+  }, 30_000);
 
   it("is not offered for collection rows", async () => {
     await userEvent.click(await setup());
@@ -391,6 +426,54 @@ describe("Add to other libraries…", () => {
     expect(writes[0]!.args.body).toMatchObject({ library_ids: ["8"], featured: false });
     expect(mocks.success).toHaveBeenCalledWith("Added to TV Shows.");
   });
+
+  it("offers a row set to one kind of title only on libraries of the same type", async () => {
+    rows.push(
+      stored("recent-movies", {
+        position: 3,
+        title: "Recently Added Movies",
+        config: { media_scope: "movie", match: "all", groups: [] },
+      }),
+      stored("recent-tv", {
+        library_id: "8",
+        title: "Recently Added TV",
+        config: { media_scope: "series", match: "all", groups: [] },
+      }),
+    );
+    await setup();
+    const menu = await openRowMenu("Recently Added Movies");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Add to other libraries…" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Add Recently Added Movies to other libraries",
+    });
+    const group = within(dialog).getByRole("group", { name: "Add to these library pages" });
+    expect(within(group).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(group).getByRole("checkbox", { name: "Kids" })).toBeInTheDocument();
+    expect(within(group).queryByRole("checkbox", { name: "TV Shows" })).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    cleanup();
+
+    // No other library holds shows, so a shows-only row has nowhere to go.
+    await setup("/admin/home-rows?page=8");
+    const tvMenu = await openRowMenu("Recently Added TV");
+    expect(within(tvMenu).queryByRole("menuitem", { name: "Add to other libraries…" })).toBeNull();
+  });
+
+  it("stops at the 100 pages one request can add to", async () => {
+    mocks.libraries = manyLibraries(101);
+    await setup();
+    const menu = await openRowMenu("Trending This Week");
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Add to other libraries…" }));
+    const dialog = await screen.findByRole("dialog");
+    for (let id = 100; id < 200; id++)
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: `Library ${id}` }));
+    expect(within(dialog).getByRole("checkbox", { name: "Library 200" })).toBeDisabled();
+    expect(within(dialog).getByText(LIMIT_NOTE)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add to 100 pages" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.args.body!.library_ids).toHaveLength(100);
+  }, 30_000);
 
   it("stops when the row changed since the page loaded", async () => {
     await setup();
