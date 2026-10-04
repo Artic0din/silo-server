@@ -75,13 +75,17 @@ export default function AdminCollections() {
   const selectedLibraryId = initialLibraryId;
   const [galleryOpen, setGalleryOpen] = useState(false);
   const starterPacksOpen = searchParams.get("dialog") === STARTER_PACKS_DIALOG;
+  // Replace, not push: Back should leave the page, not reopen a closed dialog.
   const setStarterPacksOpen = (open: boolean) =>
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      if (open) next.set("dialog", STARTER_PACKS_DIALOG);
-      else next.delete("dialog");
-      return next;
-    });
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) next.set("dialog", STARTER_PACKS_DIALOG);
+        else next.delete("dialog");
+        return next;
+      },
+      { replace: true },
+    );
   const [editingGroup, setEditingGroup] = useState<{
     mode: "create" | "edit";
     id?: string;

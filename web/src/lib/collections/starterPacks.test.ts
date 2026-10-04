@@ -4,6 +4,7 @@ import type { Library, PageSectionConfig } from "@/api/types";
 import { templateResultFromV2 } from "@/api/adminCollections";
 import {
   coreApplied,
+  coreAppliedAllFailed,
   coreDryRun,
   starterPackBundles,
   starterPackLibraries,
@@ -15,6 +16,7 @@ import {
   effectiveHeroes,
   featuredRequest,
   heroTemplates,
+  packAdded,
   packLibraries,
   packPlan,
   starterPacksOf,
@@ -163,6 +165,35 @@ describe("starter packs", () => {
       ["Movies", 2, 0],
       ["TV Shows", 1, 1],
     ]);
+  });
+
+  it("counts a finished apply as added unless nothing new landed and something failed", () => {
+    const core = pack("core_defaults");
+    expect(packAdded(templateResultFromV2(coreApplied), core)).toBe(true);
+    expect(packAdded(templateResultFromV2(coreAppliedAllFailed), core)).toBe(false);
+    // Only heroes set: the pack's lists were all there already.
+    expect(packAdded(templateResultFromV2({ ...coreAppliedAllFailed, failed: [] }), core)).toBe(
+      true,
+    );
+    expect(
+      packAdded(
+        templateResultFromV2({
+          ...coreAppliedAllFailed,
+          failed: [],
+          featured_failed: [
+            {
+              surface: "home",
+              library_id: "1",
+              library_name: "Movies",
+              template_id: "tmdb_trending_movies_week",
+              template_title: "Trending Movies This Week",
+              reason: "row limit reached",
+            },
+          ],
+        }),
+        core,
+      ),
+    ).toBe(false);
   });
 
   it("calls a mixed set of left-out lists just lists", () => {

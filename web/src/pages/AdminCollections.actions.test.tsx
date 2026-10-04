@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
 
@@ -210,6 +210,42 @@ describe("AdminCollections actions", () => {
     expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent("Opened on 2");
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
+  });
+
+  it("leaves the page on Back after Starter packs closes, instead of reopening it", () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    function BackButton() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => void navigate(-1)}>
+          Back
+        </button>
+      );
+    }
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={["/admin", "/admin/collections"]} initialIndex={1}>
+          <Routes>
+            <Route path="/admin" element={<p>Admin home</p>} />
+            <Route
+              path="/admin/collections"
+              element={
+                <>
+                  <BackButton />
+                  <AdminCollections />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Starter packs…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Admin home")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
   });
 

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library } from "@/api/types";
 import {
   coreApplied,
+  coreAppliedAllFailed,
   coreDryRun,
   coreDryRunAllThere,
   coreDryRunWithHeroes,
@@ -145,6 +146,18 @@ describe("Starter packs", () => {
     expect(screen.getByRole("heading", { name: "Core Defaults" })).toBeInTheDocument();
   });
 
+  it("ties each pack tab to the pane it shows", async () => {
+    const { user } = renderDialog();
+    const rail = await screen.findByRole("tablist", { name: "Packs" });
+    const tabs = within(rail).getAllByRole("tab");
+    const panel = screen.getByRole("tabpanel", { name: /Core Defaults/ });
+    for (const tab of tabs) expect(tab).toHaveAttribute("aria-controls", panel.id);
+    expect(within(panel).getByRole("heading", { name: "Core Defaults" })).toBeInTheDocument();
+
+    await user.click(within(rail).getByRole("tab", { name: /Popular Genres/ }));
+    expect(screen.getByRole("tabpanel", { name: /Popular Genres/ })).toBe(panel);
+  });
+
   it("shows what will happen per library from the dry run, tagging only the exceptions", async () => {
     renderDialog();
     await checked();
@@ -213,8 +226,23 @@ describe("Starter packs", () => {
     );
     await user.click(screen.getByRole("button", { name: "Add 4 collections" }));
     await screen.findByRole("heading", { name: "Core Defaults added" });
-    await waitFor(() => expect(v2Recorder.callsOf(DRY_RUN)).toHaveLength(4));
+    await waitFor(() => expect(v2Recorder.callsOf(DRY_RUN)).toHaveLength(5));
     expect(v2Recorder.writes()).toEqual(goldens.starterPackApplyWithHeroes);
+  });
+
+  it("turns the hero switch back off once the heroes are set", async () => {
+    const { user } = renderDialog();
+    await checked();
+    const heroSwitch = screen.getByRole("switch", { name: "Also use the pack's hero banners" });
+    await user.click(heroSwitch);
+    await waitFor(() =>
+      expect(within(table()).getByText("Hero banner on Home")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "Add 4 collections" }));
+    await screen.findByRole("heading", { name: "Core Defaults added" });
+    expect(heroSwitch).not.toBeChecked();
+    await waitFor(() => expect(within(table()).queryByText("Hero banner on Home")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Set hero banners" })).toBeNull();
   });
 
   it("names the hero each page line replaces, and lets a page keep its current one", async () => {
@@ -339,6 +367,29 @@ describe("Starter packs", () => {
     expect(screen.getByRole("tab", { name: /Core Defaults/ })).toHaveTextContent("Added");
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "Starter packs" })).toBeInTheDocument();
+  });
+
+  it("doesn't tag the pack Added when nothing new landed and lists failed", async () => {
+    v2Recorder.answer(JOB, {
+      id: "collection-job",
+      kind: "template_bundle_apply",
+      state: "succeeded",
+      terminal: true,
+      cancelable: false,
+      created_at: "2026-01-02T03:04:05.678Z",
+      finished_at: "2026-01-02T03:04:06.678Z",
+      template_result: coreAppliedAllFailed,
+    });
+    const { user } = renderDialog();
+    await checked();
+    await user.click(screen.getByRole("button", { name: "Add 4 collections" }));
+    const heading = await screen.findByRole("heading", {
+      name: "Core Defaults finished with problems",
+    });
+    expect(heading.closest("section")).toHaveTextContent(
+      "Couldn't add Popular Movies to Movies: TMDB is not configured",
+    );
+    expect(screen.getByRole("tab", { name: /Core Defaults/ })).not.toHaveTextContent("Added");
   });
 
   it("adds a note about sync load above 30 new lists", async () => {

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useMemo,
@@ -52,11 +53,13 @@ import {
 import {
   KEEP_CURRENT,
   SYNC_LOAD_THRESHOLD,
+  appliedRows,
   currentHero,
   defaultPackLibraryIds,
   effectiveHeroes,
   featuredRequest,
   heroTemplates,
+  packAdded,
   packLibraries,
   packPlan,
   starterPacksOf,
@@ -107,6 +110,9 @@ export function StarterPacksDialog({
   const queryClient = useQueryClient();
   const narrow = useMediaQuery("(max-width: 1023px)");
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const railId = useId();
+  const panelId = `${railId}-panel`;
+  const tabId = (packId: string) => `${railId}-tab-${packId}`;
   const resultRef = useRef<HTMLElement>(null);
   const bundles = useCollectionTemplateBundles();
   const packs = useMemo(() => starterPacksOf(bundles.data?.bundles ?? []), [bundles.data]);
@@ -149,18 +155,30 @@ export function StarterPacksDialog({
   const queue = useQueueCollectionTemplateBundleApply();
   const job = useQuery(collectionJobQuery(run?.jobId ?? null));
   const finished = job.data?.terminal ? job.data : null;
+  const finishedResult = finished?.template_result
+    ? templateResultFromV2(finished.template_result)
+    : undefined;
+  const finishedAdded =
+    finished?.state === "succeeded" &&
+    (!finishedResult || !run || packAdded(finishedResult, run.pack));
   const running = checking || queue.isPending || (run !== null && !finished);
 
   const handledJob = useRef<string | null>(null);
   useEffect(() => {
     if (!finished || !run || handledJob.current === finished.id) return;
     handledJob.current = finished.id;
-    if (finished.state === "succeeded") setAdded((prev) => new Set(prev).add(run.pack.id));
+    if (finished.state === "succeeded") {
+      if (finishedAdded) setAdded((prev) => new Set(prev).add(run.pack.id));
+      // The heroes are set now; leaving the switch on would offer to set them again.
+      setDraft((prev) =>
+        prev?.packId === run.pack.id && prev.heroesOn ? { ...prev, heroesOn: false } : prev,
+      );
+    }
     // Also checks the pack again, so the table shows what is there now.
     void invalidateAdminCollectionQueries(queryClient);
     void queryClient.invalidateQueries({ queryKey: sectionKeys.all });
     resultRef.current?.focus();
-  }, [finished, run, queryClient]);
+  }, [finished, finishedAdded, run, queryClient]);
 
   async function add() {
     if (!pack) return;
@@ -232,11 +250,23 @@ export function StarterPacksDialog({
         {!narrow ? (
           <div className="border-border overflow-y-auto border-r p-3">
             {packs.length > 0 && pack ? (
-              <PackRail packs={packs} active={pack.id} added={added} onSelect={selectPack} />
+              <PackRail
+                packs={packs}
+                active={pack.id}
+                added={added}
+                tabId={tabId}
+                panelId={panelId}
+                onSelect={selectPack}
+              />
             ) : null}
           </div>
         ) : null}
-        <div className="grid min-h-0 content-start gap-5 overflow-y-auto px-5 py-5 sm:px-6">
+        <div
+          className="grid min-h-0 content-start gap-5 overflow-y-auto px-5 py-5 sm:px-6"
+          {...(!narrow && pack
+            ? { role: "tabpanel", id: panelId, "aria-labelledby": tabId(pack.id) }
+            : {})}
+        >
           {bundles.isError ? (
             <p role="alert" className="text-sm">
               The starter packs didn't load. Close this and try again.
@@ -260,12 +290,9 @@ export function StarterPacksDialog({
                   ref={resultRef}
                   pack={run.pack}
                   succeeded={finished.state === "succeeded"}
+                  added={finishedAdded}
                   failure={finished.failure?.detail}
-                  result={
-                    finished.template_result
-                      ? templateResultFromV2(finished.template_result)
-                      : undefined
-                  }
+                  result={finishedResult}
                 />
               ) : null}
 
@@ -330,11 +357,15 @@ function PackRail({
   packs,
   active,
   added,
+  tabId,
+  panelId,
   onSelect,
 }: {
   packs: StarterPack[];
   active: string;
   added: ReadonlySet<string>;
+  tabId: (packId: string) => string;
+  panelId: string;
   onSelect: (id: string) => void;
 }) {
   const activeIndex = Math.max(
@@ -364,9 +395,9 @@ function PackRail({
       className="grid content-start gap-0.5"
     >
       {packs.map((pack, index) => (
-        <div key={pack.id} className="contents">
+        <Fragment key={pack.id}>
           {pack.everything && index > 0 ? (
-            <div aria-hidden className="bg-border mx-1 my-2 h-px" />
+            <div role="none" aria-hidden className="bg-border mx-1 my-2 h-px" />
           ) : null}
           <button
             ref={(element) => {
@@ -374,6 +405,8 @@ function PackRail({
             }}
             type="button"
             role="tab"
+            id={tabId(pack.id)}
+            aria-controls={panelId}
             aria-selected={index === activeIndex}
             tabIndex={index === activeIndex ? 0 : -1}
             onClick={() => onSelect(pack.id)}
@@ -390,7 +423,7 @@ function PackRail({
               </span>
             ) : null}
           </button>
-        </div>
+        </Fragment>
       ))}
     </div>
   );
@@ -849,20 +882,23 @@ function ApplyResult({
   ref,
   pack,
   succeeded,
+  added,
   failure,
   result,
 }: {
   ref: Ref<HTMLElement>;
   pack: StarterPack;
   succeeded: boolean;
+  /** Something new landed, or nothing failed. */
+  added: boolean;
   failure: string | undefined;
   result: ApplyCollectionTemplateBundleResponse | undefined;
 }) {
   const id = useId();
-  const libraryIds = new Set(
-    [...(result?.created ?? []), ...(result?.failed ?? [])].map((entry) => entry.library_id),
-  );
-  const rows = result ? packPlan(result, pack, [...libraryIds]) : [];
+  let heading = `${pack.title} added`;
+  if (!succeeded) heading = `${pack.title} wasn't added`;
+  else if (!added) heading = `${pack.title} finished with problems`;
+  const rows = result ? appliedRows(result, pack) : [];
   const lines: string[] = [];
   if (!succeeded) {
     lines.push(failure ?? "The job stopped before it finished.");
@@ -894,7 +930,7 @@ function ApplyResult({
       )}
     >
       <h4 id={`${id}-title`} className="text-sm font-medium">
-        {succeeded ? `${pack.title} added` : `${pack.title} wasn't added`}
+        {heading}
       </h4>
       {lines.map((line) => (
         <p key={line}>{line}</p>

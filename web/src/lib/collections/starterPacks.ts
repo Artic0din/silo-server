@@ -170,6 +170,28 @@ export function packPlan(
   });
 }
 
+/** A finished apply's rows, for every library it created or failed a list in. */
+export function appliedRows(
+  result: ApplyCollectionTemplateBundleResponse,
+  pack: StarterPack,
+): PackLibraryRow[] {
+  const libraryIds = new Set(
+    [...result.created, ...result.failed].map((entry) => entry.library_id),
+  );
+  return packPlan(result, pack, [...libraryIds]);
+}
+
+/**
+ * Whether a finished apply leaves the pack added: a new list landed, or
+ * nothing failed (its lists were all there already). A run where every new
+ * list or hero failed is not.
+ */
+export function packAdded(result: ApplyCollectionTemplateBundleResponse, pack: StarterPack) {
+  const rows = appliedRows(result, pack);
+  if (rows.some((row) => row.added.length > 0)) return true;
+  return rows.every((row) => row.failed.length === 0) && result.featured_failed.length === 0;
+}
+
 function listCount(kinds: readonly (string | undefined)[]): string {
   if (kinds.length === 0) return "";
   const kind = kinds.every((value) => value === kinds[0]) ? kinds[0] : undefined;

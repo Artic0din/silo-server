@@ -2,10 +2,10 @@
 
 Collection templates are curated presets for synced library collections. The server owns the
 catalog; the admin and personal template galleries render whatever it returns, and template
-bundles apply a group of templates in one pass. The admin web shows bundles as Starter packs. This page covers what a contributor needs to add
-or change a template: registration, validation, the rules the tests enforce, and the poster
-artwork. User-facing behavior is documented in the manual at
-https://siloserver.org/docs/manage-collections.
+bundles apply a group of templates in one pass. The admin web shows bundles as Starter packs.
+This page covers what a contributor needs to add or change a template: registration,
+validation, the rules the tests enforce, and the poster artwork. User-facing behavior is
+documented in the manual at https://siloserver.org/docs/manage-collections.
 
 ## Catalog and registration
 

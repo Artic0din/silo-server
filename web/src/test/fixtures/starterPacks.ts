@@ -171,3 +171,13 @@ export const coreApplied = result({
   failed: [entry("tmdb_popular_tv", 2, "TMDB is not configured")],
   skipped: coreDryRun.skipped,
 });
+
+/** A finished apply job where every new list failed, so nothing was added. */
+export const coreAppliedAllFailed = result({
+  dry_run: false,
+  failed: [
+    entry("tmdb_trending_movies_week", 1, "TMDB is not configured"),
+    entry("tmdb_popular_movies", 1, "TMDB is not configured"),
+  ],
+  skipped: coreDryRun.skipped,
+});
