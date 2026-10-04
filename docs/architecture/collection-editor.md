@@ -125,9 +125,10 @@ list follows counts once, as the list.
 - **What a server save sends.** The PATCH carries every field and rebuilds the source whole
   (`source_url` and `source_config`), as the server stores it: a changed MDBList link loses its
   `?query`, `#fragment` and trailing slash, and a TMDB list link becomes its canonical
-  `https://www.themoviedb.org/list/{id}`. A franchise list with no ID yet, a Discover list whose max
-  titles didn't change, and every Trakt list send no source, so the server keeps the stored one. A
-  Discover list's changed max titles sends its stored rules with the new limit. A Trakt list's
+  `https://www.themoviedb.org/list/{id}`. A Discover list and a franchise list with no ID yet send
+  no source unless max titles changed, and then send their stored config with the new limit; every
+  Trakt list sends no source, so the server keeps the stored one. A new chart unticks libraries that
+  can't hold its titles, as on create, because the server doesn't check library kinds on update. A Trakt list's
   libraries and max titles are locked, and a stopped Trakt schedule can't be turned on, because
   the server refuses those changes. A save never sends `featured`.
 - **What a personal save sends.** Name, sharing, libraries, the Collections tab switch and Show
@@ -141,10 +142,12 @@ list follows counts once, as the list.
 - **Sync status.** The panel shows when the list last synced, when it syncs next, and how many of
   the list's titles a sync skipped because they are in none of its libraries. That count comes
   from a sync run (`items_unmatched`); the collection doesn't store it, so it is known only after
-  Sync now on this page. A failed last sync shows its reason at the top, with Sync now.
-- **Sync now** (header ⋯) moves the collection's revision. When it finishes, the editor reads the
-  collection again and merges (`syncWithServer`), so the next Save sends the current ETag. A
-  profile's lists offer Sync now while the server takes personal imports.
+  Sync now on this page. A failed last sync shows its reason at the top, with Sync now on server
+  lists.
+- **Sync now** (header ⋯, server lists only) moves the collection's revision. When it finishes, the
+  editor reads the collection again and merges (`syncWithServer`), so the next Save sends the
+  current ETag. Personal editors have no Sync now; a profile syncs its lists from their cards on
+  the Collections page.
 
 ## Title search
 
