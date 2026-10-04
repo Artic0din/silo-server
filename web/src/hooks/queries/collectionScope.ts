@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-import { isNotFoundProblem } from "@/api/v2/request";
+import { isNotFoundProblem, V2ProblemError } from "@/api/v2/request";
 import type { CollectionScope, EditorSnapshot, WireCollection } from "@/lib/collections/scope";
 
 /**
@@ -32,11 +33,7 @@ export function useScopeEditor<Raw extends WireCollection>(
     queryFn: () => scope.fetchList(),
     select: (data) => data.collections,
   });
-  const fetched = useQuery({
-    queryKey: scope.keys.snapshot(id ?? ""),
-    queryFn: () => scope.fetchSnapshot(id!),
-    enabled: Boolean(id),
-  });
+  const fetched = useScopeSnapshot(scope, id);
   const [frozen, setFrozen] = useState<EditorSnapshot<Raw>>();
   const awaitingList = scope.editorAwaitsList && list.isLoading;
   if (fetched.data && !awaitingList && fetched.data.view.id === id && frozen?.view.id !== id) {
@@ -55,4 +52,65 @@ export function useScopeEditor<Raw extends WireCollection>(
     error: fetched.error,
     refetch: fetched.refetch,
   };
+}
+
+/** The collection with the ETag a guarded write must send, on the key the editor reads. */
+export function useScopeSnapshot<Raw extends WireCollection>(
+  scope: CollectionScope<Raw>,
+  id: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: scope.keys.snapshot(id ?? ""),
+    queryFn: () => scope.fetchSnapshot(id!),
+    enabled: enabled && Boolean(id),
+  });
+}
+
+/** Sync now for a synced list: the mutation takes the collection id. */
+export function useScopeSync<Raw extends WireCollection>(scope: CollectionScope<Raw>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: (id: string) => scope.sync(id),
+    onSuccess: (result, id) => {
+      const matched = `${result.itemsMatched} item${result.itemsMatched === 1 ? "" : "s"}`;
+      toast.success(
+        result.status === "warning"
+          ? `Synced with warnings — matched ${matched}`
+          : `Synced — matched ${matched}`,
+      );
+      void scope.invalidate(queryClient, id);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Sync failed");
+    },
+  });
+}
+
+/**
+ * Deletes a collection with the ETag its caller read. `onDeleted` runs before
+ * the scope's queries refresh, so a page showing the collection can leave
+ * before its own read answers 404. A 412 refreshes them, so the next try sends
+ * the current version.
+ */
+export function useScopeDelete<Raw extends WireCollection>(
+  scope: CollectionScope<Raw>,
+  options: { onDeleted?: (id: string) => void } = {},
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: (ref: { id: string; etag: string }) => scope.remove(ref),
+    onSuccess: (_data, { id }) => {
+      toast.success("Collection deleted");
+      options.onDeleted?.(id);
+      return scope.invalidate(queryClient, id);
+    },
+    onError: (error) => {
+      toast.error(scope.errorMessage(error, "Failed to delete"));
+      if (error instanceof V2ProblemError && error.status === 412)
+        void scope.invalidate(queryClient);
+    },
+  });
 }
