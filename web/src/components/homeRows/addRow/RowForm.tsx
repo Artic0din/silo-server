@@ -15,12 +15,13 @@ import {
   withTitle,
   type RowDraft,
 } from "@/lib/homeRows/rowDraft";
-import type { RowCollections } from "@/lib/homeRows/types";
+import { BULK_LIBRARY_LIMIT } from "@/lib/homeRows/bulkCopy";
+import type { LibraryPage, RowCollections } from "@/lib/homeRows/types";
 import { kindLocked, variantFamily } from "@/lib/homeRows/variants";
 import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { CollectionPicker } from "./CollectionPicker";
 import { CuratedTitlesEditor } from "./CuratedTitlesEditor";
-import { LibraryPageChips, type LibraryPage } from "./LibraryPageChips";
+import { LibraryPageChips } from "./LibraryPageChips";
 import { ParamFields, type ParamLibrary } from "./ParamFields";
 import { MoreOptions } from "./MoreOptions";
 import { RowPreview } from "./RowPreview";
@@ -221,6 +222,8 @@ export function RowForm({
           currentNote="this page"
           selectedIds={draft.extraLibraryIds ?? []}
           onChange={(extraLibraryIds) => onChange({ ...draft, extraLibraryIds })}
+          // The new row on this page is one of the pages the request adds to.
+          maxSelected={BULK_LIBRARY_LIMIT - 1}
           disabled={draft.hero}
           help={
             draft.hero

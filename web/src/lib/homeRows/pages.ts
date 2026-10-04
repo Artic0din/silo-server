@@ -1,4 +1,4 @@
-import type { HomeRowsPageOption, PageRef } from "./types";
+import type { HomeRowsPageOption, LibraryPage, PageRef } from "./types";
 
 export const HOME_PAGE: PageRef = { kind: "home" };
 
@@ -27,10 +27,10 @@ export function pageLabel(ref: PageRef, pages: readonly HomeRowsPageOption[]): s
 }
 
 /** The library pages among `pages`, by library id, in the switcher's order. */
-export function libraryPagesOf(
-  pages: readonly HomeRowsPageOption[],
-): Array<{ id: number; label: string }> {
+export function libraryPagesOf(pages: readonly HomeRowsPageOption[]): LibraryPage[] {
   return pages.flatMap((page) =>
-    page.ref.kind === "library" ? [{ id: page.ref.libraryId, label: page.label }] : [],
+    page.ref.kind === "library"
+      ? [{ id: page.ref.libraryId, label: page.label, libraryType: page.libraryType }]
+      : [],
   );
 }

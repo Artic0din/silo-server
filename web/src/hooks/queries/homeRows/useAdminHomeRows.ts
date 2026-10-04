@@ -17,7 +17,7 @@ import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
 import { useAdminRowCollections } from "./useRowCollectionOptions";
-import { pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
+import { libraryPagesOf, pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
 import {
   adminPeekKey,
   fetchRowPreview,
@@ -124,7 +124,7 @@ export interface AdminHomeRows extends HomeRowsAdapter {
   /**
    * Turns several rows on or off: each row is read and checked against the
    * page like a single switch, four at a time, then the list refetches once.
-   * Rows already in that state are skipped.
+   * Rows already in that state are still read, then skipped.
    */
   setShownMany(ids: string[], shown: boolean): Promise<ShownBatchResult>;
   /**
@@ -166,6 +166,7 @@ export function useAdminHomeRows(): AdminHomeRows {
       ...libraries.map((library) => ({
         ref: { kind: "library" as const, libraryId: library.id },
         label: library.name,
+        libraryType: library.type,
       })),
     ],
     [libraries],
@@ -277,6 +278,9 @@ export function useAdminHomeRows(): AdminHomeRows {
         } catch (error) {
           if (isStale(error)) setConflict({ scope: "row", rowId: id });
           else toast.error(adminSectionMutationMessage(error, "Could not save this row"));
+          // Without a server answer the write may still have landed, so read
+          // the page again before showing the row's value.
+          if (!(error instanceof V2ProblemError)) await refresh();
         } finally {
           clearOptimistic();
         }
@@ -295,10 +299,12 @@ export function useAdminHomeRows(): AdminHomeRows {
         const writeOne = async (id: string): Promise<BatchFailure["reason"] | null> => {
           const section = onScreen.get(id);
           if (!section) return "changed";
-          if (section.enabled === shown) return null;
-          if (shown && isTraktConfig(section.config)) return "legacy";
+          if (shown && !section.enabled && isTraktConfig(section.config)) return "legacy";
+          // Read even a row that already looks right: another admin may have
+          // flipped it since this page loaded.
           const snapshot = await fetchAdminSectionSnapshot(id);
           if (!sameRow(snapshot.section, section)) return "changed";
+          if (section.enabled === shown) return null;
           await updateAdminSection({ id, etag: snapshot.etag, enabled: shown });
           changedIds.push(id);
           return null;
@@ -361,7 +367,7 @@ export function useAdminHomeRows(): AdminHomeRows {
   const create = useCallback(
     (draft: RowDraft) =>
       enqueue(async () => {
-        const copies = libraryCopyIds(draft, page);
+        const copies = libraryCopyIds(draft, page, libraryPagesOf(pages));
         if (page.kind === "library" && copies.length > 0) {
           // One transaction puts the row at the bottom of each page. It returns
           // no ids, so the new row here is the one the refetch adds.
@@ -384,7 +390,7 @@ export function useAdminHomeRows(): AdminHomeRows {
         await refresh();
         return { newIds: [created.id] };
       }),
-    [currentList, enqueue, page, refresh],
+    [currentList, enqueue, page, pages, refresh],
   );
 
   const copyToLibraries = useCallback(
