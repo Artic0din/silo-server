@@ -456,6 +456,23 @@ describe("useAdminHomeRows", () => {
       expect(writes().map((call) => call.args.path?.id)).toEqual(["a"]);
     });
 
+    it("reports a row that looks already done here but was changed on another client", async () => {
+      rows = [row("a", { enabled: false }), row("b", { enabled: false })];
+      const { result } = setup();
+      await ready(result);
+      perRowVersions();
+      rows = rows.map((entry) => (entry.id === "a" ? { ...entry, enabled: true } : entry));
+      let outcome!: Awaited<ReturnType<typeof result.current.adapter.setShownMany>>;
+      await act(async () => {
+        outcome = await result.current.adapter.setShownMany(["a", "b"], false);
+      });
+      expect(outcome.changedIds).toEqual([]);
+      expect(outcome.failures).toEqual([
+        expect.objectContaining({ id: "a", title: "Title a", reason: "changed" }),
+      ]);
+      expect(writes()).toHaveLength(0);
+    });
+
     it("stays pending from the first write until the refetch after the batch", async () => {
       rows = [row("a"), row("b")];
       const { result } = setup();

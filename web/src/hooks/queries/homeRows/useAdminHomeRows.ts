@@ -114,7 +114,7 @@ export interface AdminHomeRows extends HomeRowsAdapter {
   /**
    * Turns several rows on or off: each row is read and checked against the
    * page like a single switch, four at a time, then the list refetches once.
-   * Rows already in that state are skipped.
+   * Rows already in that state are still read, then skipped.
    */
   setShownMany(ids: string[], shown: boolean): Promise<ShownBatchResult>;
 }
@@ -282,10 +282,12 @@ export function useAdminHomeRows(): AdminHomeRows {
         const writeOne = async (id: string): Promise<BatchFailure["reason"] | null> => {
           const section = onScreen.get(id);
           if (!section) return "changed";
-          if (section.enabled === shown) return null;
-          if (shown && isTraktConfig(section.config)) return "legacy";
+          if (shown && !section.enabled && isTraktConfig(section.config)) return "legacy";
+          // Read even a row that already looks right: another admin may have
+          // flipped it since this page loaded.
           const snapshot = await fetchAdminSectionSnapshot(id);
           if (!sameRow(snapshot.section, section)) return "changed";
+          if (section.enabled === shown) return null;
           await updateAdminSection({ id, etag: snapshot.etag, enabled: shown });
           changedIds.push(id);
           return null;
