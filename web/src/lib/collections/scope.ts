@@ -46,7 +46,7 @@ import {
   invalidateAdminCollectionQueries,
   invalidateUserCollectionQueries,
 } from "@/hooks/queries/collectionSurfaceRefresh";
-import { adminKeys, collectionKeys } from "@/hooks/queries/keys";
+import { adminKeys, collectionKeys, libraryCollectionKeys } from "@/hooks/queries/keys";
 import {
   buildLibraryCollectionCatalogHref,
   buildUserCollectionCatalogHref,
@@ -523,7 +523,13 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
       body: previewToV2({ query_definition: rules, limit }),
     }).then(previewFromV2),
 
-  invalidate: (queryClient, id) => invalidateUserCollectionQueries(queryClient, id),
+  async invalidate(queryClient, id) {
+    await Promise.all([
+      invalidateUserCollectionQueries(queryClient, id),
+      // A collection shown on the Collections tab is listed in each library's tab.
+      queryClient.invalidateQueries({ queryKey: libraryCollectionKeys.all }),
+    ]);
+  },
 
   errorMessage: personalMutationMessage,
 };
