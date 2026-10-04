@@ -7,11 +7,15 @@ import type { ProfileRequestContextSnapshot } from "@/api/client";
 import { V2ProblemError } from "@/api/v2/request";
 import type { Collection, CollectionsListResponse } from "@/api/types";
 import {
+  useAddItemToCollection,
+  useDeleteUserCollectionImage,
+  useRemoveCollectionItem,
+  useReorderCollectionItems,
   useReorderCollections,
   useSetCollectionSortPreference,
   useUpdateCollection,
 } from "./collections";
-import { collectionKeys } from "./keys";
+import { collectionKeys, libraryCollectionKeys } from "./keys";
 
 const apiMock = vi.hoisted(() => vi.fn());
 const apiWithProfileRequestContextMock = vi.hoisted(() => vi.fn());
@@ -280,5 +284,68 @@ describe("reordering personal collections", () => {
       body: { ordered_ids: ["mine-b", "mine-a"] },
     });
     pending.resolve({});
+  });
+});
+
+describe("personal collection writes refresh library Collections tabs", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  // A personal collection shown on the Collections tab is also listed, with its
+  // item count and poster, on each library's Collections tab.
+  const writes: Array<[string, () => () => Promise<unknown>]> = [
+    [
+      "adding an item",
+      () => {
+        const m = useAddItemToCollection();
+        return () => m.mutateAsync({ collectionId: "c", mediaItemId: "m", source: "user" });
+      },
+    ],
+    [
+      "removing an item",
+      () => {
+        const m = useRemoveCollectionItem("c");
+        return () => m.mutateAsync("m");
+      },
+    ],
+    [
+      "reordering items",
+      () => {
+        const m = useReorderCollectionItems("c");
+        return () => m.mutateAsync({ orderedIds: ["m"], etag: '"items"' });
+      },
+    ],
+    [
+      "reordering collections",
+      () => {
+        const m = useReorderCollections();
+        return () => m.mutateAsync({ orderedIds: ["c"], etag: '"order"' });
+      },
+    ],
+    [
+      "removing the poster",
+      () => {
+        const m = useDeleteUserCollectionImage();
+        return () => m.mutateAsync({ id: "c", type: "poster" });
+      },
+    ],
+  ];
+
+  it.each(writes)("%s marks loaded library Collections tabs stale", async (_name, useWrite) => {
+    apiWithProfileRequestContextMock.mockReset().mockResolvedValue({});
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+    });
+    const libraryTab = [...libraryCollectionKeys.all, 7];
+    queryClient.setQueryData(libraryTab, []);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useWrite(), { wrapper });
+
+    await act(async () => {
+      await result.current();
+    });
+
+    await waitFor(() => expect(queryClient.getQueryState(libraryTab)?.isInvalidated).toBe(true));
   });
 });

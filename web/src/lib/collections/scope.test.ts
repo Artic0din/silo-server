@@ -447,7 +447,7 @@ describe("remove, sync and preview", () => {
 });
 
 describe("invalidate", () => {
-  it("refreshes a personal collection's own keys and the catalog", async () => {
+  it("refreshes a personal collection's own keys, the catalog and library tabs", async () => {
     const client = new QueryClient();
     const spy = vi.spyOn(client, "invalidateQueries");
     await PERSONAL_SCOPE.invalidate(client, "c1");
@@ -455,6 +455,7 @@ describe("invalidate", () => {
       ["collections"],
       ["catalog"],
       ["collections", "items", "c1"],
+      ["libraryCollections"],
     ]);
   });
 
