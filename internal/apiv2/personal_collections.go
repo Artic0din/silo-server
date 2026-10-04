@@ -87,7 +87,7 @@ type PersonalCollectionCreatedOutput struct {
 // PersonalCollectionCreate is the createCollection body.
 type PersonalCollectionCreate struct {
 	Name                       string          `json:"name" minLength:"1" example:"Rainy days"`
-	Description                *string         `json:"description,omitempty" nullable:"false" doc:"Empty when omitted. Accepted when getCollectionCapabilities reports create_description" example:"For wet afternoons"`
+	Description                *string         `json:"description,omitempty" nullable:"false" doc:"Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails" example:"For wet afternoons"`
 	CollectionType             *string         `json:"collection_type,omitempty" nullable:"false" enum:"manual,smart" doc:"Defaults to manual" example:"manual"`
 	IsShared                   *bool           `json:"is_shared,omitempty" nullable:"false" doc:"Show the collection to every profile on the login; defaults to false" example:"false"`
 	QueryDefinition            json.RawMessage `json:"query_definition,omitempty" doc:"Smart-collection query document; required to be valid when collection_type is smart"`
@@ -132,7 +132,7 @@ type CollectionCapabilities struct {
 	CollectionSortPreferences bool                           `json:"collection_sort_preferences" example:"true"`
 	EffectiveCollectionSort   bool                           `json:"effective_collection_sort" example:"true"`
 	SortPreferenceKinds       []string                       `json:"sort_preference_kinds" doc:"collection_kind values the sort-preference operations accept" example:"[\"library\",\"user\",\"watchlist\",\"favorites\"]"`
-	CreateDescription         bool                           `json:"create_description" doc:"createCollection accepts description" example:"true"`
+	CreateDescription         bool                           `json:"create_description" doc:"createCollection stores a description for the acting account" example:"true"`
 	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
@@ -402,7 +402,10 @@ func registerPersonalCollections(reg *Registry) {
 	create := humaOp(http.MethodPost, Prefix+"/collections", "createCollection", "collections",
 		"Create a manual or smart collection for the acting profile. Not idempotent: a retry after a lost response creates a second collection.")
 	create.DefaultStatus = http.StatusCreated
-	Register(reg, write(create), reg.createCollection)
+	createOp := write(create)
+	// A description or poster the acting account's store cannot keep.
+	createOp.Errors = append(createOp.Errors, http.StatusNotImplemented)
+	Register(reg, createOp, reg.createCollection)
 
 	Register(reg, read(humaOp(http.MethodGet, Prefix+"/collections/capabilities", "getCollectionCapabilities", "collections",
 		"The collection features this server supports.")), reg.getCollectionCapabilities)
@@ -608,7 +611,7 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		CollectionSortPreferences: v.CollectionSortPreferences,
 		EffectiveCollectionSort:   v.EffectiveCollectionSort,
 		SortPreferenceKinds:       NonNil(v.SortPreferenceKinds),
-		CreateDescription:         true,
+		CreateDescription:         features.Description,
 		PreviewPosters:            true,
 	}}, nil
 }

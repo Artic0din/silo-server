@@ -14,6 +14,7 @@ import (
 	"github.com/Silo-Server/silo-server/internal/collections/templates"
 	"github.com/Silo-Server/silo-server/internal/mdblist"
 	"github.com/Silo-Server/silo-server/internal/usercollections"
+	"github.com/Silo-Server/silo-server/internal/userstore"
 )
 
 // fakePersonalCollections records the last command and answers fixtures.
@@ -22,6 +23,11 @@ type fakePersonalCollections struct {
 	list       handlers.PersonalCollectionListView
 	lastCreate handlers.PersonalCollectionCreateCommand
 	lastOrder  []string
+	features   userstore.CollectionFeatures
+}
+
+func (f *fakePersonalCollections) PersonalCollectionFeatures(context.Context, int) (userstore.CollectionFeatures, error) {
+	return f.features, nil
 }
 
 func (f *fakePersonalCollections) ListPersonalCollections(_ context.Context, _ int, profileID string) (handlers.PersonalCollectionListView, error) {
@@ -211,7 +217,8 @@ func TestListCollections(t *testing.T) {
 }
 
 func TestGetCollectionCapabilities(t *testing.T) {
-	deps, _, _ := collectionDeps(t)
+	deps, pc, _ := collectionDeps(t)
+	pc.features.Description = true
 	rec := do(t, newTestHandler(t, deps), http.MethodGet, "/api/v2/collections/capabilities", "", viewerHeaders())
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
@@ -219,6 +226,12 @@ func TestGetCollectionCapabilities(t *testing.T) {
 	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"preview_posters":true}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+	// A store that does not persist descriptions does not advertise them.
+	pc.features.Description = false
+	rec = do(t, newTestHandler(t, deps), http.MethodGet, "/api/v2/collections/capabilities", "", viewerHeaders())
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"create_description":false`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 

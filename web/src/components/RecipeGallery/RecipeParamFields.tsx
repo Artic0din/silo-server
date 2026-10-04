@@ -1,14 +1,8 @@
-import { useMemo, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
 import { CollectionSearchableSelect } from "@/components/CollectionSearchableSelect";
+import { CuratedTitlesEditor } from "@/components/homeRows/addRow/CuratedTitlesEditor";
 import LibraryMultiSelect from "@/components/LibraryMultiSelect";
 import { useAllUserCollections } from "@/hooks/queries/useAllUserCollections";
 import { useAvailableUserLibraries } from "@/hooks/queries/libraries";
-import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/catalog";
-import { fetchWatchDetail } from "@/hooks/queries/items";
-import { catalogKeys, itemKeys } from "@/hooks/queries/keys";
-import { useDebounce } from "@/hooks/useDebounce";
-import type { BrowseItem } from "@/api/types";
 import type { RecipeDefinition } from "@/lib/recipes";
 import {
   LIBRARY_FILTER_SECTION_TYPES,
@@ -489,182 +483,15 @@ function NumberParamField({
   );
 }
 
-const CURATED_SEARCH_LIMIT = 10;
-const CURATED_SEARCH_DEBOUNCE_MS = 250;
-
-function curatedItemLabel(title: string, year?: number): string {
-  return year ? `${title} (${year})` : title;
-}
-
-// CuratedItemsParamField builds the ordered item_ids list for
-// admin_curated_list sections: catalog search on top, the picked (ordered)
-// list below. Titles for freshly added items come from the search result;
-// items persisted before this drawer opened are hydrated from the item
-// detail endpoint, falling back to the raw id while loading.
 function CuratedItemsParamField({ params, onChange }: ParamFieldProps) {
-  const [query, setQuery] = useState("");
-  const [labels, setLabels] = useState<Record<string, string>>({});
-  const debounced = useDebounce(query.trim(), CURATED_SEARCH_DEBOUNCE_MS);
-
-  const itemIDs = Array.isArray(params.item_ids)
+  const itemIds = Array.isArray(params.item_ids)
     ? params.item_ids.filter((id): id is string => typeof id === "string")
     : [];
-  const picked = new Set(itemIDs);
-
-  // Hydrate display titles for ids we have no label for (pre-existing config
-  // being edited). Cached under the same key as the watch-detail hook.
-  const unlabeled = itemIDs.filter((id) => !(id in labels));
-  const detailQueries = useQueries({
-    queries: unlabeled.map((id) => ({
-      queryKey: itemKeys.watchDetail(id),
-      queryFn: ({ signal }: { signal?: AbortSignal }) =>
-        fetchWatchDetail(id, undefined, undefined, { signal }),
-      staleTime: 5 * 60 * 1000,
-      retry: false,
-    })),
-  });
-  const hydratedLabels: Record<string, string> = {};
-  unlabeled.forEach((id, i) => {
-    const detail = detailQueries[i]?.data;
-    if (detail) hydratedLabels[id] = curatedItemLabel(detail.title, detail.year);
-  });
-
-  const searchState = useMemo(
-    () => createCatalogSearchState("query", { q: debounced || undefined }),
-    [debounced],
-  );
-  const results = useQuery({
-    queryKey: [
-      "curatedListPicker",
-      catalogKeys.list({
-        source: searchState.source,
-        q: searchState.q,
-        limit: CURATED_SEARCH_LIMIT,
-        offset: 0,
-      }),
-    ],
-    queryFn: ({ signal }) => fetchCatalogPage(searchState, CURATED_SEARCH_LIMIT, 0, { signal }),
-    enabled: debounced.length > 0,
-    staleTime: 30 * 1000,
-  });
-  const found: BrowseItem[] = results.data?.items ?? [];
-
-  function add(item: BrowseItem) {
-    if (picked.has(item.content_id)) return;
-    setLabels((prev) => ({
-      ...prev,
-      [item.content_id]: curatedItemLabel(item.title, item.year),
-    }));
-    onChange({ ...params, item_ids: [...itemIDs, item.content_id] });
-  }
-
-  function remove(id: string) {
-    onChange({ ...params, item_ids: itemIDs.filter((existing) => existing !== id) });
-  }
-
-  function move(id: string, delta: number) {
-    const idx = itemIDs.indexOf(id);
-    const target = idx + delta;
-    if (idx < 0 || target < 0 || target >= itemIDs.length) return;
-    const next = [...itemIDs];
-    next.splice(idx, 1);
-    next.splice(target, 0, id);
-    onChange({ ...params, item_ids: next });
-  }
-
   return (
-    <div className="space-y-3">
-      <div>
-        <label className="mb-1 block text-xs text-white/70">Add titles</label>
-        <input
-          className="w-full rounded border border-white/15 bg-white/5 px-3 py-2 text-sm"
-          placeholder="🔍 Search your catalog…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          autoComplete="off"
-        />
-        {debounced.length === 0 ? null : results.isLoading ? (
-          <div className="mt-2 text-xs text-white/50">Searching…</div>
-        ) : results.isError ? (
-          <div className="mt-2 text-xs text-amber-300">Search failed — try again.</div>
-        ) : found.length === 0 ? (
-          <div className="mt-2 text-xs text-white/50">No matches.</div>
-        ) : (
-          <ul className="mt-2 max-h-52 divide-y divide-white/10 overflow-y-auto rounded border border-white/10">
-            {found.map((item) => {
-              const already = picked.has(item.content_id);
-              return (
-                <li key={item.content_id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">
-                    {item.title}
-                    <span className="ml-1 text-xs text-white/40">
-                      {item.year ? `${item.year} · ` : ""}
-                      {item.type}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    disabled={already}
-                    onClick={() => add(item)}
-                    className="rounded border border-white/15 px-2 py-0.5 text-xs disabled:opacity-40"
-                  >
-                    {already ? "Added" : "Add"}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <div>
-        <span className="mb-1 block text-xs text-white/70">
-          Curated list ({itemIDs.length} {itemIDs.length === 1 ? "title" : "titles"}, shown in this
-          order)
-        </span>
-        {itemIDs.length === 0 ? (
-          <div className="rounded border border-dashed border-white/15 px-3 py-3 text-xs text-white/50">
-            Search above and add at least one title.
-          </div>
-        ) : (
-          <ul className="divide-y divide-white/10 rounded border border-white/10">
-            {itemIDs.map((id, idx) => (
-              <li key={id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate">
-                  {labels[id] ?? hydratedLabels[id] ?? id}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => move(id, -1)}
-                  disabled={idx === 0}
-                  aria-label="Move up"
-                  className="rounded border border-white/15 px-2 py-0.5 text-xs disabled:opacity-40"
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(id, 1)}
-                  disabled={idx === itemIDs.length - 1}
-                  aria-label="Move down"
-                  className="rounded border border-white/15 px-2 py-0.5 text-xs disabled:opacity-40"
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  onClick={() => remove(id)}
-                  aria-label="Remove"
-                  className="rounded border border-white/15 px-2 py-0.5 text-xs text-red-300"
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    <CuratedTitlesEditor
+      itemIds={itemIds}
+      onChange={(next) => onChange({ ...params, item_ids: next })}
+    />
   );
 }
 
@@ -680,39 +507,12 @@ function CollectionParamField({
   const libraryID = (params.library_collection_id as string) ?? "";
   const userID = (params.user_collection_id as string) ?? "";
   const value = userID || libraryID;
-  const sourceProvider = typeof params.source_provider === "string" ? params.source_provider : "";
-  const sourcePreset = typeof params.source_preset === "string" ? params.source_preset : "";
-  const mediaType = typeof params.media_type === "string" ? params.media_type : "";
-  const isTraktPreset = sourceProvider === "trakt";
-  const isAutoBackedTraktPreset =
-    isTraktPreset && (sourcePreset === "trending" || sourcePreset === "popular");
-  const collectionOptions = isTraktPreset
-    ? collections.filter((collection) => {
-        if (collection.source !== "library" || collection.collection_type !== "trakt") {
-          return false;
-        }
-        const sourceConfig = collection.source_config;
-        if (!sourceConfig || typeof sourceConfig !== "object" || Array.isArray(sourceConfig)) {
-          return false;
-        }
-        return sourceConfig.preset === sourcePreset && sourceConfig.media_type === mediaType;
-      })
-    : collections;
-
-  if (isAutoBackedTraktPreset && !value) {
-    return (
-      <p className="text-xs text-white/50">
-        A synced Trakt {sourcePreset} {mediaType === "tv" ? "shows" : "movies"} collection will be
-        created automatically.
-      </p>
-    );
-  }
 
   return (
     <div className="space-y-1">
       <span className="block text-xs text-white/70">Collection</span>
       <CollectionSearchableSelect
-        options={collectionOptions}
+        options={collections}
         value={value}
         onChange={(next) => {
           // Pick the right param key based on the chosen collection's source.
@@ -721,7 +521,7 @@ function CollectionParamField({
             onChange({ ...params, library_collection_id: "", user_collection_id: "" });
             return;
           }
-          const picked = collectionOptions.find((c) => c.id === next);
+          const picked = collections.find((c) => c.id === next);
           if (picked?.source === "user") {
             onChange({ ...params, library_collection_id: "", user_collection_id: next });
           } else {
@@ -731,12 +531,6 @@ function CollectionParamField({
         disabled={isLoading}
         isLoading={isLoading}
       />
-      {isTraktPreset && !isLoading && collectionOptions.length === 0 ? (
-        <p className="text-xs text-amber-300">
-          No synced Trakt {sourcePreset} {mediaType === "tv" ? "shows" : "movies"} collection was
-          found. Create and sync one from Admin Collections first.
-        </p>
-      ) : null}
     </div>
   );
 }

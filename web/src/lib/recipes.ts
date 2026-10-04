@@ -73,7 +73,13 @@ export interface PreviewRequest {
 }
 
 export interface PreviewResponse {
-  items: Array<{ content_id: string; title?: string; poster_path?: string }>;
+  items: Array<{
+    content_id: string;
+    title?: string;
+    /** The presigned v2 `poster_url`, ready to load; absent when the item has no poster. */
+    poster_path?: string;
+    poster_thumbhash?: string;
+  }>;
   total_count: number;
 }
 
@@ -117,8 +123,12 @@ export async function fetchCandidates(recipeType: string): Promise<Candidate[]> 
   }));
 }
 
-export async function previewSection(req: PreviewRequest): Promise<PreviewResponse> {
+export async function previewSection(
+  req: PreviewRequest,
+  signal?: AbortSignal,
+): Promise<PreviewResponse> {
   const result = await v2("POST /api/v2/admin/sections/preview", {
+    signal,
     body: {
       ...req,
       library_id: req.library_id === undefined ? undefined : String(req.library_id),
@@ -130,6 +140,7 @@ export async function previewSection(req: PreviewRequest): Promise<PreviewRespon
       content_id: item.content_id,
       title: item.title,
       poster_path: item.poster_url,
+      poster_thumbhash: item.poster_thumbhash,
     })),
     total_count: result.total_count,
   };

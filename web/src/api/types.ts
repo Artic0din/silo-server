@@ -4556,7 +4556,9 @@ export function queryDefinitionFromSectionConfig(
               ? "ebook"
               : config.media_scope === "manga" || config.filter_type === "manga"
                 ? "manga"
-                : undefined;
+                : config.media_scope === "video"
+                  ? "video"
+                  : undefined;
 
   const legacySortField = typeof config.sort === "string" ? config.sort : undefined;
   const legacySortOrder = typeof config.order === "string" ? config.order : undefined;

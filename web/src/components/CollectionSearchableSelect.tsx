@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 
 interface CollectionSearchableSelectProps {
+  /** The trigger's id, so a `<Label htmlFor>` names it. */
+  id?: string;
   /** The full list of available collection options. */
   options: CollectionOption[];
   /** Currently selected collection ID (empty string = nothing selected). */
@@ -19,6 +21,7 @@ interface CollectionSearchableSelectProps {
 }
 
 export function CollectionSearchableSelect({
+  id,
   options,
   value,
   onChange,
@@ -61,6 +64,7 @@ export function CollectionSearchableSelect({
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen} modal={false}>
       <PopoverPrimitive.Trigger asChild disabled={disabled}>
         <button
+          id={id}
           type="button"
           role="combobox"
           aria-expanded={open}
