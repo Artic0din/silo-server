@@ -59,6 +59,31 @@ const HOME_PREFERENCE_KEYS = [SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS] as const;
  * on the same Home rows components as the admin page. Changes save as they
  * are made and only ever change this profile.
  */
+/** Something the page needs didn't load, so it can't change until a retry. */
+function LoadFailedNote({
+  what,
+  retryLabel,
+  onRetry,
+}: {
+  what: string;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="border-warning/40 bg-warning/10 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm"
+    >
+      <p className="min-w-0 flex-1">
+        {what} didn&apos;t load, so this page can&apos;t change right now.
+      </p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        {retryLabel}
+      </Button>
+    </div>
+  );
+}
+
 export default function HomeScreenSettings() {
   const adapter = useProfileHomeRowsAdapter();
   const { data: libraries } = useUserLibraries();
@@ -234,19 +259,21 @@ export default function HomeScreenSettings() {
     );
   } else if (adapter.overridesFailed) {
     notice = (
-      <div
-        role="alert"
-        className="border-warning/40 bg-warning/10 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm"
-      >
-        <p className="min-w-0 flex-1">
-          Your saved changes didn&apos;t load, so this page can&apos;t change right now.
-        </p>
-        <Button size="sm" variant="outline" onClick={() => void adapter.reload()}>
-          Reload rows
-        </Button>
-      </div>
+      <LoadFailedNote
+        what="Your saved changes"
+        retryLabel="Reload rows"
+        onRetry={() => void adapter.reload()}
+      />
     );
-  } else if (adapter.overridesLoading) {
+  } else if (adapter.pageLockCheck === "failed") {
+    notice = (
+      <LoadFailedNote
+        what="The kinds of rows"
+        retryLabel="Try again"
+        onRetry={adapter.reloadCatalog}
+      />
+    );
+  } else if (adapter.overridesLoading || adapter.pageLockCheck === "loading") {
     notice = (
       <p role="status" className="text-muted-foreground text-sm">
         Loading your saved changes…

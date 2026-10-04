@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   role: "user" as string | undefined,
   collections: [] as Array<Record<string, unknown>>,
+  catalog: vi.fn(),
 }));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
@@ -40,7 +41,7 @@ vi.mock("@/hooks/queries/useAllUserCollections", () => ({
 }));
 vi.mock("@/lib/recipes", async () => ({
   ...(await vi.importActual<typeof import("@/lib/recipes")>("@/lib/recipes")),
-  fetchRecipeCatalog: async () => recipeCatalogFixture,
+  fetchRecipeCatalog: () => mocks.catalog(),
 }));
 
 type Args = {
@@ -126,6 +127,7 @@ beforeEach(() => {
   setAccessToken("token");
   setProfileId("p1");
   mocks.role = "user";
+  mocks.catalog.mockReset().mockResolvedValue(recipeCatalogFixture);
   mocks.collections = [{ id: "lib-c", title: "Studio Ghibli", source: "library", group: "Movies" }];
   serverRows = {
     home: [entry("a", 0), entry("b", 1)],
@@ -641,6 +643,38 @@ describe("rule rows on Settings > Home Screen", () => {
       expect(screen.queryByText(/Rule rows are turned off on this server/)).toBeNull(),
     );
     await waitFor(() => expect(rowSwitch("Show Row a on my Home")).toBeEnabled());
+  });
+
+  it("keeps the page from changing until the kinds of rows load, as Editor's Picks rows lock it too", async () => {
+    mocks.catalog.mockRejectedValueOnce(new Error("catalog down"));
+    saved.home = [
+      {
+        id: "picks-1",
+        position: 2,
+        hidden: false,
+        title: "Staff Picks",
+        section_type: "admin_curated_list",
+        config: { item_ids: [] },
+      },
+    ];
+    render(
+      <MemoryRouter initialEntries={["/settings/home-screen"]}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <HomeScreenSettings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByText(/The kinds of rows didn't load, so this page can't change/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
+    expect(rowSwitch("Show Row a on my Home")).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const note = await screen.findByText(/Rule rows are turned off on this server/);
+    expect(note).toHaveTextContent("(Staff Picks)");
   });
 
   it("never locks an admin account's page", async () => {
