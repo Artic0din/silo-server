@@ -28,35 +28,40 @@ func TestComputeNextSyncAtFromUsesLocalWallTime(t *testing.T) {
 	}
 }
 
-// TestParseCronExpressionRejectsZonePrefix checks that a schedule cannot pick
-// its own zone: every cron schedule runs on the node's local clock, the zone
-// the collection capability documents report as schedule_time_zone.
-func TestParseCronExpressionRejectsZonePrefix(t *testing.T) {
-	for _, expr := range []string{"CRON_TZ=UTC 30 4 * * *", "TZ=America/Chicago 30 4 * * *", " CRON_TZ=UTC 30 4 * * *"} {
-		if err := ParseCronExpression(expr); err == nil {
-			t.Errorf("ParseCronExpression(%q) accepted a zone prefix", expr)
+// TestParseCronExpressionAcceptsZonePrefix checks that a schedule may still
+// name its own zone with a TZ= or CRON_TZ= prefix, as /api/v1 always allowed.
+func TestParseCronExpressionAcceptsZonePrefix(t *testing.T) {
+	for _, expr := range []string{"30 4 * * *", "CRON_TZ=UTC 30 4 * * *", "TZ=America/Chicago 30 4 * * *"} {
+		if err := ParseCronExpression(expr); err != nil {
+			t.Errorf("ParseCronExpression(%q) = %v", expr, err)
 		}
-	}
-	if err := ParseCronExpression("30 4 * * *"); err != nil {
-		t.Errorf("ParseCronExpression(30 4 * * *) = %v", err)
 	}
 }
 
-// TestComputeNextSyncAtFromIgnoresStoredZonePrefix checks that a schedule
-// stored with a TZ= or CRON_TZ= prefix, before writes rejected them, still
-// runs on the node's local clock rather than in the zone the prefix names.
-func TestComputeNextSyncAtFromIgnoresStoredZonePrefix(t *testing.T) {
+// TestComputeNextSyncAtFromHonorsZonePrefix checks that a schedule with a TZ=
+// or CRON_TZ= prefix runs in the zone the prefix names, not on the node's
+// local clock.
+func TestComputeNextSyncAtFromHonorsZonePrefix(t *testing.T) {
 	local := time.FixedZone("UTC-5", -5*60*60)
 	saved := time.Local
 	time.Local = local
 	t.Cleanup(func() { time.Local = saved })
 
-	after := time.Date(2026, time.July, 1, 12, 0, 0, 0, time.UTC) // 07:00 local
-	earliest := time.Date(2026, time.July, 2, 4, 30, 0, 0, local)
-	for _, schedule := range []string{"CRON_TZ=UTC 30 4 * * *", "TZ=Asia/Tokyo 30 4 * * *"} {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skipf("time zone database unavailable: %v", err)
+	}
+	after := time.Date(2026, time.July, 1, 12, 0, 0, 0, time.UTC)
+	for schedule, earliest := range map[string]time.Time{
+		"CRON_TZ=UTC 30 4 * * *":   time.Date(2026, time.July, 2, 4, 30, 0, 0, time.UTC),
+		"TZ=Asia/Tokyo 30 4 * * *": time.Date(2026, time.July, 2, 4, 30, 0, 0, tokyo),
+	} {
 		next := ComputeNextSyncAtFrom(schedule, after)
 		if next == nil {
 			t.Fatalf("ComputeNextSyncAtFrom(%q) returned nil", schedule)
+		}
+		if next.Location() != time.UTC {
+			t.Errorf("ComputeNextSyncAtFrom(%q) location = %s, want UTC", schedule, next.Location())
 		}
 		if next.Before(earliest) || !next.Before(earliest.Add(15*time.Minute)) {
 			t.Errorf("ComputeNextSyncAtFrom(%q) = %s, want within 15 minutes after %s", schedule, next, earliest)

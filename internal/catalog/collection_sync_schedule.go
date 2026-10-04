@@ -1,10 +1,8 @@
 package catalog
 
 import (
-	"errors"
 	"fmt"
 	"math/rand/v2"
-	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -14,13 +12,9 @@ import (
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 // ParseCronExpression validates a cron expression string.
-// It accepts the standard 5-field format: minute hour dom month dow. It
-// rejects the parser's TZ= and CRON_TZ= prefixes: every schedule runs on the
-// node's local clock, the zone collection capabilities report.
+// It accepts the standard 5-field format: minute hour dom month dow, with an
+// optional TZ= or CRON_TZ= prefix naming the zone the schedule runs in.
 func ParseCronExpression(expr string) error {
-	if trimmed := strings.TrimSpace(expr); strings.HasPrefix(trimmed, "TZ=") || strings.HasPrefix(trimmed, "CRON_TZ=") {
-		return errors.New("invalid cron expression: time zone prefixes are not supported; schedules run in the server's time zone")
-	}
 	_, err := cronParser.Parse(expr)
 	if err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)
@@ -43,16 +37,12 @@ func computeNextSyncAt(schedule *string) *time.Time {
 // scheduled time after the given reference time, with a small random jitter
 // (0-15 minutes) to prevent thundering herd on subsequent cycles. The
 // expression is evaluated on the node's local clock (time.Local), whatever
-// zone after is in, and the result keeps after's location. A TZ= or CRON_TZ=
-// prefix stored before ParseCronExpression rejected them is ignored, so every
-// schedule runs in the zone collection capabilities report.
+// zone after is in, unless a TZ= or CRON_TZ= prefix names another zone. The
+// result keeps after's location.
 func ComputeNextSyncAtFrom(schedule string, after time.Time) *time.Time {
 	sched, err := cronParser.Parse(schedule)
 	if err != nil {
 		return nil
-	}
-	if spec, ok := sched.(*cron.SpecSchedule); ok {
-		spec.Location = time.Local
 	}
 	next := sched.Next(after.In(time.Local)).In(after.Location())
 	jitter := time.Duration(rand.IntN(15*60)) * time.Second
