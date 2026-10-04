@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"strings"
 
 	"github.com/Silo-Server/silo-server/internal/catalog"
@@ -52,4 +53,46 @@ func visiblePersonalCollectionCounts(ctx context.Context, executor *catalog.Quer
 		counts[id] = visible[id]
 	}
 	return counts
+}
+
+// ownedCollectionDefinition is a personal collection's count definition and
+// the profile that owns it.
+type ownedCollectionDefinition struct {
+	catalog.PersonalCollectionDefinition
+	CreatorProfileID string
+}
+
+// ownerScopedCollectionCounts counts each collection as viewerProfileID sees
+// it: under the viewer's filter, limited further to its owner's access when
+// another profile owns it (catalog.PersonalCollectionFilter). Collections are
+// counted per owner, so each owner is resolved once per call. A collection
+// whose owner cannot be resolved has no count and is listed in unavailable;
+// callers drop it rather than count it under the viewer's access alone.
+func ownerScopedCollectionCounts(ctx context.Context, executor *catalog.QueryExecutor, owners catalog.PersonalCollectionAccess, userID int, viewerProfileID string, collections []ownedCollectionDefinition, viewer catalog.AccessFilter) (counts map[string]int, unavailable map[string]bool) {
+	counts = make(map[string]int, len(collections))
+	unavailable = make(map[string]bool)
+	if executor == nil || executor.Pool == nil {
+		return counts, unavailable
+	}
+	byOwner := make(map[string][]catalog.PersonalCollectionDefinition)
+	var order []string
+	for _, c := range collections {
+		if _, ok := byOwner[c.CreatorProfileID]; !ok {
+			order = append(order, c.CreatorProfileID)
+		}
+		byOwner[c.CreatorProfileID] = append(byOwner[c.CreatorProfileID], c.PersonalCollectionDefinition)
+	}
+	for _, owner := range order {
+		definitions := byOwner[owner]
+		filter, err := catalog.PersonalCollectionFilter(ctx, owners, viewer, userID, viewerProfileID, owner)
+		if err != nil {
+			slog.WarnContext(ctx, "resolving personal collection owner access failed", "component", "collections", "owner_profile_id", owner, "error", err)
+			for _, d := range definitions {
+				unavailable[d.ID] = true
+			}
+			continue
+		}
+		maps.Copy(counts, visiblePersonalCollectionCounts(ctx, executor, userID, definitions, filter))
+	}
+	return counts, unavailable
 }

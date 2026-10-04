@@ -41,6 +41,35 @@ func TestQueryExecutorGroupQueryPreservesAccessFilters(t *testing.T) {
 	}
 }
 
+func TestQueryExecutorDeniesQueryLibrariesOutsideAllowedLibraries(t *testing.T) {
+	tests := []struct {
+		name      string
+		libraries []int
+		allowed   []int
+		deny      bool
+	}{
+		{name: "disjoint", libraries: []int{7}, allowed: []int{3}, deny: true},
+		{name: "nothing allowed", libraries: nil, allowed: []int{}, deny: true},
+		{name: "nothing allowed with query libraries", libraries: []int{7}, allowed: []int{}, deny: true},
+		{name: "overlap", libraries: []int{3, 7}, allowed: []int{3}},
+		{name: "unrestricted", libraries: []int{7}, allowed: nil},
+	}
+	for _, scope := range []string{"movie", "episode"} {
+		for _, tt := range tests {
+			t.Run(scope+"/"+tt.name, func(t *testing.T) {
+				def := QueryDefinition{Match: "all", LibraryIDs: tt.libraries, MediaScope: scope}
+				sql, _, err := (&QueryExecutor{}).buildPreviewPageSQL(def, AccessFilter{AllowedLibraryIDs: tt.allowed}, 20, 0, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := strings.Contains(sql, "1 = 0"); got != tt.deny {
+					t.Fatalf("denies = %t, want %t:\n%s", got, tt.deny, sql)
+				}
+			})
+		}
+	}
+}
+
 // A viewer's allowlist that shares no library with the query admits nothing.
 // The intersection is empty then, and an empty library list would otherwise
 // mean every library: jellycompat BoxSets, collection items and custom rows

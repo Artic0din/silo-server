@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -95,6 +96,10 @@ type Fetcher struct {
 	// now has onto the library watchlist before the watchlist section reads
 	// it. Nil skips promotion.
 	WatchlistPromoter catalog.WatchlistPromoter
+
+	// CollectionOwners limits a row of another profile's shared personal
+	// collection to its owner's access. Without it such a row fails.
+	CollectionOwners catalog.PersonalCollectionAccess
 
 	candidateCacheMu sync.Mutex
 	candidateCache   *editorialCandidateCache
@@ -1366,6 +1371,11 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 			return []*models.MediaItem{}, 0, nil
 		}
 	}
+	// Another profile's collection shows only what its owner can access too.
+	filter, err = catalog.PersonalCollectionFilter(ctx, f.CollectionOwners, filter, userID, profileID, collection.CreatorProfileID)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// Smart / live-query collection: parse the query definition and use the
 	// filtered fetch path, mirroring resolveUserCollectionSource in catalog_resolver.
@@ -1391,7 +1401,10 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 			return f.fetchFiltered(ctx, synth, libraryID, libraryIDs, filter)
 		}
 
-		qd = applySectionLibraryScopeToQuery(qd.Normalize(), libraryID, libraryIDs)
+		qd, ok := applySectionLibraryScopeToQuery(qd.Normalize(), libraryID, libraryIDs)
+		if !ok {
+			return []*models.MediaItem{}, 0, nil
+		}
 		qd = catalog.ApplySmartCollectionItemLimit(qd)
 		limit := catalog.DefaultSmartCollectionItemLimit
 		if qd.Limit != nil && *qd.Limit > 0 {
@@ -1415,7 +1428,10 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 		return items, total, nil
 	}
 
-	// Exact collection: fetch stored items.
+	// Exact collection: fetch stored items. The lookups below prefer the
+	// section's library scope over filter.AllowedLibraryIDs, so limit that
+	// scope to the owner-narrowed filter first.
+	libraryIDs = narrowLibraryScope(libraryIDs, filter.AllowedLibraryIDs)
 	collectionItems, err := store.ListCollectionItems(ctx, collectionID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("listing user collection items: %w", err)
@@ -2536,7 +2552,10 @@ func (f *Fetcher) fetchFiltered(ctx context.Context, s ResolvedSection, libraryI
 		return nil, 0, fmt.Errorf("parsing query definition: %w", err)
 	}
 
-	def = applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	def, ok := applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	if !ok {
+		return []*models.MediaItem{}, 0, nil
+	}
 
 	if s.ItemLimit > 0 {
 		limit := s.ItemLimit
@@ -2557,7 +2576,10 @@ func (f *Fetcher) fetchFiltered(ctx context.Context, s ResolvedSection, libraryI
 	return items, total, nil
 }
 
-func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int, libraryIDs []int) catalog.QueryDefinition {
+// applySectionLibraryScopeToQuery limits def to the section's library scope.
+// It reports false when the scope shares no library with the query's own,
+// since an empty def.LibraryIDs would mean every library instead.
+func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int, libraryIDs []int) (catalog.QueryDefinition, bool) {
 	switch {
 	case libraryID != nil:
 		def.LibraryIDs = []int{*libraryID}
@@ -2566,9 +2588,10 @@ func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int
 			def.LibraryIDs = append([]int(nil), libraryIDs...)
 		} else {
 			def.LibraryIDs = intersectLibraryIDs(def.LibraryIDs, libraryIDs)
+			return def, len(def.LibraryIDs) > 0
 		}
 	}
-	return def
+	return def, true
 }
 
 func buildRandomQuery(s ResolvedSection, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) (string, []any, int) {
@@ -2816,6 +2839,23 @@ func effectiveFetchLibraryIDs(libraryIDs []int, filter catalog.AccessFilter) []i
 	return nil
 }
 
+// narrowLibraryScope limits a caller's library scope to allowed so the scope
+// can never widen access. Nil on either side is unrestricted; when both are
+// set the result is their intersection, empty but non-nil when they share no
+// library so it still denies everything.
+func narrowLibraryScope(scope, allowed []int) []int {
+	switch {
+	case allowed == nil:
+		return scope
+	case scope == nil:
+		return allowed
+	}
+	if narrowed := intersectLibraryIDs(scope, allowed); narrowed != nil {
+		return narrowed
+	}
+	return []int{}
+}
+
 func applyEpisodeTargetLibraryAccess(
 	filter catalog.AccessFilter,
 	libraryID *int,
@@ -2838,11 +2878,8 @@ func collectionRailQueryAccess(filter catalog.AccessFilter, libraryID *int, libr
 	result := filter
 	effectiveLibraryIDs := effectiveFetchLibraryIDs(libraryIDs, filter)
 	if libraryID == nil {
-		if effectiveLibraryIDs == nil {
-			result.AllowedLibraryIDs = nil
-		} else {
-			result.AllowedLibraryIDs = append([]int(nil), effectiveLibraryIDs...)
-		}
+		// Clone keeps an empty scope non-nil, so it still denies everything.
+		result.AllowedLibraryIDs = slices.Clone(effectiveLibraryIDs)
 		return result
 	}
 

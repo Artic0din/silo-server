@@ -169,6 +169,9 @@ type CatalogResolver struct {
 	// to observe how many times the executor is asked for a result page.
 	previewExecutorForScope func(scope string, snapshot *time.Time) previewExecutor
 	watchlistPromoter       WatchlistPromoter
+	// collectionOwners limits another profile's shared personal collection
+	// to its owner's access. Without it such a collection cannot be read.
+	collectionOwners PersonalCollectionAccess
 }
 
 // WatchlistPromoter moves a profile's watchlist entries for titles the
@@ -206,6 +209,23 @@ func (r *CatalogResolver) WithUserStoreProvider(provider userstore.UserStoreProv
 	}
 	r.storeProvider = provider
 	return r
+}
+
+// WithPersonalCollectionAccess installs the owner access user_collection
+// reads apply to another profile's shared collection.
+func (r *CatalogResolver) WithPersonalCollectionAccess(owners PersonalCollectionAccess) *CatalogResolver {
+	if r == nil {
+		return nil
+	}
+	r.collectionOwners = owners
+	return r
+}
+
+// userCollectionAccess is the filter a user_collection read of collection
+// uses: the viewer's, limited to the owner's access when another profile
+// owns it.
+func (r *CatalogResolver) userCollectionAccess(ctx context.Context, viewer AccessFilter, collection *userstore.Collection) (AccessFilter, error) {
+	return PersonalCollectionFilter(ctx, r.collectionOwners, viewer, viewer.UserID, viewer.ProfileID, collection.CreatorProfileID)
 }
 
 func (r *CatalogResolver) WithEpisodeRepository(repo *EpisodeRepository) *CatalogResolver {
@@ -741,6 +761,10 @@ func (r *CatalogResolver) resolveUserCollectionSource(ctx context.Context, req C
 	collection, err := store.GetCollection(ctx, req.CollectionID)
 	if err != nil || !ProfileCanAccessCollection(collection, access.ProfileID) {
 		return nil, ErrCatalogSourceNotFound
+	}
+	access, err = r.userCollectionAccess(ctx, access, collection)
+	if err != nil {
+		return nil, err
 	}
 
 	return r.resolveCollectionWithEffectiveSort(
@@ -2150,6 +2174,10 @@ func (r *CatalogResolver) loadCollectionSourceBaseItems(ctx context.Context, req
 		collection, err := store.GetCollection(ctx, req.CollectionID)
 		if err != nil || !ProfileCanAccessCollection(collection, access.ProfileID) {
 			return nil, ErrCatalogSourceNotFound
+		}
+		access, err = r.userCollectionAccess(ctx, access, collection)
+		if err != nil {
+			return nil, err
 		}
 		var items []*models.MediaItem
 		if IsLiveQueryType(collection.CollectionType) {

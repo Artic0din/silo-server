@@ -318,7 +318,6 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 			libraryIDs = intersectInts(libraryIDs, access.AllowedLibraryIDs)
 		}
 	}
-
 	// Scope can be set externally (e.g. catalog resolver pre-fills it from
 	// the request) or implied by the query definition's MediaScope (e.g.
 	// section fetchers construct executors without setting Scope and rely

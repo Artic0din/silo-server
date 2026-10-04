@@ -227,7 +227,7 @@ func (h *LibraryCollectionHandler) LibraryUserCollections(ctx context.Context, l
 	if collections == nil {
 		collections = []usercollections.ServerVisibleCollection{}
 	}
-	h.withVisibleItemCounts(ctx, userID, collections)
+	collections = h.withVisibleItemCounts(ctx, userID, profileID, collections)
 	for i := range collections {
 		collections[i].PosterURL = h.presignGPURLCtx(ctx, collections[i].PosterPath)
 	}
@@ -235,18 +235,29 @@ func (h *LibraryCollectionHandler) LibraryUserCollections(ctx context.Context, l
 }
 
 // withVisibleItemCounts sets each personal collection's item_count to the
-// members the acting profile can see, as the personal collection routes do.
-func (h *LibraryCollectionHandler) withVisibleItemCounts(ctx context.Context, userID int, collections []usercollections.ServerVisibleCollection) {
-	sources := make([]catalog.PersonalCollectionDefinition, 0, len(collections))
+// members the acting profile can see, as the personal collection routes do:
+// for another profile's collection, only those its owner can access too. A
+// collection whose owner cannot be resolved is left out of the result.
+func (h *LibraryCollectionHandler) withVisibleItemCounts(ctx context.Context, userID int, profileID string, collections []usercollections.ServerVisibleCollection) []usercollections.ServerVisibleCollection {
+	sources := make([]ownedCollectionDefinition, 0, len(collections))
 	for _, c := range collections {
-		sources = append(sources, catalog.PersonalCollectionDefinition{ID: c.ID, CollectionType: c.CollectionType, QueryDefinition: c.QueryDefinition, DisplayQueryDefinition: c.DisplayQueryDefinition})
+		sources = append(sources, ownedCollectionDefinition{
+			PersonalCollectionDefinition: catalog.PersonalCollectionDefinition{ID: c.ID, CollectionType: c.CollectionType, QueryDefinition: c.QueryDefinition, DisplayQueryDefinition: c.DisplayQueryDefinition},
+			CreatorProfileID:             c.CreatorProfileID,
+		})
 	}
-	counts := visiblePersonalCollectionCounts(ctx, h.Executor, userID, sources, AccessFilterFromContext(ctx, ""))
-	for i := range collections {
-		if n, ok := counts[collections[i].ID]; ok {
-			collections[i].ItemCount = n
+	counts, unavailable := ownerScopedCollectionCounts(ctx, h.Executor, h.CollectionOwners, userID, profileID, sources, AccessFilterFromContext(ctx, ""))
+	out := collections[:0]
+	for _, c := range collections {
+		if unavailable[c.ID] {
+			continue
 		}
+		if n, ok := counts[c.ID]; ok {
+			c.ItemCount = n
+		}
+		out = append(out, c)
 	}
+	return out
 }
 
 // LibraryCollectionsTab answers the library's Collections tab: every
@@ -289,8 +300,7 @@ func (h *LibraryCollectionHandler) LibraryCollectionsTab(ctx context.Context, li
 				if loadErr != nil {
 					return LibraryCollectionTabView{}, apiError(http.StatusInternalServerError, "internal_error", "Failed to load user collections")
 				}
-				h.withVisibleItemCounts(ctx, userID, loadedUserCollections)
-				userCollections = loadedUserCollections
+				userCollections = h.withVisibleItemCounts(ctx, userID, profileID, loadedUserCollections)
 				userCollectionsLoaded = true
 			}
 			sorted := applyUserCollectionSort(userCollections, g.DefaultSortMode)

@@ -123,6 +123,10 @@ func (r *CatalogResolver) resolveUserCollectionCursor(ctx context.Context, req C
 	if err != nil || !ProfileCanAccessCollection(collection, access.ProfileID) {
 		return nil, ErrCatalogSourceNotFound
 	}
+	access, err = r.userCollectionAccess(ctx, access, collection)
+	if err != nil {
+		return nil, err
+	}
 	result, err := r.resolveCollectionWithEffectiveSort(ctx, req, access, userstore.CollectionKindUser, collection.ID, []byte(collection.SortConfig), func(effective CatalogRequest) (*CatalogResult, error) {
 		sqlState := userstore.HasCatalogSQLState(store)
 		if !sqlState {
