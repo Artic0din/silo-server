@@ -20675,11 +20675,14 @@ export interface components {
       bounded_creation: boolean;
       bounded_manifests: boolean;
       bounded_subscription_sync: boolean;
+      bulk_quality: boolean;
       download_allowed: boolean;
       enabled: boolean;
       file_delivery: boolean;
+      monitor_quality: boolean;
       monitoring_modes: string[];
       ordered_status: boolean;
+      preparation_progress: boolean;
       proxy_delivery: boolean;
       quality_options: components["schemas"]["DownloadQualityOption"][];
       quality_presets: string[];
@@ -20781,6 +20784,8 @@ export interface components {
        * @example 1
        */
       media_file_id: string;
+      /** @description How far the server has got preparing the file. Present on listed preparing entries when the capability reports preparation_progress. */
+      preparation?: components["schemas"]["DownloadPreparation"];
       quality: string;
       /** Format: int64 */
       revision: number;
@@ -20882,6 +20887,28 @@ export interface components {
       /** Format: double */
       start: number;
     };
+    DownloadPreparation: {
+      /**
+       * Format: double
+       * @description Encoded fraction, once a running encode reports it.
+       */
+      progress?: number;
+      /**
+       * Format: int64
+       * @description 1-based place among every queued preparation on this server; present only while queued.
+       */
+      queue_position?: number;
+      /**
+       * Format: int64
+       * @description Estimated seconds left at the encode's reported speed.
+       */
+      remaining_seconds?: number;
+      /**
+       * @description retrying: an attempt failed and the job waits out its backoff. paused: an administrator paused the job; it isn't claimed until resumed.
+       * @enum {string}
+       */
+      state: "queued" | "running" | "retrying" | "paused";
+    };
     DownloadQualityOption: {
       /** Format: int64 */
       bitrate_kbps?: number;
@@ -20921,6 +20948,11 @@ export interface components {
       /** Format: int64 */
       max_storage_bytes: number;
       mode: string;
+      /**
+       * @description Quality the monitor registers episodes in.
+       * @enum {string}
+       */
+      quality: "original" | "20mbps" | "10mbps" | "5mbps" | "2mbps" | "1mbps";
       season_numbers: number[];
       series_id: string;
       /** Format: int64 */
@@ -20937,6 +20969,11 @@ export interface components {
       max_storage_bytes: number;
       /** @enum {string} */
       mode: "all" | "future" | "latest_season" | "specific_seasons";
+      /**
+       * @description Quality to register episodes in. Defaults to original. A new monitor needs the monitor_quality capability for any other preset; an existing monitor keeps its quality.
+       * @enum {string}
+       */
+      quality?: "original" | "20mbps" | "10mbps" | "5mbps" | "2mbps" | "1mbps";
       season_numbers?: number[];
       series_id: string;
     };
@@ -20946,6 +20983,11 @@ export interface components {
       /** Format: int64 */
       max_storage_bytes?: number | null;
       mode?: string | null;
+      /**
+       * @description Quality preset for episodes registered from now on; already-registered downloads keep theirs.
+       * @enum {string|null}
+       */
+      quality?: "original" | "20mbps" | "10mbps" | "5mbps" | "2mbps" | "1mbps" | null;
       season_numbers?: number[] | null;
     };
     DownloadSubscriptionSync: {
