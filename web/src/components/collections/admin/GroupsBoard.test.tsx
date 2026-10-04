@@ -1,15 +1,19 @@
 /**
- * Smoke test: the admin collections board renders its groups and the
- * ungrouped section, and one keyboard move sends the reorder the board
- * builds, guarded by the order snapshot read when the board loaded.
+ * Arrange: one library's shelves. The board renders its shelves, My
+ * collections and No heading with a viewer preview; keyboard and menu moves
+ * send the existing order and group requests, guarded by an ETag; a move
+ * shows at once and goes back when it fails; phones move cards from a sheet.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import getAdminCollectionOk from "../../../../../contracts/api/v2/fixtures/get_admin_collection_ok.json";
 import { adminCollectionFromV2 } from "@/api/adminCollections";
 import type { LibraryCollection, LibraryCollectionGroup } from "@/api/types";
+import { stubPhone } from "@/components/homeRows/phoneLayout.test-support";
 import { adminCapabilities } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import { GroupsBoard } from "./GroupsBoard";
@@ -19,88 +23,120 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: v
 
 installV2Recorder();
 
-function collection(id: string, title: string): LibraryCollection {
-  return adminCollectionFromV2({ ...getAdminCollectionOk, id, title, visibility: "visible" });
+function collection(
+  id: string,
+  title: string,
+  visibility: LibraryCollection["visibility"] = "visible",
+): LibraryCollection {
+  return adminCollectionFromV2({ ...getAdminCollectionOk, id, title, visibility });
 }
 
-const group = {
+type Group = LibraryCollectionGroup & { collections: LibraryCollection[] };
+
+const franchises = {
   id: "g1",
   library_id: 1,
   name: "Franchises",
+  slug: "franchises",
   kind: "regular",
+  default_sort_mode: "manual",
   sort_order: 0,
   collections: [collection("f1", "Alien")],
-} as LibraryCollectionGroup & { collections: LibraryCollection[] };
+} as Group;
+
+const mine = {
+  id: "mine",
+  library_id: 1,
+  name: "My collections",
+  slug: "my-collections",
+  kind: "user_collections",
+  default_sort_mode: "manual",
+  sort_order: 1,
+  collections: [],
+} as Group;
 
 const ungrouped = [
   collection("a", "Staff picks"),
   collection("b", "New this month"),
-  collection("c", "Oscar winners"),
+  collection("c", "Oscar winners", "hidden"),
 ];
 
-// jsdom lays nothing out. Give each row a place in one column inside the
-// viewport, and each section a box much taller than a row, so the keyboard
+const ORDERS: Record<string, string[]> = { g1: ["f1"], mine: [], ungrouped: ["a", "b", "c"] };
+
+function groupBody(group: Group) {
+  const { collections: _collections, ...rest } = group;
+  return { ...rest, library_id: "1" };
+}
+
+// jsdom lays nothing out. Give each card a place in one column inside the
+// viewport, and each shelf a box much taller than a card, so the keyboard
 // sensor's collision detection sees the board the way a browser would.
 const rects = new Map<Element, DOMRect>();
 function place(element: Element, top: number, height: number) {
   rects.set(element, new DOMRect(0, top, 600, height));
 }
 
-// The drag overlay is positioned from the row it lifted: its box plus the
-// drag's translation, which is what collision detection measures.
-function overlayRect(element: Element) {
-  if (!(element instanceof HTMLElement) || element.style.position !== "fixed") return undefined;
-  const { top, left, width, height, transform } = element.style;
-  const [x = 0, y = 0] = /translate3d\(([-\d.]+)px, ([-\d.]+)px/
-    .exec(transform)
-    ?.slice(1)
-    .map(Number) ?? [0, 0];
-  return new DOMRect(
-    parseFloat(left) + x,
-    parseFloat(top) + y,
-    parseFloat(width),
-    parseFloat(height),
-  );
-}
-
 beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = () => {};
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-    return rects.get(this) ?? overlayRect(this) ?? new DOMRect(0, 0, 0, 0);
+    return rects.get(this) ?? new DOMRect(0, 0, 0, 0);
   });
   v2Recorder.answer("GET /api/v2/admin/collections/capabilities", adminCapabilities);
   v2Recorder.answer("GET /api/v2/admin/libraries/{library_id}/collection-groups/order", {
     library_id: "1",
     group_id: "",
-    ordered_ids: ["g1", "ungrouped"],
+    ordered_ids: ["g1", "mine", "ungrouped"],
     has_more: false,
   });
   v2Recorder.answer(
-    "GET /api/v2/admin/collection-groups/{group_id}/collections/order",
-    ({ path }: { path: string }) => ({
-      library_id: "1",
-      group_id: path.split("/")[5],
-      ordered_ids: path.includes("/g1/") ? ["f1"] : ["a", "b", "c"],
-      has_more: false,
-    }),
-  );
-  v2Recorder.answer(
-    "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
+    "PUT /api/v2/admin/libraries/{library_id}/collection-groups/order",
     ({ body }: { body: { ordered_ids: string[] } }) => ({
       library_id: "1",
-      group_id: "ungrouped",
+      group_id: "",
       ordered_ids: body.ordered_ids,
       has_more: false,
     }),
   );
+  v2Recorder.answer(
+    "GET /api/v2/admin/collection-groups/{group_id}/collections/order",
+    ({ path }: { path: string }) => {
+      const id = path.split("/")[5]!;
+      return { library_id: "1", group_id: id, ordered_ids: ORDERS[id], has_more: false };
+    },
+  );
+  v2Recorder.answer(
+    "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
+    ({ path, body }: { path: string; body: { ordered_ids: string[] } }) => ({
+      library_id: "1",
+      group_id: path.split("/")[5],
+      ordered_ids: body.ordered_ids,
+      has_more: false,
+    }),
+  );
+  v2Recorder.answer("GET /api/v2/admin/collection-groups/{id}", ({ path }: { path: string }) =>
+    groupBody(path.endsWith("/mine") ? mine : franchises),
+  );
+  v2Recorder.answer(
+    "PATCH /api/v2/admin/collection-groups/{id}",
+    ({ body }: { body: Record<string, unknown> }) => ({ ...groupBody(franchises), ...body }),
+  );
+  v2Recorder.answer("DELETE /api/v2/admin/collection-groups/{id}", undefined);
 });
 
 afterEach(() => {
+  cleanup();
   rects.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
-function renderBoard() {
+const handlers = {
+  onEditCollection: vi.fn(),
+  onVisibleChange: vi.fn(),
+};
+
+/** Renders the board; awaited, it returns once shelf changes are on (capabilities read). */
+async function renderBoard() {
   render(
     <QueryClientProvider
       client={
@@ -111,90 +147,324 @@ function renderBoard() {
     >
       <GroupsBoard
         libraryID={1}
-        groups={[group]}
+        libraryName="Movies"
+        groups={[franchises, mine]}
         ungrouped={ungrouped}
-        ungroupedSortOrder={1}
-        onEditGroup={vi.fn()}
-        onEditCollection={vi.fn()}
-        onDeleteCollection={vi.fn()}
-        onSyncCollection={vi.fn()}
-        selectedIds={new Set()}
-        setSelectedIds={vi.fn()}
+        ungroupedSortOrder={2}
+        isVisible={(entry) => entry.visibility !== "hidden"}
+        {...handlers}
       />
     </QueryClientProvider>,
   );
+  await vi.waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Order of Franchises" })).toBeEnabled(),
+  );
 }
 
-function ungroupedSection() {
-  return screen.getByRole("button", { name: "Drag ungrouped section" }).parentElement!
-    .parentElement!;
-}
+const noHeading = () => screen.getByRole("region", { name: "No heading" });
+const cardTitles = (shelf: HTMLElement) =>
+  within(shelf)
+    .getAllByRole("listitem")
+    .map((card) => within(card).getAllByRole("paragraph")[0]!.textContent);
 
 function layOut() {
-  const section = ungroupedSection();
+  const section = noHeading();
   place(section, 0, 2000);
   place(section.lastElementChild!, 10, 1990);
   within(section)
-    .getAllByRole("button", { name: "Drag to reorder" })
-    .forEach((handle, index) => place(handle.parentElement!, 100 + index * 50, 40));
-  const groupHandle = screen.getByRole("button", { name: "Drag group" });
-  const groupCard = groupHandle.closest(".rounded-lg")!;
-  place(groupCard, 2100, 400);
-  place(groupCard.lastElementChild!, 2150, 350);
-  within(groupCard as HTMLElement)
-    .getAllByRole("button", { name: "Drag to reorder" })
-    .forEach((handle, index) => place(handle.parentElement!, 2200 + index * 50, 40));
+    .getAllByRole("button", { name: /^Move / })
+    .slice(1)
+    .forEach((grip, index) => place(grip.parentElement!, 100 + index * 50, 40));
+  const shelf = screen.getByRole("region", { name: "Shelf Franchises" });
+  place(shelf, 2100, 400);
+  place(shelf.lastElementChild!, 2150, 350);
+  place(within(shelf).getByRole("button", { name: "Move Alien" }).parentElement!, 2200, 40);
+}
+
+async function grabWithKeyboard(name: string) {
+  const grip = screen.getByRole("button", { name });
+  await vi.waitFor(() => expect(grip).not.toHaveAttribute("aria-disabled", "true"));
+  layOut();
+  grip.focus();
+  await act(async () => {
+    fireEvent.keyDown(grip, { code: "Space" });
+    // The sensor starts listening for arrows on the next task.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function press(code: string, times = 1) {
+  for (let count = 0; count < times; count++) {
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement!, { code });
+    });
+  }
+}
+
+async function openMenu(name: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name }));
+  return user;
 }
 
 describe("GroupsBoard", () => {
-  it("renders each group and the ungrouped section with their collections", async () => {
-    renderBoard();
-    expect(screen.getByText("Franchises")).toBeInTheDocument();
-    expect(screen.getByText("Ungrouped")).toBeInTheDocument();
+  it("shows each shelf, My collections and No heading top to bottom, with what viewers see", async () => {
+    await renderBoard();
     expect(
-      within(ungroupedSection())
-        .getAllByRole("checkbox")
-        .map((box) => box.getAttribute("aria-label")),
-    ).toEqual(["Select Staff picks", "Select New this month", "Select Oscar winners"]);
+      screen.getByRole("heading", { name: "Shelves on Movies › Collections" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("region").map((region) => region.getAttribute("aria-label")),
+    ).toEqual(["Shelf Franchises", "Shelf My collections", "No heading"]);
+    expect(cardTitles(noHeading())).toEqual(["Staff picks", "New this month", "Oscar winners"]);
+    const myShelf = screen.getByRole("region", { name: "Shelf My collections" });
+    expect(myShelf).toHaveTextContent("Different for each viewer");
+    expect(myShelf).toHaveTextContent("Each viewer's own collections land here");
+    expect(screen.getByRole("combobox", { name: "Order of Franchises" })).toHaveDisplayValue(
+      "Your order",
+    );
   });
 
-  it("moves a collection with the keyboard and saves the new order with the read validator", async () => {
-    renderBoard();
-    const [first] = within(ungroupedSection()).getAllByRole("button", {
-      name: "Drag to reorder",
-    });
-    await vi.waitFor(() => expect(first).toBeEnabled());
-    layOut();
+  it("dims a hidden collection on its shelf and leaves it out of the viewer preview", async () => {
+    await renderBoard();
+    const oscars = within(noHeading()).getAllByRole("listitem")[2]!;
+    expect(oscars).toHaveTextContent("Hidden");
+    const preview = screen.getByRole("complementary", { name: "What viewers see" });
+    expect(preview).toHaveTextContent("Staff picks");
+    expect(preview).toHaveTextContent("Each viewer's own");
+    expect(preview).not.toHaveTextContent("Oscar winners");
+  });
 
-    first!.focus();
-    await act(async () => {
-      fireEvent.keyDown(first!, { code: "Space" });
-      // The sensor starts listening for arrows on the next task.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    // Each arrow press moves 25px; four land on the third row's center.
-    for (let press = 0; press < 4; press++) {
-      await act(async () => {
-        fireEvent.keyDown(document.activeElement!, { code: "ArrowDown" });
-      });
-    }
-    await act(async () => {
-      fireEvent.keyDown(document.activeElement!, { code: "Space" });
-    });
+  it("moves a collection with the keyboard and saves the order the drag showed", async () => {
+    await renderBoard();
+    await grabWithKeyboard("Move Staff picks");
+    // Each arrow press moves 25px; four land on the third card's center.
+    await press("ArrowDown", 4);
+    await press("Space");
 
     await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
-    // Known gap, pinned on purpose: the drag preview shows a in c's slot
-    // (b, c, a), but computeNewOrder inserts the moved collection before the
-    // row it was dropped on, so a downward move saves one slot short. A fix
-    // should change this golden on purpose.
+    // Changed on purpose from the earlier golden (b, a, c): the drop now
+    // saves the order the drag preview showed instead of one slot short.
     expect(v2Recorder.writes()).toEqual([
       {
         operation: "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
         path: "/api/v2/admin/collection-groups/ungrouped/collections/order",
         query: { library_id: "1" },
         headers: { "If-Match": '"/api/v2/admin/collection-groups/ungrouped/collections/order#1"' },
-        body: { ordered_ids: ["b", "a", "c"] },
+        body: { ordered_ids: ["b", "c", "a"] },
       },
     ]);
+  });
+
+  it("shows My collections can't take a server collection while one is dragged", async () => {
+    await renderBoard();
+    const myShelf = screen.getByRole("region", { name: "Shelf My collections" });
+    expect(myShelf).not.toHaveTextContent("Viewers' own collections only");
+    await grabWithKeyboard("Move Staff picks");
+    expect(myShelf).toHaveTextContent("Viewers' own collections only");
+    await press("Escape");
+    expect(myShelf).not.toHaveTextContent("Viewers' own collections only");
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
+  it("shows a move at once and puts it back with Try again when it fails", async () => {
+    let fail: (error: Error) => void = () => {};
+    v2Recorder.answer(
+      "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    await renderBoard();
+    await grabWithKeyboard("Move Staff picks");
+    await press("ArrowDown", 4);
+    await press("Space");
+
+    await vi.waitFor(() =>
+      expect(cardTitles(noHeading())).toEqual(["New this month", "Oscar winners", "Staff picks"]),
+    );
+    await act(async () => fail(new Error("offline")));
+    await vi.waitFor(() =>
+      expect(cardTitles(noHeading())).toEqual(["Staff picks", "New this month", "Oscar winners"]),
+    );
+    expect(toast.error).toHaveBeenCalledWith("Couldn't move it", {
+      action: { label: "Try again", onClick: expect.any(Function) },
+    });
+
+    v2Recorder.answer(
+      "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
+      ({ body }: { body: { ordered_ids: string[] } }) => ({
+        library_id: "1",
+        group_id: "ungrouped",
+        ordered_ids: body.ordered_ids,
+        has_more: false,
+      }),
+    );
+    const [, options] = vi.mocked(toast.error).mock.calls[0]!;
+    await act(async () => {
+      (options as unknown as { action: { onClick: () => void } }).action.onClick();
+    });
+    // Try again reads a fresh ETag and sends the same order.
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(2));
+    expect(v2Recorder.writes()[1]).toMatchObject({
+      path: "/api/v2/admin/collection-groups/ungrouped/collections/order",
+      body: { ordered_ids: ["b", "c", "a"] },
+    });
+  });
+
+  it("moves a collection to another shelf from its ⋯ with a fresh ETag", async () => {
+    await renderBoard();
+    const user = await openMenu("More for Alien");
+    (await screen.findByRole("menuitem", { name: "Move to shelf" })).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(await screen.findByRole("menuitemradio", { name: "Franchises" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    // My collections holds viewers' own collections, so it isn't offered.
+    expect(screen.queryByRole("menuitemradio", { name: "My collections" })).toBeNull();
+    await user.click(screen.getByRole("menuitemradio", { name: "No heading" }));
+
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toEqual({
+      operation: "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
+      path: "/api/v2/admin/collection-groups/ungrouped/collections/order",
+      query: { library_id: "1" },
+      headers: { "If-Match": '"/api/v2/admin/collection-groups/ungrouped/collections/order#1"' },
+      body: { ordered_ids: ["a", "b", "c", "f1"] },
+    });
+  });
+
+  it("hides a collection from its ⋯ through the page", async () => {
+    await renderBoard();
+    const user = await openMenu("More for Staff picks");
+    await user.click(await screen.findByRole("menuitem", { name: "Hide from Collections tab" }));
+    expect(handlers.onVisibleChange).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "a" }),
+      false,
+    );
+  });
+
+  it("offers Show on the Collections tab for a hidden collection", async () => {
+    await renderBoard();
+    await openMenu("More for Oscar winners");
+    expect(
+      await screen.findByRole("menuitem", { name: "Show on the Collections tab" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renames a shelf with the group rename request", async () => {
+    await renderBoard();
+    const user = await openMenu("More for shelf Franchises");
+    await user.click(await screen.findByRole("menuitem", { name: "Rename shelf" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename shelf" });
+    const name = within(dialog).getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "Sagas");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toEqual({
+      operation: "PATCH /api/v2/admin/collection-groups/{id}",
+      path: "/api/v2/admin/collection-groups/g1",
+      headers: { "If-Match": '"/api/v2/admin/collection-groups/g1#1"' },
+      body: { name: "Sagas" },
+    });
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("saves a shelf's order for viewers when Order changes", async () => {
+    await renderBoard();
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Order of Franchises" }),
+      "name_asc",
+    );
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toMatchObject({
+      operation: "PATCH /api/v2/admin/collection-groups/{id}",
+      path: "/api/v2/admin/collection-groups/g1",
+      body: { default_sort_mode: "name_asc" },
+    });
+  });
+
+  it("says a deleted shelf's collections move to No heading, then deletes it", async () => {
+    await renderBoard();
+    const user = await openMenu("More for shelf Franchises");
+    await user.click(await screen.findByRole("menuitem", { name: "Delete shelf…" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Delete the Franchises shelf?",
+    });
+    expect(dialog).toHaveTextContent(
+      "Its 1 collection moves to No heading on Movies › Collections. It isn't deleted. Only Movies changes",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Delete shelf" }));
+
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toEqual({
+      operation: "DELETE /api/v2/admin/collection-groups/{id}",
+      path: "/api/v2/admin/collection-groups/g1",
+      headers: { "If-Match": '"/api/v2/admin/collection-groups/g1#1"' },
+    });
+  });
+
+  it("never offers to delete My collections, and moves it to the top", async () => {
+    await renderBoard();
+    const user = await openMenu("More for shelf My collections");
+    expect(await screen.findByRole("menuitem", { name: "Rename shelf" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete shelf…" })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: "Move to top" }));
+
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toEqual({
+      operation: "PUT /api/v2/admin/libraries/{library_id}/collection-groups/order",
+      path: "/api/v2/admin/libraries/1/collection-groups/order",
+      headers: { "If-Match": '"/api/v2/admin/libraries/1/collection-groups/order#1"' },
+      body: { ordered_ids: ["mine", "g1", "ungrouped"] },
+    });
+  });
+
+  it("adds a shelf from New shelf", async () => {
+    v2Recorder.answer("POST /api/v2/admin/libraries/{library_id}/collection-groups", {
+      ...groupBody(franchises),
+      id: "g2",
+      name: "Studios",
+    });
+    await renderBoard();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "New shelf" }));
+    const dialog = await screen.findByRole("dialog", { name: "New shelf" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Studios");
+    await user.click(within(dialog).getByRole("button", { name: "Add shelf" }));
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toEqual({
+      operation: "POST /api/v2/admin/libraries/{library_id}/collection-groups",
+      path: "/api/v2/admin/libraries/1/collection-groups",
+      headers: {},
+      body: { name: "Studios" },
+    });
+  });
+
+  it("moves a card from a sheet on a phone, where nothing drags", async () => {
+    stubPhone();
+    await renderBoard();
+    expect(screen.queryByRole("button", { name: "Move Staff picks" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "What viewers see" })).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More for Staff picks" }));
+    const sheet = await screen.findByRole("dialog", { name: "Move Staff picks" });
+    expect(within(sheet).getByRole("radio", { name: /No heading/ })).toBeChecked();
+    expect(within(sheet).queryByRole("radio", { name: /My collections/ })).toBeNull();
+    const move = within(sheet).getByRole("button", { name: "Move" });
+    expect(move).toBeDisabled();
+    await user.click(within(sheet).getByRole("radio", { name: /Franchises/ }));
+    await user.click(move);
+
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]).toMatchObject({
+      path: "/api/v2/admin/collection-groups/g1/collections/order",
+      body: { ordered_ids: ["f1", "a"] },
+    });
   });
 });

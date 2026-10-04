@@ -6,6 +6,8 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -33,6 +35,8 @@ export interface ActionMenuAction extends ActionMenuEntry {
 /** An item that opens a submenu (→ from the keyboard). */
 export interface ActionMenuSubmenu extends ActionMenuEntry {
   items: ActionMenuAction[];
+  /** A choice of one: the key of the item that's chosen now, read as a checked radio. */
+  selectedKey?: string;
 }
 
 /** An on/off setting, drawn as a switch and read as a checked menu item. */
@@ -123,9 +127,23 @@ function Submenu({ item }: { item: ActionMenuSubmenu }) {
         <ItemBody id={id} item={item} />
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-[200px] rounded-[14px] p-1.5">
-        {item.items.map((entry) => (
-          <Action key={entry.key} item={entry} />
-        ))}
+        {item.selectedKey === undefined ? (
+          item.items.map((entry) => <Action key={entry.key} item={entry} />)
+        ) : (
+          <DropdownMenuRadioGroup value={item.selectedKey}>
+            {item.items.map((entry) => (
+              <DropdownMenuRadioItem
+                key={entry.key}
+                value={entry.key}
+                disabled={entry.disabled}
+                onSelect={entry.onSelect}
+                className="rounded-[9px] py-2 pr-2.5"
+              >
+                {entry.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );

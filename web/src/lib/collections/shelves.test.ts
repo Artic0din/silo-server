@@ -1,0 +1,182 @@
+import { describe, expect, it } from "vitest";
+import type { LibraryCollection, LibraryCollectionGroup } from "@/api/types";
+
+import {
+  UNGROUPED,
+  applyCollectionMove,
+  applyShelfMove,
+  boardShelves,
+  planCollectionMove,
+  planShelfMove,
+  shelfCountLine,
+  shownCollections,
+  type Shelf,
+} from "./shelves";
+
+function collection(id: string, extra: Partial<LibraryCollection> = {}): LibraryCollection {
+  return {
+    id,
+    title: id,
+    item_count: 0,
+    updated_at: "2026-01-01T00:00:00Z",
+    visibility: "visible",
+    ...extra,
+  } as LibraryCollection;
+}
+
+function group(
+  id: string,
+  sort_order: number,
+  collections: LibraryCollection[],
+  extra: Partial<LibraryCollectionGroup> = {},
+) {
+  return {
+    id,
+    library_id: 1,
+    name: id,
+    slug: id,
+    kind: "regular",
+    default_sort_mode: "manual",
+    sort_order,
+    collections,
+    ...extra,
+  } as LibraryCollectionGroup & { collections: LibraryCollection[] };
+}
+
+const board: Shelf[] = boardShelves(
+  [
+    group("studios", 0, [collection("a24"), collection("ghibli"), collection("criterion")]),
+    group("mine", 2, [], { kind: "user_collections", name: "My collections" }),
+    group("awards", 1, [collection("oscars")], { default_sort_mode: "name_asc" }),
+  ],
+  [collection("xmas"), collection("staff")],
+  3,
+);
+
+describe("boardShelves", () => {
+  it("lists shelves and No heading top to bottom, the way viewers see them", () => {
+    expect(board.map((shelf) => [shelf.id, shelf.kind, shelf.name])).toEqual([
+      ["studios", "regular", "studios"],
+      ["awards", "regular", "awards"],
+      ["mine", "user_collections", "My collections"],
+      [UNGROUPED, "ungrouped", "No heading"],
+    ]);
+  });
+
+  it("breaks a position tie by id, with No heading's sentinel among them", () => {
+    const tied = boardShelves([group("b", 0, []), group("z", 0, [])], [], 0);
+    expect(tied.map((shelf) => shelf.id)).toEqual(["b", UNGROUPED, "z"]);
+  });
+});
+
+describe("shownCollections", () => {
+  const shelf = (sortMode: Shelf["sortMode"]): Shelf => ({
+    id: "s",
+    kind: "regular",
+    name: "s",
+    sortMode,
+    collections: [
+      collection("b", { title: "Beta", item_count: 3, updated_at: "2026-03-01T00:00:00Z" }),
+      collection("a", { title: "Alpha", item_count: 9, updated_at: "2026-01-01T00:00:00Z" }),
+      collection("c", { title: "Gamma", item_count: 1, updated_at: "2026-05-01T00:00:00Z" }),
+    ],
+  });
+  it.each([
+    ["manual", ["b", "a", "c"]],
+    ["name_asc", ["a", "b", "c"]],
+    ["name_desc", ["c", "b", "a"]],
+    ["recent", ["c", "b", "a"]],
+    ["most_items", ["a", "b", "c"]],
+  ] as const)("orders a %s shelf the way viewers see it", (mode, ids) => {
+    expect(shownCollections(shelf(mode)).map((entry) => entry.id)).toEqual(ids);
+  });
+});
+
+describe("shelfCountLine", () => {
+  it("counts the collections and names an automatic order", () => {
+    expect(shelfCountLine(board[0]!)).toBe("3 collections");
+    expect(shelfCountLine(board[1]!)).toBe("1 collection, sorted by name");
+    expect(shelfCountLine({ ...board[1]!, sortMode: "most_items" })).toBe(
+      "1 collection, sorted by most titles",
+    );
+    expect(shelfCountLine({ ...board[1]!, sortMode: "recent" })).toBe(
+      "1 collection, sorted by recently updated",
+    );
+  });
+});
+
+describe("planCollectionMove", () => {
+  it("drops a collection on the card it lands on, in its own shelf, like the drag showed", () => {
+    expect(planCollectionMove(board, "a24", "studios", "criterion")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["ghibli", "criterion", "a24"],
+    });
+    expect(planCollectionMove(board, "criterion", "studios", "a24")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["criterion", "a24", "ghibli"],
+    });
+  });
+
+  it("puts a collection from another shelf before the card it lands on", () => {
+    expect(planCollectionMove(board, "xmas", "studios", "ghibli")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["a24", "xmas", "ghibli", "criterion"],
+    });
+  });
+
+  it("adds a collection to the end of a shelf dropped on or picked from Move to shelf", () => {
+    expect(planCollectionMove(board, "oscars", UNGROUPED, null)).toEqual({
+      shelfId: UNGROUPED,
+      orderedIds: ["xmas", "staff", "oscars"],
+    });
+  });
+
+  it("changes nothing for a move to its own shelf, or within a shelf that sorts itself", () => {
+    expect(planCollectionMove(board, "a24", "studios", null)).toBeNull();
+    expect(planCollectionMove(board, "a24", "studios", "a24")).toBeNull();
+    const sorted = boardShelves(
+      [group("awards", 0, [collection("x"), collection("y")], { default_sort_mode: "name_asc" })],
+      [],
+      1,
+    );
+    expect(planCollectionMove(sorted, "x", "awards", "y")).toBeNull();
+  });
+
+  it("never puts a server collection on My collections", () => {
+    expect(planCollectionMove(board, "xmas", "mine", null)).toBeNull();
+  });
+});
+
+describe("applyCollectionMove", () => {
+  it("shows the board as it will be once the move saves", () => {
+    const next = applyCollectionMove(board, "xmas", {
+      shelfId: "studios",
+      orderedIds: ["a24", "xmas", "ghibli", "criterion"],
+    });
+    expect(next.map((shelf) => shelf.collections.map((entry) => entry.id))).toEqual([
+      ["a24", "xmas", "ghibli", "criterion"],
+      ["oscars"],
+      [],
+      ["staff"],
+    ]);
+  });
+});
+
+describe("planShelfMove", () => {
+  it("moves a shelf to the top or the bottom, No heading included", () => {
+    expect(planShelfMove(board, "mine", 0)).toEqual(["mine", "studios", "awards", UNGROUPED]);
+    expect(planShelfMove(board, "studios", Infinity)).toEqual([
+      "awards",
+      "mine",
+      UNGROUPED,
+      "studios",
+    ]);
+    expect(planShelfMove(board, "studios", 0)).toBeNull();
+  });
+
+  it("reorders the board's shelves", () => {
+    expect(
+      applyShelfMove(board, ["mine", "studios", "awards", UNGROUPED]).map((s) => s.id),
+    ).toEqual(["mine", "studios", "awards", UNGROUPED]);
+  });
+});

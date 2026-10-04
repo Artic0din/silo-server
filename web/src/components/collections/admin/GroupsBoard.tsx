@@ -1,547 +1,543 @@
-import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { fetchAdminBoardOrderSnapshot } from "@/api/adminCollections";
-import { invalidateAdminCollectionQueries } from "@/hooks/queries/collectionSurfaceRefresh";
-import { createContext, useContext, useRef, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
 import {
   DndContext,
-  DragOverlay,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
+  closestCenter,
   useSensor,
   useSensors,
+  type Announcements,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+  type UniqueIdentifier,
 } from "@dnd-kit/core";
-import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
-import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import type { LibraryCollection, LibraryCollectionGroup } from "@/api/types";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { Ellipsis, GripVertical, Plus } from "lucide-react";
+
 import {
+  adminMutationMessage,
+  fetchAdminBoardOrderSnapshot,
+  fetchAdminGroupCollectionOrderSnapshot,
+  fetchAdminGroupOrderSnapshot,
+  fetchAdminGroupSnapshot,
+} from "@/api/adminCollections";
+import type { GroupSortMode, LibraryCollection } from "@/api/types";
+import { Button } from "@/components/ui/button";
+import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
+import {
+  useCreateCollectionGroup,
+  useDeleteCollectionGroup,
   useReorderCollectionGroups,
   useReorderCollectionsInGroup,
+  useUpdateCollectionGroup,
 } from "@/hooks/queries/admin/collectionGroups";
-import { GroupCard } from "./GroupCard";
-import { UngroupedSection } from "./UngroupedSection";
-import { updateCheckboxSelection } from "@/lib/checkboxSelection";
+import { invalidateAdminCollectionQueries } from "@/hooks/queries/collectionSurfaceRefresh";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
+import {
+  ARRANGE_HINT,
+  ARRANGE_SUBTITLE,
+  MOVE_FAILED,
+  arrangeHeading,
+} from "@/lib/collections/copy";
+import {
+  UNGROUPED,
+  acceptsCollections,
+  applyCollectionMove,
+  applyShelfMove,
+  boardShelves,
+  planCollectionMove,
+  planShelfMove,
+  shelfOf,
+  shownCollections,
+  type BoardGroup,
+  type CollectionMove,
+  type Shelf,
+} from "@/lib/collections/shelves";
+import { CollectionListItem } from "./CollectionListItem";
+import { GroupCard, type ArrangeDragData, type SortableCardProps } from "./GroupCard";
+import { MoveCollectionSheet } from "./MoveCollectionSheet";
+import { DeleteShelfDialog, ShelfNameDialog } from "./ShelfDialogs";
+import { ArrangeCardMenu, ShelfMenu } from "./ShelfMenus";
+import { ViewerPreview } from "./ViewerPreview";
 
-// ---------------------------------------------------------------------------
-// Selection context
-// ---------------------------------------------------------------------------
+/** Under this width Arrange has no drag: ⋯ opens a sheet that moves the card. */
+const NARROW_QUERY = "(max-width: 1023px)";
 
-export type SelectionKind = "collection" | "user_collection";
+const SCREEN_READER_INSTRUCTIONS =
+  "To move a shelf or a collection, focus its handle and press Space or Enter. Use the arrow keys to move it, Space or Enter to drop it, or Escape to cancel. Every collection's ⋯ also has Move to shelf.";
 
-interface AnchorRef {
-  id: string;
-  groupID: string;
+type OrderReads = Awaited<ReturnType<typeof fetchAdminBoardOrderSnapshot>>;
+
+function sameIds(actual: readonly string[], expected: readonly string[]) {
+  return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
 }
 
-export interface SelectionContextValue {
-  isSelected: (id: string) => boolean;
-  selectOnly: (id: string, kind: SelectionKind, groupID: string) => void;
-  toggleOne: (id: string, kind: SelectionKind, groupID: string) => void;
-  selectRange: (
-    id: string,
-    kind: SelectionKind,
-    groupID: string,
-    groupCollectionIDs: string[],
-    checked?: boolean,
-  ) => void;
+/** The order reads describe these shelves exactly, so a move can be checked against them. */
+function readsMatch(reads: OrderReads, shelves: readonly Shelf[]) {
+  return (
+    !reads.groupOrder.has_more &&
+    sameIds(
+      reads.groupOrder.ordered_ids,
+      shelves.map((shelf) => shelf.id),
+    ) &&
+    shelves.every((shelf) => {
+      const order = reads.collectionOrders.get(shelf.id);
+      return (
+        order !== undefined &&
+        !order.has_more &&
+        sameIds(
+          order.ordered_ids,
+          shelf.collections.map((entry) => entry.id),
+        )
+      );
+    })
+  );
 }
 
-export const SelectionContext = createContext<SelectionContextValue | null>(null);
-
-export function useSelection(): SelectionContextValue {
-  const ctx = useContext(SelectionContext);
-  if (!ctx) throw new Error("useSelection must be used inside SelectionContext.Provider");
-  return ctx;
-}
-
-// ---------------------------------------------------------------------------
-// Board types
-// ---------------------------------------------------------------------------
-
-interface BoardGroup extends LibraryCollectionGroup {
-  collections: LibraryCollection[];
-}
-
-type UnifiedItem = { kind: "group"; group: BoardGroup } | { kind: "ungrouped" };
+/** A collection drag only meets cards and shelf bodies; a shelf drag only meets shelves. */
+const collision: CollisionDetection = (args) => {
+  const shelfDrag = (args.active.data.current as ArrangeDragData | undefined)?.kind === "shelf";
+  return closestCenter({
+    ...args,
+    droppableContainers: args.droppableContainers.filter(
+      (container) => String(container.id).startsWith("shelf:") === shelfDrag,
+    ),
+  });
+};
 
 export interface GroupsBoardProps {
   libraryID: number;
+  libraryName: string;
   groups: BoardGroup[];
   ungrouped: LibraryCollection[];
   ungroupedSortOrder: number;
-  onEditGroup: (id: string) => void;
+  /** The Collections tab state, which may run ahead of the saved visibility. */
+  isVisible: (collection: LibraryCollection) => boolean;
   onEditCollection: (collection: LibraryCollection) => void;
-  onDeleteCollection: (collection: LibraryCollection) => void;
-  onSyncCollection: (collection: LibraryCollection) => void;
-  selectedIds: Set<string>;
-  setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
-  syncingCollectionID?: string | null;
+  /** The page asks first when rows show a collection being hidden. */
+  onVisibleChange: (collection: LibraryCollection, visible: boolean) => void;
 }
 
-// ---------------------------------------------------------------------------
-// GroupsBoard
-// ---------------------------------------------------------------------------
-
+/**
+ * Arrange: one library's shelves top to bottom, the way viewers see them,
+ * beside a preview of its Collections tab. Every change saves right away and
+ * shows at once; a move that fails goes back and offers Try again. Drags are
+ * checked against the order read when the board loaded, so a move never
+ * lands on an order someone else changed in the meantime. Phones have no
+ * drag: a card's ⋯ opens a sheet that moves it.
+ */
 export function GroupsBoard({
   libraryID,
+  libraryName,
   groups,
   ungrouped,
   ungroupedSortOrder,
-  onEditGroup,
+  isVisible,
   onEditCollection,
-  onDeleteCollection,
-  onSyncCollection,
-  selectedIds,
-  setSelectedIds,
-  syncingCollectionID = null,
+  onVisibleChange,
 }: GroupsBoardProps) {
-  // --- selection state ---
-  const selectionKindRef = useRef<SelectionKind | null>(null);
-  const anchorRef = useRef<AnchorRef | null>(null);
-
-  const isSelected = (id: string) => selectedIds.has(id);
-
-  const setSelectionAnchor = (id: string, kind: SelectionKind, groupID: string) => {
-    selectionKindRef.current = kind;
-    anchorRef.current = { id, groupID };
-  };
-
-  const selectOnly = (id: string, kind: SelectionKind, groupID: string) => {
-    setSelectedIds(new Set([id]));
-    setSelectionAnchor(id, kind, groupID);
-  };
-
-  const toggleOne = (id: string, kind: SelectionKind, groupID: string) => {
-    if (
-      selectedIds.size > 0 &&
-      selectionKindRef.current !== null &&
-      kind !== selectionKindRef.current
-    ) {
-      // cross-kind: replace with just this item
-      setSelectedIds(new Set([id]));
-      setSelectionAnchor(id, kind, groupID);
-      return;
-    }
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-    setSelectionAnchor(id, kind, groupID);
-  };
-
-  const selectRange = (
-    id: string,
-    kind: SelectionKind,
-    groupID: string,
-    groupCollectionIDs: string[],
-    checked = true,
-  ) => {
-    const anchor = anchorRef.current;
-    if (
-      selectedIds.size === 0 ||
-      !anchor ||
-      anchor.groupID !== groupID ||
-      !groupCollectionIDs.includes(anchor.id) ||
-      !groupCollectionIDs.includes(id) ||
-      (selectionKindRef.current !== null && kind !== selectionKindRef.current)
-    ) {
-      // Start a new range from this row.
-      if (checked) {
-        setSelectedIds(new Set([id]));
-      } else {
-        setSelectedIds((previous) => {
-          const next = new Set(previous);
-          next.delete(id);
-          return next;
-        });
-      }
-      setSelectionAnchor(id, kind, groupID);
-      return;
-    }
-    setSelectedIds((previous) =>
-      updateCheckboxSelection(previous, groupCollectionIDs, anchor.id, id, checked, true),
-    );
-    selectionKindRef.current = kind;
-    // anchor stays unchanged on range extends
-  };
-
-  const clearSelection = () => {
-    setSelectedIds(new Set());
-    selectionKindRef.current = null;
-    anchorRef.current = null;
-  };
-
-  const selection: SelectionContextValue = {
-    isSelected,
-    selectOnly,
-    toggleOne,
-    selectRange,
-  };
-
-  // --- dnd state ---
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor),
-  );
-  const reorderGroups = useReorderCollectionGroups(libraryID);
-  const reorderCollections = useReorderCollectionsInGroup(libraryID);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [draggedIds, setDraggedIds] = useState<string[]>([]);
-
-  // Build a unified ordering of groups + the ungrouped sentinel, sorted by
-  // each item's effective sort_order position.
-  const unifiedItems: UnifiedItem[] = buildUnifiedItems(groups, ungroupedSortOrder);
-  const sortableIds = unifiedItems.map((item) =>
-    item.kind === "ungrouped" ? "ungrouped" : `group:${item.group.id}`,
-  );
-
   const queryClient = useQueryClient();
+  const narrow = useMediaQuery(NARROW_QUERY);
   const { data: capabilities } = useAdminCollectionCapabilities();
+  const canEdit = capabilities?.groups === true;
+
+  const saved = useMemo(
+    () => boardShelves(groups, ungrouped, ungroupedSortOrder),
+    [groups, ungrouped, ungroupedSortOrder],
+  );
+  // A change shows at once: the board draws `shelves` until the change has
+  // saved and the shelves were read again (or it failed and went back).
+  const [pending, setPending] = useState<{ base: Shelf[]; shelves: Shelf[] } | null>(null);
+  const shelves = pending?.base === saved ? pending.shelves : saved;
+  const changing = pending?.base === saved;
+
   const orderReads = useQuery({
     queryKey: [
       "admin",
       "collections",
       "order-snapshots",
       libraryID,
-      groups.map((group) => [group.id, group.collections.map((item) => item.id)]),
-      ungrouped.map((item) => item.id),
-      sortableIds,
+      saved.map((shelf) => [shelf.id, shelf.collections.map((entry) => entry.id)]),
     ],
-    enabled: capabilities?.groups === true,
+    enabled: canEdit,
     queryFn: () =>
       fetchAdminBoardOrderSnapshot(
         libraryID,
         groups.map((group) => group.id),
       ),
   });
-  const dragSnapshot = useRef<{
-    reads: NonNullable<typeof orderReads.data>;
-    groups: BoardGroup[];
-    ungrouped: LibraryCollection[];
-    sortableIds: string[];
-  } | null>(null);
+  const hasMore =
+    orderReads.data !== undefined &&
+    (orderReads.data.groupOrder.has_more ||
+      [...orderReads.data.collectionOrders.values()].some((order) => order.has_more));
+  const dragDisabled =
+    !canEdit || narrow || !orderReads.data || orderReads.isError || hasMore || changing;
 
-  const onDragStart = (e: DragStartEvent) => {
-    if (!capabilities?.groups) return;
-    const reads = orderReads.data;
-    const matches = (actual: string[], expected: string[]) =>
-      actual.length === expected.length && actual.every((id, index) => id === expected[index]);
-    const currentGroups = sortableIds.map((id) =>
-      id === "ungrouped" ? id : id.replace(/^group:/, ""),
+  const createGroup = useCreateCollectionGroup(libraryID);
+  const updateGroup = useUpdateCollectionGroup();
+  const deleteGroup = useDeleteCollectionGroup();
+  const reorderGroups = useReorderCollectionGroups(libraryID);
+  const reorderCollections = useReorderCollectionsInGroup(libraryID);
+
+  const [naming, setNaming] = useState<
+    { mode: "create" } | { mode: "rename"; shelf: Shelf } | null
+  >(null);
+  const [deleting, setDeleting] = useState<Shelf | null>(null);
+  const [moving, setMoving] = useState<LibraryCollection | null>(null);
+
+  // --- saving ----------------------------------------------------------------
+
+  /** Shows `next` until `save` settles; a failure puts the board back. */
+  async function change(next: Shelf[], save: () => Promise<unknown>) {
+    setPending({ base: saved, shelves: next });
+    try {
+      await save();
+    } finally {
+      setPending(null);
+    }
+  }
+
+  function moveFailed(retry: () => Promise<unknown>) {
+    toast.error(MOVE_FAILED, {
+      action: {
+        label: "Try again",
+        onClick: () => void retry().catch(() => moveFailed(retry)),
+      },
+    });
+  }
+
+  /** Saves a collection's new shelf order. Without an ETag from a drag's reads, it reads a fresh one. */
+  function saveCollectionMove(collectionId: string, plan: CollectionMove, etag?: string) {
+    const send = async (tag?: string) =>
+      reorderCollections.mutateAsync({
+        groupID: plan.shelfId,
+        orderedIDs: plan.orderedIds,
+        etag: tag ?? (await fetchAdminGroupCollectionOrderSnapshot(plan.shelfId, libraryID)).etag,
+        ...(plan.shelfId === UNGROUPED ? { libraryId: libraryID } : {}),
+      });
+    void change(applyCollectionMove(shelves, collectionId, plan), () => send(etag)).catch(() =>
+      moveFailed(() => send()),
     );
-    if (
-      !reads ||
-      reads.groupOrder.has_more ||
-      !matches(reads.groupOrder.ordered_ids, currentGroups) ||
-      [
-        ...groups.map((group) => ({ id: group.id, items: group.collections })),
-        { id: "ungrouped", items: ungrouped },
-      ].some((group) => {
-        const order = reads.collectionOrders.get(group.id);
-        return (
-          !order ||
-          order.has_more ||
-          !matches(
-            order.ordered_ids,
-            group.items.map((item) => item.id),
-          )
-        );
-      })
-    ) {
-      dragSnapshot.current = null;
+  }
+
+  function saveShelfOrder(orderedIds: string[], etag?: string) {
+    const send = async (tag?: string) =>
+      reorderGroups.mutateAsync({
+        orderedIDs: orderedIds,
+        etag: tag ?? (await fetchAdminGroupOrderSnapshot(libraryID)).etag,
+      });
+    void change(applyShelfMove(shelves, orderedIds), () => send(etag)).catch(() =>
+      moveFailed(() => send()),
+    );
+  }
+
+  /** A shelf's ETag, read fresh before each change to it; a failed read says so. */
+  async function shelfETag(id: string) {
+    try {
+      return (await fetchAdminGroupSnapshot(id)).etag;
+    } catch (error) {
+      toast.error(adminMutationMessage(error, "Couldn't read the shelf"));
+      throw error;
+    }
+  }
+
+  async function patchShelf(
+    id: string,
+    patch: { name?: string; default_sort_mode?: GroupSortMode },
+  ) {
+    await updateGroup.mutateAsync({ id, etag: await shelfETag(id), ...patch });
+  }
+
+  function changeSort(shelf: Shelf, mode: GroupSortMode) {
+    void change(
+      shelves.map((entry) => (entry.id === shelf.id ? { ...entry, sortMode: mode } : entry)),
+      () => patchShelf(shelf.id, { default_sort_mode: mode }),
+    ).catch(() => undefined);
+  }
+
+  async function removeShelf(shelf: Shelf) {
+    await deleteGroup.mutateAsync({ id: shelf.id, etag: await shelfETag(shelf.id) });
+  }
+
+  function moveToShelf(collection: LibraryCollection, shelfId: string) {
+    const plan = planCollectionMove(shelves, collection.id, shelfId, null);
+    if (plan) saveCollectionMove(collection.id, plan);
+  }
+
+  // --- dragging --------------------------------------------------------------
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor),
+  );
+  const [drag, setDrag] = useState<{ data: ArrangeDragData; reads: OrderReads } | null>(null);
+  // dnd-kit reports the item as over itself right after pickup; only a change is announced.
+  const lastOver = useRef<UniqueIdentifier | null>(null);
+
+  function onDragStart(event: DragStartEvent) {
+    const data = event.active.data.current as ArrangeDragData | undefined;
+    const reads = orderReads.data;
+    if (!data || !reads) return;
+    if (!readsMatch(reads, saved)) {
       toast.error("Collection order is not ready or changed. Reload before reordering.");
       void invalidateAdminCollectionQueries(queryClient);
       void orderReads.refetch();
       return;
     }
-    dragSnapshot.current = { reads, groups, ungrouped, sortableIds };
-    const id = String(e.active.id);
-    setActiveId(id);
+    setDrag({ data, reads });
+  }
 
-    const aData = e.active.data.current as { kind?: string; id?: string } | undefined;
-    if (aData?.kind === "collection" && aData.id) {
-      if (selectedIds.has(aData.id)) {
-        // Drag the whole selection in visual order
-        setDraggedIds(flattenedSelectionInVisualOrder(groups, ungrouped, selectedIds));
-      } else {
-        // Dragging an unselected row — clear selection, drag just this one
-        clearSelection();
-        setDraggedIds([aData.id]);
-      }
-    } else {
-      setDraggedIds([]);
-    }
-  };
-
-  const onDragCancel = () => {
-    dragSnapshot.current = null;
-    setActiveId(null);
-    setDraggedIds([]);
-  };
-
-  // While a section (group or ungrouped) is being dragged, collapse all
-  // sections to just their headers — long groups otherwise force the user to
-  // scroll past dozens of rows to reorder. Collection drags don't trigger
-  // collapse (admin needs to see destination bodies as drop targets).
-  const isSectionDrag =
-    activeId !== null && (activeId === "ungrouped" || activeId.startsWith("group:"));
-
-  const onDragEnd = (e: DragEndEvent) => {
-    setActiveId(null);
-    const captured = dragSnapshot.current;
-    dragSnapshot.current = null;
-    if (!captured) {
-      setDraggedIds([]);
+  function onDragEnd({ active, over }: DragEndEvent) {
+    const started = drag;
+    setDrag(null);
+    if (!started || !over || active.id === over.id) return;
+    const target = over.data.current as ArrangeDragData | undefined;
+    if (!target) return;
+    const { data, reads } = started;
+    if (data.kind === "shelf") {
+      if (target.kind !== "shelf") return;
+      const to = saved.findIndex((shelf) => shelf.id === target.id);
+      const order = planShelfMove(saved, data.id, to);
+      if (order) saveShelfOrder(order, reads.groupOrder.etag);
       return;
     }
-    const { groups, ungrouped, sortableIds, reads } = captured;
-    const { active, over } = e;
-    if (!over || active.id === over.id) {
-      setDraggedIds([]);
-      return;
-    }
+    if (data.kind !== "collection") return;
+    const shelfId = target.kind === "shelf" ? target.id : target.shelfId;
+    const plan = planCollectionMove(
+      saved,
+      data.id,
+      shelfId,
+      target.kind === "collection" ? target.id : null,
+    );
+    if (plan) saveCollectionMove(data.id, plan, reads.collectionOrders.get(plan.shelfId)?.etag);
+  }
 
-    const aData = active.data.current as { kind?: string; id?: string } | undefined;
-    const oData = over.data.current as { kind?: string; id?: string; groupID?: string } | undefined;
-    if (!aData || !oData) {
-      setDraggedIds([]);
-      return;
-    }
-
-    // Resolve which group-section the drop target belongs to, regardless of
-    // whether collision detection picked the outer sortable ("group") or the
-    // inner droppable body ("group-body"). Returns the group's ID (or
-    // "ungrouped" sentinel), or null if the over isn't a section at all.
-    const overSectionId = (() => {
-      if (oData.kind === "group") return oData.id ?? null;
-      if (oData.kind === "group-body") return oData.groupID ?? null;
-      return null;
-    })();
-
-    // Group / ungrouped section reorder
-    if (aData.kind === "group" && overSectionId !== null) {
-      // Build the current ordered ID list (including "ungrouped" sentinel)
-      const currentIds = sortableIds.map((sid) =>
-        sid === "ungrouped" ? "ungrouped" : sid.replace(/^group:/, ""),
-      );
-      const activeItemId =
-        active.id === "ungrouped" ? "ungrouped" : String(active.id).replace(/^group:/, "");
-
-      const oldIdx = currentIds.indexOf(activeItemId);
-      const newIdx = currentIds.indexOf(overSectionId);
-      if (oldIdx !== -1 && newIdx !== -1 && oldIdx !== newIdx) {
-        reorderGroups.mutate({
-          orderedIDs: arrayMove(currentIds, oldIdx, newIdx),
-          etag: reads.groupOrder.etag,
-        });
+  const announcements = useMemo<Announcements>(() => {
+    // Drag ids are "col:<id>", "shelf:<id>" or "body:<id>".
+    const bare = (id: UniqueIdentifier) => String(id).replace(/^(col|shelf|body):/, "");
+    const shelfById = (id: UniqueIdentifier) => shelves.find((entry) => entry.id === bare(id));
+    const collectionAt = (id: UniqueIdentifier) => {
+      const shelf = shelfOf(shelves, bare(id));
+      if (!shelf) return null;
+      const shown = shownCollections(shelf);
+      const index = shown.findIndex((entry) => entry.id === bare(id));
+      return { title: shown[index]!.title, shelf, index, count: shown.length };
+    };
+    const name = (id: UniqueIdentifier): string => {
+      if (String(id).startsWith("col:")) return collectionAt(id)?.title ?? "Collection";
+      const shelf = shelfById(id);
+      return shelf ? `shelf ${shelf.name}` : "Shelf";
+    };
+    const place = (id: UniqueIdentifier): string => {
+      const text = String(id);
+      if (text.startsWith("col:")) {
+        const at = collectionAt(id);
+        return at ? `position ${at.index + 1} of ${at.count} on ${at.shelf.name}` : "";
       }
-      setDraggedIds([]);
-      return;
-    }
+      if (text.startsWith("body:")) return `the end of ${shelfById(id)?.name ?? "the shelf"}`;
+      const index = shelves.findIndex((entry) => entry.id === bare(id));
+      return `position ${index + 1} of ${shelves.length}`;
+    };
+    const refused = (active: UniqueIdentifier, over: UniqueIdentifier) => {
+      if (!String(active).startsWith("col:")) return false;
+      const shelf = shelfById(over);
+      return shelf !== undefined && !acceptsCollections(shelf);
+    };
+    return {
+      onDragStart: ({ active }) => {
+        lastOver.current = active.id;
+        return `Picked up ${name(active.id)}, ${place(active.id)}.`;
+      },
+      onDragOver: ({ active, over }) => {
+        if (!over || over.id === lastOver.current) return undefined;
+        lastOver.current = over.id;
+        if (refused(active.id, over.id))
+          return `${name(active.id)} can't go on My collections. It holds viewers' own collections.`;
+        return `${name(active.id)} is over ${place(over.id)}.`;
+      },
+      onDragEnd: ({ active, over }) =>
+        over && !refused(active.id, over.id)
+          ? `${name(active.id)} dropped at ${place(over.id)}.`
+          : `${name(active.id)} dropped. Nothing moved.`,
+      onDragCancel: ({ active }) => `Moving ${name(active.id)} was canceled.`,
+    };
+  }, [shelves]);
 
-    // Collection drag
-    if (aData.kind === "collection") {
-      const sourceCollId = aData.id ?? "";
-      let targetGroupId: string | null = null;
-      if (oData.kind === "collection") {
-        targetGroupId = findGroupOfCollection(groups, ungrouped, oData.id ?? "");
-      } else if (overSectionId !== null) {
-        // Group-body drops AND drops on a group's outer sortable both resolve
-        // to the section's ID — admin who drops on a group header still gets
-        // the move applied to that group.
-        targetGroupId = overSectionId;
-      }
-      if (!targetGroupId) {
-        setDraggedIds([]);
-        return;
-      }
+  // --- rendering -------------------------------------------------------------
 
-      const sourceGroupId = findGroupOfCollection(groups, ungrouped, sourceCollId);
-      if (isCrossKind(groups, sourceGroupId, targetGroupId)) {
-        setDraggedIds([]);
-        return;
-      }
+  const takers = shelves.filter(acceptsCollections);
+  const collectionDrag = drag?.data.kind === "collection";
+  const shelfDrag = drag?.data.kind === "shelf";
 
-      const effectiveDraggedIds = draggedIds.length > 0 ? draggedIds : [sourceCollId];
-      const newOrder = computeNewOrder(
-        groups,
-        ungrouped,
-        targetGroupId,
-        effectiveDraggedIds,
-        oData,
-      );
-      reorderCollections.mutate(
-        {
-          groupID: targetGroupId,
-          etag: reads.collectionOrders.get(targetGroupId)!.etag,
-          orderedIDs: newOrder,
-          ...(targetGroupId === "ungrouped" ? { libraryId: libraryID } : {}),
-        },
-        { onSuccess: clearSelection },
-      );
-    }
+  function card(collection: LibraryCollection, shelf: Shelf, sortable: SortableCardProps) {
+    const visible = isVisible(collection);
+    const menu = narrow ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={`More for ${collection.title}`}
+        className="text-muted-foreground size-11 rounded-[10px]"
+        onClick={() => setMoving(collection)}
+      >
+        <Ellipsis className="size-4" />
+      </Button>
+    ) : (
+      <ArrangeCardMenu
+        name={collection.title}
+        shelves={takers}
+        currentShelfId={shelf.id}
+        canMove={canEdit && !changing}
+        visible={visible}
+        onEdit={() => onEditCollection(collection)}
+        onMove={(shelfId) => moveToShelf(collection, shelfId)}
+        onVisibleChange={(next) => onVisibleChange(collection, next)}
+      />
+    );
+    return (
+      <CollectionListItem
+        variant="compact"
+        collection={collection}
+        visible={visible}
+        handleProps={sortable.handleProps}
+        ref={sortable.ref}
+        style={sortable.style}
+        dragging={sortable.dragging}
+        menu={menu}
+        onOpen={() => onEditCollection(collection)}
+      />
+    );
+  }
 
-    setDraggedIds([]);
-  };
+  const movingShelf = moving ? shelfOf(shelves, moving.id) : undefined;
 
   return (
-    <SelectionContext.Provider value={selection}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={onDragStart}
-        onDragCancel={onDragCancel}
-        onDragEnd={onDragEnd}
-      >
-        <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          <div className="space-y-4">
-            {unifiedItems.map((item) =>
-              item.kind === "ungrouped" ? (
-                <UngroupedSection
-                  key="ungrouped"
-                  collections={ungrouped}
-                  dragDisabled={
-                    !capabilities?.groups ||
-                    !orderReads.data ||
-                    orderReads.isError ||
-                    orderReads.data.groupOrder.has_more ||
-                    [...orderReads.data.collectionOrders.values()].some((order) => order.has_more)
-                  }
-                  collapsed={isSectionDrag}
-                  onEditCollection={onEditCollection}
-                  onDeleteCollection={onDeleteCollection}
-                  onSyncCollection={onSyncCollection}
-                  syncingCollectionID={syncingCollectionID}
-                />
-              ) : (
-                <GroupCard
-                  key={item.group.id}
-                  group={item.group}
-                  dragDisabled={
-                    !capabilities?.groups ||
-                    !orderReads.data ||
-                    orderReads.isError ||
-                    orderReads.data.groupOrder.has_more ||
-                    [...orderReads.data.collectionOrders.values()].some((order) => order.has_more)
-                  }
-                  collections={item.group.collections}
-                  onEdit={onEditGroup}
-                  onEditCollection={onEditCollection}
-                  onDeleteCollection={onDeleteCollection}
-                  onSyncCollection={onSyncCollection}
-                  syncingCollectionID={syncingCollectionID}
-                  collapsed={isSectionDrag}
-                />
-              ),
-            )}
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start">
+      <div className="grid min-w-0 gap-3">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="m-0 text-[16px] font-semibold tracking-[-0.015em]">
+              {arrangeHeading(libraryName)}
+            </h2>
+            <p className="text-muted-foreground m-0 mt-0.5 text-[13px]">{ARRANGE_SUBTITLE}</p>
           </div>
-        </SortableContext>
-        <DragOverlay>
-          {activeId && draggedIds.length > 1 ? (
-            <div className="bg-card rounded-md border px-3 py-2 text-sm font-medium shadow-lg">
-              {draggedIds.length} collections selected
-            </div>
+          {canEdit ? (
+            <Button variant="outline" size="sm" onClick={() => setNaming({ mode: "create" })}>
+              <Plus aria-hidden /> New shelf
+            </Button>
           ) : null}
-        </DragOverlay>
-        {activeId && <div className="sr-only">Dragging {activeId}</div>}
-      </DndContext>
-    </SelectionContext.Provider>
+        </div>
+
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collision}
+          accessibility={{
+            announcements,
+            screenReaderInstructions: { draggable: SCREEN_READER_INSTRUCTIONS },
+          }}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDrag(null)}
+        >
+          <SortableContext
+            items={shelves.map((shelf) => `shelf:${shelf.id}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="grid gap-3">
+              {shelves.map((shelf, index) => (
+                <GroupCard
+                  key={shelf.id}
+                  shelf={shelf}
+                  collapsed={shelfDrag}
+                  dragDisabled={dragDisabled}
+                  showGrips={!narrow}
+                  noDrop={collectionDrag}
+                  orderDisabled={!canEdit || changing}
+                  onSortChange={(mode) => changeSort(shelf, mode)}
+                  menu={
+                    shelf.kind === "ungrouped" ? null : (
+                      <ShelfMenu
+                        shelf={shelf}
+                        isFirst={index === 0}
+                        isLast={index === shelves.length - 1}
+                        disabled={!canEdit || changing}
+                        onRename={() => setNaming({ mode: "rename", shelf })}
+                        onMove={(to) => {
+                          const order = planShelfMove(
+                            shelves,
+                            shelf.id,
+                            to === "top" ? 0 : Infinity,
+                          );
+                          if (order) saveShelfOrder(order);
+                        }}
+                        onDelete={() => setDeleting(shelf)}
+                      />
+                    )
+                  }
+                  renderCard={(collection, sortable) => card(collection, shelf, sortable)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+
+        {narrow ? null : (
+          <p className="text-muted-foreground m-0 flex items-start gap-2 px-1 text-[13px] leading-normal">
+            <GripVertical aria-hidden className="mt-0.5 size-4 shrink-0" />
+            {ARRANGE_HINT}
+          </p>
+        )}
+      </div>
+
+      {narrow ? null : (
+        <ViewerPreview
+          libraryName={libraryName}
+          shelves={shelves}
+          isVisible={isVisible}
+          className="xl:sticky xl:top-6"
+        />
+      )}
+
+      {naming ? (
+        <ShelfNameDialog
+          mode={naming.mode}
+          libraryName={libraryName}
+          initialName={naming.mode === "rename" ? naming.shelf.name : ""}
+          onSave={async (name) => {
+            if (naming.mode === "create") await createGroup.mutateAsync({ name });
+            else await patchShelf(naming.shelf.id, { name });
+          }}
+          onClose={() => setNaming(null)}
+        />
+      ) : null}
+
+      {deleting ? (
+        <DeleteShelfDialog
+          name={deleting.name}
+          collectionCount={deleting.collections.length}
+          libraryName={libraryName}
+          onConfirm={() => void removeShelf(deleting).catch(() => undefined)}
+          onClose={() => setDeleting(null)}
+        />
+      ) : null}
+
+      {moving && movingShelf ? (
+        <MoveCollectionSheet
+          collection={moving}
+          libraryName={libraryName}
+          shelves={takers}
+          currentShelfId={movingShelf.id}
+          canMove={canEdit && !changing}
+          visible={isVisible(moving)}
+          onMove={(shelfId) => moveToShelf(moving, shelfId)}
+          onEdit={() => onEditCollection(moving)}
+          onVisibleChange={(next) => onVisibleChange(moving, next)}
+          onClose={() => setMoving(null)}
+        />
+      ) : null}
+    </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Build a unified array of groups + the ungrouped sentinel, ordered by each
- * item's effective sort position. Groups use their sort_order; ungrouped uses
- * ungroupedSortOrder. Ties use the raw ID, including the ungrouped sentinel, matching the canonical API order.
- */
-function buildUnifiedItems(groups: BoardGroup[], ungroupedSortOrder: number): UnifiedItem[] {
-  type Slot = { order: number; item: UnifiedItem };
-  const slots: Slot[] = groups.map((g) => ({
-    order: g.sort_order,
-    item: { kind: "group" as const, group: g },
-  }));
-  slots.push({ order: ungroupedSortOrder, item: { kind: "ungrouped" as const } });
-  slots.sort((a, b) => {
-    if (a.order !== b.order) return a.order - b.order;
-    const aID = a.item.kind === "group" ? a.item.group.id : "ungrouped";
-    const bID = b.item.kind === "group" ? b.item.group.id : "ungrouped";
-    return aID < bID ? -1 : aID > bID ? 1 : 0;
-  });
-  return slots.map((s) => s.item);
-}
-
-function findGroupOfCollection(
-  groups: BoardGroup[],
-  ungrouped: LibraryCollection[],
-  collectionId: string,
-): string | null {
-  for (const g of groups) if (g.collections.some((c) => c.id === collectionId)) return g.id;
-  if (ungrouped.some((c) => c.id === collectionId)) return "ungrouped";
-  return null;
-}
-
-function isCrossKind(
-  groups: BoardGroup[],
-  sourceGroupId: string | null,
-  targetGroupId: string,
-): boolean {
-  if (!sourceGroupId || sourceGroupId === "ungrouped" || targetGroupId === "ungrouped")
-    return false;
-  const src = groups.find((g) => g.id === sourceGroupId);
-  const tgt = groups.find((g) => g.id === targetGroupId);
-  return !!src && !!tgt && src.kind !== tgt.kind;
-}
-
-function computeNewOrder(
-  groups: BoardGroup[],
-  ungrouped: LibraryCollection[],
-  targetGroupId: string,
-  movedIds: string[],
-  over: { kind?: string; id?: string },
-): string[] {
-  const targetList =
-    targetGroupId === "ungrouped"
-      ? ungrouped.map((c) => c.id)
-      : (groups.find((g) => g.id === targetGroupId)?.collections.map((c) => c.id) ?? []);
-  const movedSet = new Set(movedIds);
-  const filtered = targetList.filter((id) => !movedSet.has(id));
-  if (over.kind === "collection" && over.id) {
-    const idx = filtered.indexOf(over.id);
-    if (idx === -1) return [...filtered, ...movedIds];
-    return [...filtered.slice(0, idx), ...movedIds, ...filtered.slice(idx)];
-  }
-  return [...filtered, ...movedIds];
-}
-
-/**
- * Walk groups in display order, then ungrouped, collecting IDs that are in
- * selectedIds. This gives a stable, deterministic drag order.
- */
-function flattenedSelectionInVisualOrder(
-  groups: BoardGroup[],
-  ungrouped: LibraryCollection[],
-  selectedIds: Set<string>,
-): string[] {
-  const result: string[] = [];
-  for (const g of groups) {
-    for (const c of g.collections) {
-      if (selectedIds.has(c.id)) result.push(c.id);
-    }
-  }
-  for (const c of ungrouped) {
-    if (selectedIds.has(c.id)) result.push(c.id);
-  }
-  return result;
 }
