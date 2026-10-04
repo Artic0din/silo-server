@@ -457,7 +457,7 @@ func (s *Service) matchTMDBEntries(ctx context.Context, results []catalog.TMDBCo
 
 func (s *Service) matchTrakt(ctx context.Context, collection *userstore.Collection, cfg SourceConfig) ([]string, error) {
 	if s.TraktCollections == nil {
-		return nil, errors.New("sync requires configured Trakt access")
+		return nil, errors.New("Trakt sync requires configured Trakt access") //nolint:staticcheck // ST1005: user-facing sync status, matches library collection wording
 	}
 	preset := strings.TrimSpace(cfg.Preset)
 	mediaType := strings.TrimSpace(cfg.MediaType)
@@ -475,7 +475,7 @@ func (s *Service) matchTrakt(ctx context.Context, collection *userstore.Collecti
 			profileID = collection.CreatorProfileID
 		}
 		if profileID == "" || s.TraktTokenResolver == nil {
-			return nil, errors.New("recommendations from Trakt require a profile binding")
+			return nil, errors.New("Trakt recommendations require a profile binding") //nolint:staticcheck // ST1005: user-facing sync status, matches library collection wording
 		}
 		token, err := s.TraktTokenResolver.ResolveTraktAccessToken(ctx, profileID)
 		if err != nil {
