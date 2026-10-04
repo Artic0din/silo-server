@@ -127,8 +127,8 @@ func (s *PostgresUserStore) GetCollection(ctx context.Context, id string) (*user
 		s.userID, id,
 	)
 	c, err := scanCollection(row)
-	if err == pgx.ErrNoRows {
-		return nil, fmt.Errorf("collection %s not found", id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("collection %s: %w", id, userstore.ErrCollectionNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("getting collection: %w", err)
