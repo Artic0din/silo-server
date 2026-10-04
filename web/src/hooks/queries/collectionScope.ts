@@ -414,6 +414,8 @@ export function useCollectionDraft<Raw extends WireCollection>(
    * becomes the base, and the next save reads the collection first.
    */
   const create = useCallback(async (): Promise<CreateResult | null> => {
+    // Created already: a second Create would make a second collection.
+    if (current.current.id) return null;
     const saved = current.current.draft;
     setSaving(true);
     setSaveError(null);

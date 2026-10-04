@@ -306,7 +306,8 @@ export function CollectionEditor<Raw extends WireCollection>({
 
   const needsLibraries = scope.requireLibraries && draft.libraryIds.length === 0;
   const needsList = synced && !draft.synced?.list;
-  const canCreate = draft.name.trim() !== "" && !needsLibraries && !needsList;
+  // A created Synced list keeps this bar until it moves to its edit page; one Create is enough.
+  const canCreate = !editor.id && draft.name.trim() !== "" && !needsLibraries && !needsList;
   const pending = editor.pendingLabels;
   // What the save bar adds after the pending fields, and before Create.
   let afterPending: string | null = TITLES_ALREADY_SAVED;

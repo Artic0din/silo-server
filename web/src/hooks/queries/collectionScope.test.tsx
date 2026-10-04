@@ -9,7 +9,7 @@ import getCollectionOk from "../../../../contracts/api/v2/fixtures/get_collectio
 import { PERSONAL_SCOPE, SERVER_SCOPE, type CollectionScope } from "@/lib/collections/scope";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import { useScopeEditor, useScopePreview } from "./collectionScope";
+import { useCollectionDraft, useScopeEditor, useScopePreview } from "./collectionScope";
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 
@@ -224,5 +224,32 @@ describe("useScopePreview", () => {
       expect(result.current).toMatchObject({ refreshing: false, items: [{ title: "Heat" }] }),
     );
     expect(v2Recorder.callsOf(PREVIEW)).toHaveLength(2);
+  });
+});
+
+describe("useCollectionDraft create", () => {
+  it("creates once: a Create after the collection exists sends nothing", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList());
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useCollectionDraft(SERVER_SCOPE, { kind: "manual", libraryId: 1 }),
+      { wrapper },
+    );
+    act(() => result.current.setDraft((draft) => ({ ...draft, name: "Weekend" })));
+
+    let first: Awaited<ReturnType<typeof result.current.create>> = null;
+    await act(async () => {
+      first = await result.current.create();
+    });
+    expect(first).toMatchObject({ id: expect.any(String) });
+    let second: Awaited<ReturnType<typeof result.current.create>> = null;
+    await act(async () => {
+      second = await result.current.create();
+    });
+    expect(second).toBeNull();
+    expect(v2Recorder.callsOf("POST /api/v2/admin/collections")).toHaveLength(1);
   });
 });
