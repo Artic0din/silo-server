@@ -656,13 +656,22 @@ function ServerCollectionsSection() {
     libraries.length === 1
       ? libraries[0]
       : libraries.find((entry) => String(entry.library_id) === selected);
-  // All libraries: every library's cards in library order, each collection once.
+  // All libraries: every library's cards in library order, each collection
+  // once. A collection in several libraries opens across all of them, so its
+  // card carries no library (and so no sidebar pin, which needs one).
+  const libraryCount = new Map<string, number>();
+  for (const entry of libraries) {
+    for (const collection of entry.collections) {
+      libraryCount.set(collection.id, (libraryCount.get(collection.id) ?? 0) + 1);
+    }
+  }
   const seen = new Set<string>();
   const cards = (library ? [library] : libraries).flatMap((entry) =>
     entry.collections.flatMap((collection) => {
       if (seen.has(collection.id)) return [];
       seen.add(collection.id);
-      return [{ collection, libraryId: entry.library_id }];
+      const inSeveral = !library && (libraryCount.get(collection.id) ?? 0) > 1;
+      return [{ collection, libraryId: inSeveral ? undefined : entry.library_id }];
     }),
   );
   return (
