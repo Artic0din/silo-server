@@ -31,6 +31,15 @@ type CollectionHandler struct {
 	// CollectionOwners resolves the owner's access for another profile's
 	// shared collection; without it those collections cannot be read.
 	CollectionOwners catalog.PersonalCollectionAccess
+	// ItemPosters signs catalog item posters for smart previews;
+	// ArtworkResolver signs only stored collection artwork keys.
+	ItemPosters itemPosterSigner
+}
+
+// itemPosterSigner resolves item poster paths to delivery URLs in one batch;
+// catalog.DetailService implements it.
+type itemPosterSigner interface {
+	PresignImageURLs(ctx context.Context, paths []string, imageType, size string) map[string]string
 }
 
 // NewCollectionHandler creates a new CollectionHandler.
@@ -169,6 +178,9 @@ type PersonalCollectionItemsView struct {
 type PersonalCollectionPreviewRequest struct {
 	QueryDefinition json.RawMessage `json:"query_definition"`
 	Limit           int             `json:"limit"`
+	// WithPosters signs each item's poster. Only the /api/v2 adapter sets it;
+	// the frozen /api/v1 body drops posters, so it skips the presign batch.
+	WithPosters bool `json:"-"`
 }
 
 type PersonalCollectionPreviewView struct {
@@ -180,6 +192,9 @@ type PersonalCollectionPreviewItemView struct {
 	ContentID string `json:"content_id"`
 	Title     string `json:"title"`
 	Type      string `json:"type"`
+	// PosterURL is emitted by the /api/v2 adapter only; the frozen /api/v1
+	// preview body never carried a poster.
+	PosterURL string `json:"-"`
 }
 
 // --- Handler methods ---

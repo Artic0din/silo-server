@@ -6126,7 +6126,7 @@
     {
       "name": "get_collection_capabilities_ok",
       "operation_id": "getCollectionCapabilities",
-      "scenario": "Personal collection features, including a description on create.",
+      "scenario": "Personal collection features, including a description on create and preview posters.",
       "request": {
         "method": "GET",
         "path": "/api/v2/collections/capabilities",
@@ -6139,7 +6139,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"2ae4107f701005bfc1b3a8b0fc4309d1e75d4cef088aa8be9342bc8137fe764c\""
+        "ETag": "\"f3fb3c3ef1c43868ff93eb6d3797c08ce0db73ee480aa2aad6aff0565a2542f0\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",
@@ -11909,6 +11909,27 @@
       "response_media_type": "application/problem+json",
       "schema": "#/components/schemas/Problem",
       "body_file": "precondition_required.json"
+    },
+    {
+      "name": "preview_collection_ok",
+      "operation_id": "previewCollection",
+      "scenario": "A smart query's first matches within the acting profile's access, each with its poster when it has one.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections/preview",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"query_definition\":{\"match\":\"all\",\"groups\":[]},\"limit\":2}"
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollectionPreviewOutputBody",
+      "body_file": "preview_collection_ok.json"
     },
     {
       "name": "profile_verification_required",

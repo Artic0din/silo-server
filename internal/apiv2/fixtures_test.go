@@ -1739,7 +1739,16 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, deviceSignInFixtureCases()...)
 	cases = append(cases, externalSignInFixtureCases()...)
 	cases = append(cases, fixtureCase{name: "collection_order_foreign_id", operationID: "reorderCollections", scenario: "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c2","c1"]}`, headers: with(viewer, "If-Match", "*"), status: 422, assertHeaders: []string{"Content-Type"}, schema: problem})
-	return append(cases, personalCollectionCreateFixtureCases()...)
+	cases = append(cases, personalCollectionCreateFixtureCases()...)
+	return append(cases, personalCollectionPreviewFixtureCases()...)
+}
+
+// personalCollectionPreviewFixtureCases pin a smart preview whose items carry
+// a poster URL when they have a poster and omit it otherwise.
+func personalCollectionPreviewFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "preview_collection_ok", operationID: "previewCollection", scenario: "A smart query's first matches within the acting profile's access, each with its poster when it has one.", method: http.MethodPost, path: "/api/v2/collections/preview", body: `{"query_definition":{"match":"all","groups":[]},"limit":2}`, headers: viewerHeaders(), status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/PersonalCollectionPreviewOutputBody"},
+	}
 }
 
 // personalCollectionCreateFixtureCases pin a create that carries a
@@ -1748,7 +1757,7 @@ func personalCollectionCreateFixtureCases() []fixtureCase {
 	viewer := viewerHeaders()
 	return []fixtureCase{
 		{name: "create_collection_with_description_ok", operationID: "createCollection", scenario: "A manual collection created with its description.", method: http.MethodPost, path: "/api/v2/collections", body: `{"name":"Rainy days","description":"For wet afternoons","collection_type":"manual"}`, headers: viewer, status: 201, assertHeaders: []string{"Content-Type", "Location"}, schema: "#/components/schemas/PersonalCollection"},
-		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
+		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create and preview posters.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
 	}
 }
 
@@ -1812,7 +1821,7 @@ func fixtureDeps() Dependencies {
 	deps.ProgressBootstrap = &fakeBootstrap{}
 	sharedCollection := fixtureCollectionView()
 	sharedCollection.ID, sharedCollection.ProfileID, sharedCollection.CreatorProfileID, sharedCollection.Name, sharedCollection.IsShared = "c2", "p-primary", "p-primary", "Family night", true
-	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, features: userstore.CollectionFeatures{Description: true}}}
+	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, features: userstore.CollectionFeatures{Description: true}}, previewCollections: previewCollections{view: fixturePreviewView()}}
 	deps.CollectionImports = &fakeCollectionImports{configured: true}
 	deps, _ = withLibraryAdmin(deps)
 	deps.LibraryMonitoring = &fakeLibraryMonitoring{snap: librarymonitor.StatusSnapshot{
@@ -2129,7 +2138,10 @@ func TestContractFixturesAreDeterministic(t *testing.T) {
 	}
 }
 
-type fixturePersonalCollections struct{ fakePersonalCollections }
+type fixturePersonalCollections struct {
+	fakePersonalCollections
+	previewCollections
+}
 
 func (f *fixturePersonalCollections) PersonalCollectionItemsPage(context.Context, int, string, string, catalogsvc.AccessFilter, userstore.CollectionItemsPageOptions, *catalogsvc.QueryCursor) (handlers.PersonalCollectionPageView, error) {
 	return handlers.PersonalCollectionPageView{Items: []handlers.PersonalCollectionItemView{{CollectionID: "c1", MediaItemID: "movie:heat-1995", Position: 0, AddedAt: "2026-01-02T03:04:05.000Z"}}, Revision: 1}, nil

@@ -133,6 +133,7 @@ type CollectionCapabilities struct {
 	EffectiveCollectionSort   bool                           `json:"effective_collection_sort" example:"true"`
 	SortPreferenceKinds       []string                       `json:"sort_preference_kinds" doc:"collection_kind values the sort-preference operations accept" example:"[\"library\",\"user\",\"watchlist\",\"favorites\"]"`
 	CreateDescription         bool                           `json:"create_description" doc:"createCollection stores a description for the acting account" example:"true"`
+	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
 // importableCollectionSources are the import sources a new collection can be
@@ -611,6 +612,7 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		EffectiveCollectionSort:   v.EffectiveCollectionSort,
 		SortPreferenceKinds:       NonNil(v.SortPreferenceKinds),
 		CreateDescription:         features.Description,
+		PreviewPosters:            true,
 	}}, nil
 }
 
