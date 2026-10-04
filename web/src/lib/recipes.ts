@@ -76,7 +76,7 @@ export interface PreviewResponse {
   items: Array<{
     content_id: string;
     title?: string;
-    /** Empty today: the admin preview sends no poster URLs, only thumbhashes. */
+    /** The presigned v2 `poster_url`, ready to load; absent when the item has no poster. */
     poster_path?: string;
     poster_thumbhash?: string;
   }>;
