@@ -1,24 +1,34 @@
 import { Fragment } from "react";
-import { House } from "lucide-react";
-import { pageParam, samePage } from "@/lib/homeRows/pages";
-import type { HomeRowsPageOption, PageRef } from "@/lib/homeRows/types";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+export interface PillOption {
+  /** Unique among the options; what `value` and `onChange` carry. */
+  value: string;
+  label: string;
+  icon?: LucideIcon;
+  /** A thin divider is drawn before this pill. */
+  separated?: boolean;
+}
+
 /**
- * Pills for Home and each library page, with the page's row count on the
- * right. On phones the pills take the whole width and scroll, and the count
- * drops to the line below.
+ * A row of pills, one pressed, with a summary (a count, say) on the right.
+ * On phones the pills take the whole width and scroll, and the summary drops
+ * to the line below.
  */
-export function PageSwitcher({
-  pages,
+export function PillSwitcher({
+  label,
+  options,
   value,
   onChange,
   disabled,
   summary,
 }: {
-  pages: HomeRowsPageOption[];
-  value: PageRef;
-  onChange: (ref: PageRef) => void;
+  /** The group's accessible name. */
+  label: string;
+  options: PillOption[];
+  value: string;
+  onChange: (value: string) => void;
   disabled?: boolean;
   summary?: string;
 }) {
@@ -26,14 +36,14 @@ export function PageSwitcher({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <div
         role="group"
-        aria-label="Page"
+        aria-label={label}
         className="-mx-1 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-1 py-1 max-sm:basis-full"
       >
-        {pages.map((page, index) => {
-          const pressed = samePage(page.ref, value);
+        {options.map((option) => {
+          const pressed = option.value === value;
           return (
-            <Fragment key={pageParam(page.ref)}>
-              {index === 1 ? (
+            <Fragment key={option.value}>
+              {option.separated ? (
                 <span aria-hidden className="bg-border mx-1.5 h-5 w-px shrink-0" />
               ) : null}
               <button
@@ -41,7 +51,7 @@ export function PageSwitcher({
                 aria-pressed={pressed}
                 disabled={disabled}
                 onClick={() => {
-                  if (!pressed) onChange(page.ref);
+                  if (!pressed) onChange(option.value);
                 }}
                 className={cn(
                   "focus-visible:ring-ring/50 inline-flex h-[34px] shrink-0 items-center gap-2 rounded-full border px-3.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60",
@@ -50,10 +60,10 @@ export function PageSwitcher({
                     : "border-border text-foreground/80 hover:bg-accent",
                 )}
               >
-                {page.ref.kind === "home" ? (
-                  <House aria-hidden className="size-[15px] opacity-80" />
+                {option.icon ? (
+                  <option.icon aria-hidden className="size-[15px] opacity-80" />
                 ) : null}
-                {page.label}
+                {option.label}
               </button>
             </Fragment>
           );

@@ -1,15 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, Plus, Search, Trash2, X } from "lucide-react";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
+import { StepCount, StepDialog } from "@/components/calm/StepDialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useRowPreview } from "@/hooks/queries/homeRows/useRowPreview";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -75,27 +69,6 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function Steps({ step, children }: { step: 1 | 2; children: string }) {
-  return (
-    <span className="text-muted-foreground inline-flex min-w-0 items-center gap-2 text-[13px]">
-      <i aria-hidden className="bg-foreground h-1 w-[18px] shrink-0 rounded-full" />
-      <i
-        aria-hidden
-        className={cn(
-          "h-1 w-[18px] shrink-0 rounded-full",
-          step === 2 ? "bg-foreground" : "bg-border",
-        )}
-      />
-      <span className="shrink-0">Step {step} of 2</span>
-      {/* Phones only fit the step count; screen readers still hear the note. */}
-      <span aria-hidden className="max-sm:hidden">
-        ·
-      </span>
-      <span className="truncate max-sm:sr-only">{children}</span>
-    </span>
-  );
-}
-
 /**
  * Add row (step 1: pick a kind; step 2: preview, variant, name, More
  * options) and Edit row (step 2 with Shows · Change and Delete row…) in one
@@ -144,11 +117,6 @@ export function AddRowDialog({
   const searchRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstStep = useRef(true);
-  // Without a Radix trigger, focus would land on the page body on close; it
-  // goes back to whatever opened the dialog (Add row, or the row's ⋯).
-  const [returnFocus] = useState(() =>
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-  );
 
   useEffect(
     () => () => {
@@ -309,9 +277,9 @@ export function AddRowDialog({
   // Step 2 of Add row goes back to the picker; the Change picker goes back to Edit row.
   const back =
     step === "form" && !editing
-      ? { label: "All rows", to: "pick" as const }
+      ? { label: "All rows", onClick: () => setStep("pick") }
       : changing
-        ? { label: "Edit row", to: "form" as const }
+        ? { label: "Edit row", onClick: () => setStep("form") }
         : null;
   let title: string;
   let description: ReactNode;
@@ -355,11 +323,11 @@ export function AddRowDialog({
   if (!editing) {
     footerStart =
       step === "pick" ? (
-        <Steps step={1}>{`New rows go to the bottom of ${page}`}</Steps>
+        <StepCount step={1}>{`New rows go to the bottom of ${page}`}</StepCount>
       ) : (
-        <Steps step={2}>
+        <StepCount step={2}>
           {copies.length > 0 ? "Goes to the bottom of each page" : `Goes to the bottom of ${page}`}
-        </Steps>
+        </StepCount>
       );
   } else if (step === "form") {
     footerStart = (
@@ -377,127 +345,39 @@ export function AddRowDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        showCloseButton={false}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          returnFocus?.focus();
-        }}
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          if (step === "pick") searchRef.current?.focus();
-          else headingRef.current?.focus();
-        }}
-        className={cn(
-          "flex flex-col gap-0 overflow-hidden rounded-[20px] p-0 sm:max-w-none",
-          "max-lg:top-auto max-lg:bottom-0 max-lg:left-0 max-lg:w-full max-lg:max-w-none max-lg:translate-x-0 max-lg:translate-y-0 max-lg:rounded-b-none",
-          step === "pick"
-            ? "max-lg:h-[calc(100dvh-2.5rem)] max-lg:max-h-none lg:h-[min(860px,calc(100dvh-4rem))] lg:w-[min(1000px,calc(100vw-3rem))]"
-            : "max-lg:h-dvh max-lg:max-h-none max-lg:rounded-none lg:w-[min(880px,calc(100vw-3rem))]",
-        )}
-      >
-        <div
-          aria-hidden
-          className="bg-muted-foreground/40 mx-auto mt-2.5 h-1 w-10 rounded-full lg:hidden"
-        />
-        <div className="grid gap-1.5 px-5 pt-5 pb-4 sm:px-7 sm:pt-6">
-          {back ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground -ml-2.5 h-7 w-fit gap-1.5 px-2"
-              onClick={() => setStep(back.to)}
-            >
-              <ChevronLeft aria-hidden className="size-4" />
-              {back.label}
-            </Button>
-          ) : null}
-          <DialogTitle
-            ref={headingRef}
-            tabIndex={-1}
-            className="pr-10 text-xl font-semibold tracking-[-0.02em] outline-none"
-          >
-            {title}
-          </DialogTitle>
-          <DialogDescription className="text-sm">{description}</DialogDescription>
-          {step === "pick" ? (
-            <div className="relative mt-3">
-              <Search
-                aria-hidden
-                className="text-muted-foreground absolute top-1/2 left-3.5 size-4 -translate-y-1/2"
-              />
-              <Input
-                ref={searchRef}
-                type="search"
-                aria-label="Search rows"
-                placeholder={phone ? "Search rows" : "Search, e.g. trending, 4K, Ghibli, Christmas"}
-                className="h-11 pl-10"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {step === "pick" ? (
-          <div className="border-border flex min-h-0 flex-1 flex-col border-t pt-3 lg:pt-0">
-            {catalog ? (
-              <RowPicker
-                groups={groups}
-                query={query}
-                onClearSearch={() => {
-                  setQuery("");
-                  searchRef.current?.focus();
-                }}
-                pageLabel={page}
-                typesOnPage={typesOnPage}
-                narrow={narrow}
-                onPick={pick}
-              />
-            ) : (
-              <p role="status" className="text-muted-foreground px-7 py-10 text-sm">
-                {catalogFailed
-                  ? "The kinds of rows didn't load. Close this and try again."
-                  : "Loading kinds of rows…"}
-              </p>
-            )}
-          </div>
-        ) : draft ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 sm:px-7">
-            <RowForm
-              draft={draft}
-              onChange={setDraft}
-              catalog={catalog}
-              preview={preview}
-              liveLabel={editing ? "Live preview" : "Live preview from your libraries"}
-              previewOffText={previewOffText}
-              collectionChoices={collectionChoices}
-              shows={
-                editing
-                  ? {
-                      label: showsLabel(draft.sectionType, draft.config),
-                      sentence: sentenceWithoutStop(rowKindSentence(draft.sectionType)),
-                      onChange:
-                        kindLocked(draft.config) || session?.kindLocked
-                          ? undefined
-                          : () => setStep("pick"),
-                    }
-                  : undefined
-              }
-              variantLocked={locked}
-              libraries={libraries}
-              onLibraryPage={adapter.page.kind === "library"}
-              onVariant={(presetKey) => setDraft(withVariant(draft, def, presetKey))}
-              libraryPages={copyPages}
-              ruleRowsNote={adapter.capabilities.profileRuleRowsSwitch}
-              contentLocked={session?.kindLocked}
+    // Focus goes back to whatever opened the dialog: Add row, or the row's ⋯.
+    <StepDialog
+      size={step === "pick" ? "picker" : "form"}
+      onClose={onClose}
+      onOpenFocus={() => {
+        if (step === "pick") searchRef.current?.focus();
+        else headingRef.current?.focus();
+      }}
+      back={back}
+      title={title}
+      titleRef={headingRef}
+      description={description}
+      header={
+        step === "pick" ? (
+          <div className="relative mt-3">
+            <Search
+              aria-hidden
+              className="text-muted-foreground absolute top-1/2 left-3.5 size-4 -translate-y-1/2"
+            />
+            <Input
+              ref={searchRef}
+              type="search"
+              aria-label="Search rows"
+              placeholder={phone ? "Search rows" : "Search, e.g. trending, 4K, Ghibli, Christmas"}
+              className="h-11 pl-10"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-        ) : null}
-
-        {step === "form" && editing && (conflict || changedUpstream.length > 0) ? (
+        ) : null
+      }
+      notice={
+        step === "form" && editing && (conflict || changedUpstream.length > 0) ? (
           <div
             role={conflict ? "alert" : "status"}
             className={cn(
@@ -516,36 +396,79 @@ export function AddRowDialog({
               </Button>
             ) : null}
           </div>
-        ) : null}
-
-        <div className="border-border bg-surface/55 flex items-center justify-between gap-3 border-t px-5 py-4 max-lg:pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-7">
-          {footerStart}
-          <div className="flex shrink-0 gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
-            {step === "form" ? (
-              <Button type="button" disabled={busy || conflict || !canSave} onClick={submit}>
-                {editing ? (
-                  "Save"
-                ) : (
-                  <>
-                    <Plus aria-hidden className="size-4" />
-                    {copies.length > 0 ? `Add to ${copies.length + 1} pages` : "Add row"}
-                  </>
-                )}
-              </Button>
-            ) : null}
-          </div>
+        ) : null
+      }
+      footerStart={footerStart}
+      actions={
+        step === "form" ? (
+          <Button type="button" disabled={busy || conflict || !canSave} onClick={submit}>
+            {editing ? (
+              "Save"
+            ) : (
+              <>
+                <Plus aria-hidden className="size-4" />
+                {copies.length > 0 ? `Add to ${copies.length + 1} pages` : "Add row"}
+              </>
+            )}
+          </Button>
+        ) : null
+      }
+    >
+      {step === "pick" ? (
+        <div className="border-border flex min-h-0 flex-1 flex-col border-t pt-3 lg:pt-0">
+          {catalog ? (
+            <RowPicker
+              groups={groups}
+              query={query}
+              onClearSearch={() => {
+                setQuery("");
+                searchRef.current?.focus();
+              }}
+              pageLabel={page}
+              typesOnPage={typesOnPage}
+              narrow={narrow}
+              onPick={pick}
+            />
+          ) : (
+            <p role="status" className="text-muted-foreground px-7 py-10 text-sm">
+              {catalogFailed
+                ? "The kinds of rows didn't load. Close this and try again."
+                : "Loading kinds of rows…"}
+            </p>
+          )}
         </div>
-
-        <DialogClose className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 absolute top-[18px] right-[18px] grid size-11 place-items-center rounded-[10px] outline-none focus-visible:ring-[3px] lg:size-[34px]">
-          <X aria-hidden className="size-[18px]" />
-          <span className="sr-only">Close</span>
-        </DialogClose>
-      </DialogContent>
-    </Dialog>
+      ) : draft ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 sm:px-7">
+          <RowForm
+            draft={draft}
+            onChange={setDraft}
+            catalog={catalog}
+            preview={preview}
+            liveLabel={editing ? "Live preview" : "Live preview from your libraries"}
+            previewOffText={previewOffText}
+            collectionChoices={collectionChoices}
+            shows={
+              editing
+                ? {
+                    label: showsLabel(draft.sectionType, draft.config),
+                    sentence: sentenceWithoutStop(rowKindSentence(draft.sectionType)),
+                    onChange:
+                      kindLocked(draft.config) || session?.kindLocked
+                        ? undefined
+                        : () => setStep("pick"),
+                  }
+                : undefined
+            }
+            variantLocked={locked}
+            libraries={libraries}
+            onLibraryPage={adapter.page.kind === "library"}
+            onVariant={(presetKey) => setDraft(withVariant(draft, def, presetKey))}
+            libraryPages={copyPages}
+            ruleRowsNote={adapter.capabilities.profileRuleRowsSwitch}
+            contentLocked={session?.kindLocked}
+          />
+        </div>
+      ) : null}
+    </StepDialog>
   );
 }

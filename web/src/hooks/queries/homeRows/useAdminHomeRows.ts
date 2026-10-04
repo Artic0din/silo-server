@@ -18,12 +18,8 @@ import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
 import { useAdminRowCollections } from "./useRowCollectionOptions";
 import { libraryPagesOf, pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
-import {
-  adminPeekKey,
-  fetchRowPreview,
-  PEEK_ITEM_LIMIT,
-  type PeekRequest,
-} from "@/lib/homeRows/peek";
+import type { PeekRequest } from "@/components/calm/usePeekLimiter";
+import { adminPeekKey, fetchRowPreview, PEEK_ITEM_LIMIT } from "@/lib/homeRows/peek";
 import { canCopyToLibraries, libraryCopyIds } from "@/lib/homeRows/bulkCopy";
 import {
   buildBulkCopyPayload,

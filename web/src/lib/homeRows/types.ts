@@ -5,7 +5,7 @@
  * an API type.
  */
 import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
-import type { PeekRequest } from "./peek";
+import type { PeekRequest } from "@/components/calm/usePeekLimiter";
 import type { RowDraft } from "./rowDraft";
 
 export type Surface = "admin" | "profile";

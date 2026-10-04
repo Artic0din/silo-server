@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/useDebounce";
 import { pageParam } from "@/lib/homeRows/pages";
-import { fetchRowPreview, type PreviewItem } from "@/lib/homeRows/peek";
+import type { PreviewItem } from "@/components/calm/usePeekLimiter";
+import { fetchRowPreview } from "@/lib/homeRows/peek";
 import type { RowDraft } from "@/lib/homeRows/rowDraft";
 import { stableJson } from "@/lib/homeRows/stableJson";
 import type { PageRef } from "@/lib/homeRows/types";

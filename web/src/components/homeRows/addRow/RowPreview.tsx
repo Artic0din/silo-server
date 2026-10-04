@@ -3,7 +3,7 @@ import type { PreviewState } from "@/hooks/queries/homeRows/useRowPreview";
 import { PREVIEW_ITEM_LIMIT } from "@/hooks/queries/homeRows/useRowPreview";
 import { rowKindGroup } from "@/lib/homeRows/catalog";
 import { cn } from "@/lib/utils";
-import { PosterTile } from "../PosterTile";
+import { PosterTile } from "@/components/calm/PosterTile";
 import { GROUP_ICONS, GROUP_TINTS } from "../rowIcons";
 
 /** Why the strip has no titles to show, or null when it has (or is loading) some. */

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +21,10 @@ interface ConfirmDialogProps {
   variant?: "default" | "destructive";
   onConfirm: () => void;
   isPending?: boolean;
+  /** What the action does, one line each, under the description. */
+  bullets?: { label: string; items: string[] };
+  /** Says "This can't be undone." beside the buttons. */
+  irreversible?: boolean;
 }
 
 export function ConfirmDialog({
@@ -32,31 +37,68 @@ export function ConfirmDialog({
   variant = "default",
   onConfirm,
   isPending,
+  bullets,
+  irreversible = false,
 }: ConfirmDialogProps) {
+  const id = useId();
+  const items = bullets?.items ?? [];
+  const itemId = (index: number) => `${id}-item-${index}`;
+  const descriptionId = `${id}-description`;
+  const noteId = `${id}-note`;
+  // The list and the warning sit outside the description, so name them too:
+  // a screen reader then reads every consequence when the dialog opens.
+  const describedBy = [
+    descriptionId,
+    ...items.map((_, index) => itemId(index)),
+    ...(irreversible ? [noteId] : []),
+  ].join(" ");
+  const buttons = (
+    <>
+      <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
+      <AlertDialogAction
+        onClick={onConfirm}
+        variant={variant === "destructive" ? "destructive" : "default"}
+        disabled={isPending}
+      >
+        {isPending ? (
+          <>
+            <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            {confirmLabel}
+          </>
+        ) : (
+          confirmLabel
+        )}
+      </AlertDialogAction>
+    </>
+  );
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent aria-describedby={describedBy}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          <AlertDialogDescription>
+            <span id={descriptionId}>{description}</span>
+          </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            variant={variant === "destructive" ? "destructive" : "default"}
-            disabled={isPending}
-          >
-            {isPending ? (
-              <>
-                <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                {confirmLabel}
-              </>
-            ) : (
-              confirmLabel
-            )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
+        {items.length > 0 ? (
+          <ul aria-label={bullets?.label} className="m-0 grid list-disc gap-1 pl-5 text-sm">
+            {items.map((item, index) => (
+              <li key={`${item}-${index}`} id={itemId(index)}>
+                {item}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {irreversible ? (
+          <AlertDialogFooter className="items-center sm:justify-between">
+            <p id={noteId} className="text-muted-foreground text-sm">
+              This can&apos;t be undone.
+            </p>
+            <div className="flex gap-2">{buttons}</div>
+          </AlertDialogFooter>
+        ) : (
+          <AlertDialogFooter>{buttons}</AlertDialogFooter>
+        )}
       </AlertDialogContent>
     </AlertDialog>
   );

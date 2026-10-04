@@ -17,10 +17,10 @@ import { DeleteRuleRowsDialog } from "@/components/homeRows/DeleteRuleRowsDialog
 import { HideWatchedCard } from "@/components/homeRows/HideWatchedCard";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
 import { PageLockNote } from "@/components/homeRows/notes";
-import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
+import type { PageMoreMenuItem } from "@/components/calm/PageMoreMenu";
 import { RemoveRowDialog } from "@/components/homeRows/RemoveRowDialog";
 import { ResetProfileDialog } from "@/components/homeRows/ResetProfileDialog";
-import type { RowMenuItem } from "@/components/homeRows/RowMenu";
+import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
@@ -158,7 +158,7 @@ export default function HomeScreenSettings() {
     return skip;
   }
 
-  function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): RowMenuItem[] {
+  function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): ActionMenuItem[] {
     if (pageLock?.rowIds.includes(row.id)) {
       return [
         {

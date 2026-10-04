@@ -1,5 +1,5 @@
 import { queryDefinitionFromSectionConfig, type LibraryCollection } from "@/api/types";
-import { isListBackedCollectionType } from "@/lib/collections/types";
+import { COLLECTION_KIND_LABEL, collectionKindOf } from "@/lib/collections/types";
 import { rowKindLabel } from "./catalog";
 import type { HomeRow, Surface } from "./types";
 
@@ -33,10 +33,7 @@ export interface DescribeContext {
 export function collectionKind(
   collectionType: LibraryCollection["collection_type"] | undefined,
 ): string | undefined {
-  if (collectionType === "manual") return "Manual";
-  if (collectionType === "smart") return "Smart";
-  if (collectionType && isListBackedCollectionType(collectionType)) return "Synced list";
-  return undefined;
+  return collectionType ? COLLECTION_KIND_LABEL[collectionKindOf(collectionType)] : undefined;
 }
 
 const SERVER_WINDOWS: Record<string, string> = {
