@@ -1,8 +1,9 @@
 {
-  "revision": "210da97e0cc8f852a8a8a38893a1a8da504a7f5ac4eb61710888f7c6a114c345",
+  "revision": "5b028a7b8e0695b55dc71ea1bf6aa57ca76297b74256fad4786c218dabe4d32d",
   "state": "available",
   "allowed": true,
   "groups": false,
+  "login_sharing": true,
   "imports": false,
   "import_sources": [],
   "artwork": false,

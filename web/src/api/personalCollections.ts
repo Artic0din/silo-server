@@ -1,6 +1,5 @@
 import type {
   Collection,
-  CollectionGroup,
   CollectionsListResponse,
   CreateCollectionRequest,
   UpdateCollectionRequest,
@@ -38,13 +37,7 @@ export function collectionFromV2(value: CollectionV2): Collection {
 export function collectionsFromV2(
   value: V2Result<"GET /api/v2/collections">,
 ): CollectionsListResponse {
-  return {
-    collections: value.items.map(collectionFromV2),
-    groups: value.groups.map((group) => ({
-      ...group,
-      default_sort_mode: group.default_sort_mode as CollectionGroup["default_sort_mode"],
-    })),
-  };
+  return { collections: value.items.map(collectionFromV2) };
 }
 
 export function collectionCreateToV2(
@@ -152,34 +145,15 @@ export async function fetchCollectionEditSnapshot(id: string): Promise<Collectio
   return { collection: collectionFromV2(collection), etag: requiredETag(etag) };
 }
 
-export async function fetchCollectionOrderSnapshot(groupID: string | null) {
+/** The acting profile's own collections in its order, with the order's validator. */
+export async function fetchCollectionOrderSnapshot() {
   let etag: string | null = null;
   const body = await v2("GET /api/v2/collections/order", {
-    query: groupID ? { group_id: groupID } : {},
     onResponse: (response) => {
       etag = response.headers.get("ETag");
     },
   });
-  return { ...body, etag: requiredETag(etag) };
-}
-export async function fetchGroupOrderSnapshot() {
-  let etag: string | null = null;
-  const body = await v2("GET /api/v2/collections/groups/order", {
-    onResponse: (response) => {
-      etag = response.headers.get("ETag");
-    },
-  });
-  return { ...body, etag: requiredETag(etag) };
-}
-export async function fetchGroupSnapshot(id: string) {
-  let etag: string | null = null;
-  const group = await v2("GET /api/v2/collections/groups/{id}", {
-    path: { id },
-    onResponse: (response) => {
-      etag = response.headers.get("ETag");
-    },
-  });
-  return { group, etag: requiredETag(etag) };
+  return { ordered_ids: body.ordered_ids, etag: requiredETag(etag) };
 }
 export async function fetchItemOrderSnapshot(id: string) {
   let etag: string | null = null;

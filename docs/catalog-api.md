@@ -98,6 +98,12 @@ Check it before saving a Watchlist or Favorites preference. The
 all, so it cannot be used to detect the personal-list kinds. The document supports
 `If-None-Match` and returns `304` when the caller's copy is current.
 
+`login_sharing: true` reports that a personal collection is either private to its
+creator or shared with every profile on the login, that `listCollections` includes other
+profiles' shared collections, and that only the creator changes or orders a collection. Show
+**Shared with me** and the single **Show to other profiles** switch only when it is true; see
+[the personal collections API](collections-api.md). `groups` is always false.
+
 The document's `import_sources` lists the sources a new imported collection can come
 from (`mdblist`, `tmdb`, `tmdb_list`); it is empty when `imports` is false. Check for
 `tmdb_list` before calling `importTMDBListCollection` (`POST /api/v2/collections/import/tmdb-list`),
