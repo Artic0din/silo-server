@@ -184,7 +184,37 @@ export const ORDER_CHANGED =
 
 export const VIEWER_PREVIEW_LABEL = "What viewers see";
 export const VIEWER_PREVIEW_MINE = "Each viewer's own";
-export const VIEWER_PREVIEW_NOTE = "Hidden collections don't appear.";
+export const VIEWER_PREVIEW_NOTE =
+  "The pin marks a collection kept at the start of its shelf. Hidden collections don't appear.";
+
+// --- Pin (`featured`) ---------------------------------------------------------
+
+export const PIN_LABEL = "Pin to the start of its shelf";
+export const UNPIN_LABEL = "Unpin";
+export const PINNED = "Pinned";
+export const PINNED_BAND = "Pinned to the start";
+
+/**
+ * What Pin does, given what the shelf sorts by (null for Your order). Pinned
+ * collections also lead the capped Server collections list on every
+ * profile's Collections page, which is all Pin does on a shelf that sorts itself.
+ */
+export function pinHelp(shelfSortedBy: string | null): string {
+  return shelfSortedBy === null
+    ? "Shows first on this shelf and in Server collections on the Collections page."
+    : `Shows first in Server collections on the Collections page; this shelf sorts by ${shelfSortedBy}.`;
+}
+
+export function unpinHelp(shelfSortedBy: string | null): string {
+  return shelfSortedBy === null
+    ? "Stops showing first on this shelf and in Server collections on the Collections page."
+    : "Stops showing first in Server collections on the Collections page.";
+}
+
+/** The phone sheet's Pin switch, which names the collection and its shelf. */
+export function pinSwitchLabel(name: string, shelfName: string): string {
+  return `Pin ${name} to the start of ${shelfName}`;
+}
 
 export function deleteShelfTitle(name: string): string {
   return `Delete the ${name} shelf?`;

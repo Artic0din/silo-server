@@ -7,11 +7,22 @@ import {
   VIEWER_PREVIEW_MINE,
   VIEWER_PREVIEW_NOTE,
 } from "@/lib/collections/copy";
-import { shownCollections, type Shelf } from "@/lib/collections/shelves";
+import { pinnedBand, shownCollections, type Shelf } from "@/lib/collections/shelves";
 import { cn } from "@/lib/utils";
 
-/** A small Collections-tab card: the collection's poster (its collage unless one was set) and name. */
-function MiniCollectionCard({ collection }: { collection: LibraryCollection }) {
+import { PinGlyph } from "./CollectionListItem";
+
+/**
+ * A small Collections-tab card: the collection's poster (its collage unless
+ * one was set) and name, with the pin when it leads its shelf.
+ */
+function MiniCollectionCard({
+  collection,
+  pinned,
+}: {
+  collection: LibraryCollection;
+  pinned: boolean;
+}) {
   return (
     <li className="grid w-[62px] content-start gap-1.5">
       <PosterArt
@@ -19,7 +30,12 @@ function MiniCollectionCard({ collection }: { collection: LibraryCollection }) {
         thumbhash={collection.poster_thumbhash}
         className="ring-border/60 aspect-[2/3] w-full rounded-md ring-1"
       />
-      <span className="line-clamp-2 text-[11px] leading-tight font-medium">{collection.title}</span>
+      <span className="line-clamp-2 text-[11px] leading-tight font-medium">
+        {pinned ? (
+          <PinGlyph className="text-muted-foreground mr-0.5 size-2.5 align-[-1px]" />
+        ) : null}
+        {collection.title}
+      </span>
     </li>
   );
 }
@@ -42,8 +58,9 @@ function MineCards() {
 
 /**
  * What viewers see on the library's Collections tab, beside the shelves:
- * each shelf's visible collections in the order it shows them, a divider
- * before No heading, and nothing that's hidden. Empty shelves don't show.
+ * each shelf's visible collections in the order it shows them, the pin on
+ * those that lead a Your order shelf, a divider before No heading, and
+ * nothing that's hidden. Empty shelves don't show.
  */
 export function ViewerPreview({
   libraryName,
@@ -78,6 +95,7 @@ export function ViewerPreview({
           );
         const shown = shownCollections(shelf).filter(isVisible);
         if (shown.length === 0) return null;
+        const band = new Set(pinnedBand(shelf).map((entry) => entry.id));
         const loose = shelf.kind === "ungrouped";
         return (
           <Fragment key={shelf.id}>
@@ -93,7 +111,11 @@ export function ViewerPreview({
               </h3>
               <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
                 {shown.map((collection) => (
-                  <MiniCollectionCard key={collection.id} collection={collection} />
+                  <MiniCollectionCard
+                    key={collection.id}
+                    collection={collection}
+                    pinned={band.has(collection.id)}
+                  />
                 ))}
               </ul>
             </div>

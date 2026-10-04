@@ -14,7 +14,7 @@ import getAdminCollectionOk from "../../../../../contracts/api/v2/fixtures/get_a
 import { adminCollectionFromV2 } from "@/api/adminCollections";
 import type { LibraryCollection, LibraryCollectionGroup } from "@/api/types";
 import { stubPhone } from "@/components/homeRows/phoneLayout.test-support";
-import { MOVE_FAILED, ORDER_CHANGED } from "@/lib/collections/copy";
+import { MOVE_FAILED, ORDER_CHANGED, PIN_LABEL } from "@/lib/collections/copy";
 import { adminCapabilities } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import { GroupsBoard } from "./GroupsBoard";
@@ -28,8 +28,9 @@ function collection(
   id: string,
   title: string,
   visibility: LibraryCollection["visibility"] = "visible",
+  featured = false,
 ): LibraryCollection {
-  return adminCollectionFromV2({ ...getAdminCollectionOk, id, title, visibility });
+  return adminCollectionFromV2({ ...getAdminCollectionOk, id, title, visibility, featured });
 }
 
 type Group = LibraryCollectionGroup & { collections: LibraryCollection[] };
@@ -137,7 +138,7 @@ const handlers = {
 };
 
 /** Renders the board; awaited, it returns once shelf changes are on (capabilities read). */
-async function renderBoard(groups: Group[] = [franchises, mine]) {
+async function renderBoard(groups: Group[] = [franchises, mine], loose = ungrouped) {
   render(
     <QueryClientProvider
       client={
@@ -150,7 +151,7 @@ async function renderBoard(groups: Group[] = [franchises, mine]) {
         libraryID={1}
         libraryName="Movies"
         groups={groups}
-        ungrouped={ungrouped}
+        ungrouped={loose}
         ungroupedSortOrder={2}
         isVisible={(entry) => entry.visibility !== "hidden"}
         {...handlers}
@@ -612,6 +613,141 @@ describe("GroupsBoard", () => {
     expect(v2Recorder.writes()[0]).toMatchObject({
       path: "/api/v2/admin/collection-groups/g1/collections/order",
       body: { ordered_ids: ["f1", "a"] },
+    });
+  });
+
+  describe("Pin to the start of its shelf", () => {
+    /** New this month is pinned, so No heading shows it first: b | a, c. */
+    const pinnedLoose = [
+      collection("a", "Staff picks"),
+      collection("b", "New this month", "visible", true),
+      collection("c", "Oscar winners", "hidden"),
+    ];
+    const band = (shelf: HTMLElement) =>
+      within(shelf).queryByRole("group", { name: "Pinned to the start" });
+
+    beforeEach(() => {
+      v2Recorder.answer("GET /api/v2/admin/collections/{id}", ({ path }: { path: string }) => ({
+        ...getAdminCollectionOk,
+        id: path.split("/").pop(),
+      }));
+    });
+
+    it("pins from ⋯ with only collection_type and featured, and shows it first at once", async () => {
+      let fail: (error: Error) => void = () => {};
+      v2Recorder.answer(
+        "PATCH /api/v2/admin/collections/{id}",
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = reject;
+          }),
+      );
+      await renderBoard();
+      expect(band(noHeading())).toBeNull();
+      const user = await openMenu("More for New this month");
+      const pin = await screen.findByRole("menuitem", { name: PIN_LABEL });
+      expect(pin).toHaveAccessibleDescription(
+        "Shows first on this shelf and in Server collections on the Collections page.",
+      );
+      await user.click(pin);
+
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+      expect(v2Recorder.writes()[0]).toEqual({
+        operation: "PATCH /api/v2/admin/collections/{id}",
+        path: "/api/v2/admin/collections/b",
+        headers: { "If-Match": '"/api/v2/admin/collections/b#1"' },
+        body: { collection_type: "manual", featured: true },
+      });
+      expect(cardTitles(noHeading())).toEqual(["New this month", "Staff picks", "Oscar winners"]);
+      expect(within(band(noHeading())!).getByText("New this month")).toBeInTheDocument();
+
+      // A failed pin goes back.
+      await act(async () => fail(new Error("offline")));
+      await vi.waitFor(() => expect(band(noHeading())).toBeNull());
+      expect(cardTitles(noHeading())).toEqual(["Staff picks", "New this month", "Oscar winners"]);
+      expect(toast.error).toHaveBeenCalled();
+    });
+
+    it("unpins a pinned collection, which says what it stops doing", async () => {
+      await renderBoard([franchises, mine], pinnedLoose);
+      const user = await openMenu("More for New this month");
+      const unpin = await screen.findByRole("menuitem", { name: "Unpin" });
+      expect(unpin).toHaveAccessibleDescription(
+        "Stops showing first on this shelf and in Server collections on the Collections page.",
+      );
+      expect(screen.queryByRole("menuitem", { name: PIN_LABEL })).toBeNull();
+      await user.click(unpin);
+
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+      expect(v2Recorder.writes()[0]).toMatchObject({
+        path: "/api/v2/admin/collections/b",
+        body: { collection_type: "manual", featured: false },
+      });
+    });
+
+    it("keeps pinned collections in a band at the start, marked on the board and in the preview", async () => {
+      await renderBoard([franchises, mine], pinnedLoose);
+      expect(cardTitles(noHeading())).toEqual(["New this month", "Staff picks", "Oscar winners"]);
+      const pinned = band(noHeading())!;
+      expect(within(pinned).getAllByRole("listitem")).toHaveLength(1);
+      expect(within(pinned).getByRole("img", { name: "Pinned" })).toBeInTheDocument();
+      const preview = screen.getByRole("complementary", { name: "What viewers see" });
+      // No heading in the preview: the pinned card first, with the pin; the hidden one left out.
+      const loose = within(preview)
+        .getAllByRole("listitem")
+        .filter((card) => /New this month|Staff picks/.test(card.textContent ?? ""));
+      expect(loose.map((card) => card.textContent)).toEqual(["New this month", "Staff picks"]);
+      expect(within(loose[0]!).getByRole("img", { name: "Pinned" })).toBeInTheDocument();
+      expect(within(preview).getAllByRole("img", { name: "Pinned" })).toHaveLength(1);
+    });
+
+    it("won't let a drag put a card above the band", async () => {
+      await renderBoard([franchises, mine], pinnedLoose);
+      await grabWithKeyboard("Move Oscar winners");
+      // Up past Staff picks, onto the pinned card's place.
+      await press("ArrowUp", 4);
+      await press("Space");
+
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+      expect(v2Recorder.writes()[0]).toMatchObject({
+        path: "/api/v2/admin/collection-groups/ungrouped/collections/order",
+        body: { ordered_ids: ["b", "c", "a"] },
+      });
+      expect(
+        await screen.findByText("Oscar winners dropped at position 2 of 3 on No heading."),
+      ).toBeInTheDocument();
+    });
+
+    it("stays on for a shelf sorted by name, and says it still leads Server collections", async () => {
+      await renderBoard([{ ...franchises, default_sort_mode: "name_asc" }, mine]);
+      await openMenu("More for Alien");
+      const pin = await screen.findByRole("menuitem", { name: PIN_LABEL });
+      expect(pin).not.toHaveAttribute("aria-disabled");
+      expect(pin).toHaveAccessibleDescription(
+        "Shows first in Server collections on the Collections page; this shelf sorts by name.",
+      );
+    });
+
+    it("pins from the phone sheet's switch", async () => {
+      stubPhone();
+      await renderBoard();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "More for Staff picks" }));
+      const sheet = await screen.findByRole("dialog", { name: "Move Staff picks" });
+      const pin = within(sheet).getByRole("switch", {
+        name: "Pin Staff picks to the start of No heading",
+      });
+      expect(pin).not.toBeChecked();
+      expect(pin).toHaveAccessibleDescription(
+        "Shows first on this shelf and in Server collections on the Collections page.",
+      );
+      await user.click(pin);
+
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+      expect(v2Recorder.writes()[0]).toMatchObject({
+        path: "/api/v2/admin/collections/a",
+        body: { collection_type: "manual", featured: true },
+      });
     });
   });
 });

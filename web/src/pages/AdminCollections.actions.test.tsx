@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
+import { PIN_LABEL, pinHelp } from "@/lib/collections/copy";
 
 import AdminCollections from "./AdminCollections";
 
@@ -52,6 +53,7 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollections: () => ({ data: state.collections, isLoading: false }),
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
   useSetAdminCollectionVisibility: () => ({ mutateAsync: state.setVisibility }),
+  useSetAdminCollectionPin: idle,
   useTemplateBundleApplyJobs: () => ({ data: [] }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
@@ -106,7 +108,7 @@ afterEach(() => {
 });
 
 describe("AdminCollections Arrange actions", () => {
-  it("offers Edit, Move to shelf and the Collections tab on a card, and no Delete or Sync", async () => {
+  it("offers Edit, Move to shelf, Pin and the Collections tab on a card, and no Delete or Sync", async () => {
     state.collections = [collection("Top Rated", "mdblist")];
     renderPage("/admin/collections?view=arrange&libraryId=1");
 
@@ -117,7 +119,12 @@ describe("AdminCollections Arrange actions", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Edit collection", "Move to shelf", "Hide from Collections tab"]);
+    ).toEqual([
+      "Edit collection",
+      "Move to shelf",
+      `${PIN_LABEL}${pinHelp(null)}`,
+      "Hide from Collections tab",
+    ]);
   });
 
   it("asks before hiding a collection rows show, from its card", async () => {
