@@ -26,6 +26,7 @@ import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { catalogKeys, collectionKeys } from "./keys";
 import { toast } from "sonner";
 import { invalidateAdminCollectionQueries } from "./collectionSurfaceRefresh";
+import { useScopeDelete } from "./collectionScope";
 
 const collectionMutationMessage = PERSONAL_SCOPE.errorMessage;
 
@@ -37,7 +38,7 @@ export function useCollections() {
   });
 }
 
-export function useCollectionCapabilities() {
+export function useCollectionCapabilities(enabled = true) {
   return useQuery({
     queryKey: PERSONAL_SCOPE.keys.capabilities,
     queryFn: () =>
@@ -46,6 +47,7 @@ export function useCollectionCapabilities() {
         display_filter_presets:
           value.display_filter_presets as CollectionCapabilitiesResponse["display_filter_presets"],
       })),
+    enabled,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }
@@ -160,20 +162,7 @@ export function useUpdateCollection() {
 }
 
 export function useDeleteCollection() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: PERSONAL_SCOPE.remove,
-    onSuccess: (_data, { id }) => {
-      toast.success("Collection deleted");
-      return PERSONAL_SCOPE.invalidate(queryClient, id);
-    },
-    onError: (err) => {
-      toast.error(collectionMutationMessage(err, "Failed to delete"));
-      if (err instanceof V2ProblemError && err.status === 412)
-        void PERSONAL_SCOPE.invalidate(queryClient);
-    },
-  });
+  return useScopeDelete(PERSONAL_SCOPE);
 }
 
 // useAddItemToCollection adds a single media item to either a personal user

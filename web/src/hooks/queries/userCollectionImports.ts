@@ -10,6 +10,7 @@ import type {
 } from "@/api/types";
 import { TEMPLATE_STALE_TIME, type CollectionTemplateCatalog } from "@/lib/collectionTemplates";
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
+import { useScopeSync } from "./collectionScope";
 import { collectionKeys } from "./keys";
 
 export function useUserCollectionTemplates(enabled = true) {
@@ -100,20 +101,5 @@ export function useImportUserTMDBListCollection() {
 }
 
 export function useSyncUserCollection() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (collectionId: string) => PERSONAL_SCOPE.sync(collectionId),
-    onSuccess: (result, collectionId) => {
-      const matched = `${result.itemsMatched} item${result.itemsMatched === 1 ? "" : "s"}`;
-      const message =
-        result.status === "warning"
-          ? `Synced with warnings — matched ${matched}`
-          : `Synced — matched ${matched}`;
-      toast.success(message);
-      void PERSONAL_SCOPE.invalidate(queryClient, collectionId);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Sync failed");
-    },
-  });
+  return useScopeSync(PERSONAL_SCOPE);
 }
