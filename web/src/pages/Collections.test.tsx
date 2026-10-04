@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildUserCollectionCatalogHref } from "./userCollectionsShared";
+import { buildUserCollectionCatalogHref } from "./catalogSearchParams";
 
 describe("Collections helpers", () => {
   it("builds the catalog route for viewing a user collection", () => {

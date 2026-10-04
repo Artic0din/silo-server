@@ -62,7 +62,7 @@ import { CollectionTemplateGallery } from "@/components/CollectionTemplateGaller
 import { useUICustomization } from "@/hooks/useUICustomization";
 import { carouselCardWidthClasses } from "@/lib/uiCustomization";
 
-import { buildUserCollectionCatalogHref } from "./userCollectionsShared";
+import { buildUserCollectionCatalogHref } from "./catalogSearchParams";
 
 type ImportedCollectionType = Extract<UserCollectionType, "mdblist" | "tmdb" | "trakt">;
 const SYNCABLE_TYPES = new Set<ImportedCollectionType>(["mdblist", "tmdb", "trakt"]);
