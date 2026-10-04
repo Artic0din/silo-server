@@ -210,6 +210,31 @@ describe("useProfileHomeRows", () => {
     expect(hiddenIds(puts[1]!.overrides)).toEqual(["a", "b"]);
   });
 
+  it("does not pin an admin edit that lands between two saves of one burst", async () => {
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.setHidden("a", true));
+    // An admin changes row b's size and moves row c above it while the first
+    // save is in flight, so the refetch after it reads the admin's new rows.
+    pages.home!.rows = [
+      entry("a"),
+      entry("c", { position: 1 }),
+      entry("b", { position: 2, item_limit: 30 }),
+    ];
+    act(() => result.current.setHidden("c", true));
+
+    await settle("PUT /api/v2/profile/sections");
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    // The second save stores only the rows the profile hid, with no positions
+    // and nothing for row b, which keeps following the admin.
+    expect(puts[1]!.overrides.map((o) => o.section_id)).toEqual(["a", "c"]);
+    expect(puts[1]!.overrides.every((o) => o.position === undefined)).toBe(true);
+    expect(puts[1]!.overrides.every((o) => o.item_limit === undefined)).toBe(true);
+  });
+
   it("refuses a page switch while the page still has saves to send", async () => {
     const { result } = await ready();
     hold("PUT /api/v2/profile/sections");

@@ -30,7 +30,14 @@ interface PageState {
 }
 
 type QueueEntry =
-  | { kind: "save"; page: PageRef; state: PageState; changedIds: Set<string> }
+  | {
+      kind: "save";
+      page: PageRef;
+      state: PageState;
+      /** The page as read when the draft was started, which the save compares it to. */
+      baseline: SettingsSectionEntry[];
+      changedIds: Set<string>;
+    }
   | { kind: "reset"; page: PageRef };
 
 interface SaveQueue {
@@ -109,6 +116,9 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const [draft, setDraftState] = useState<PageState | null>(null);
   // Mirrors `draft` so changes made in one event build on each other.
   const draftRef = useRef<PageState | null>(null);
+  // The page as read when the draft was started. A refetch between saves may
+  // bring an admin's edit; comparing the draft to it would pin the old value.
+  const draftBaseline = useRef<SettingsSectionEntry[]>(NO_SECTIONS);
   const [pending, setPending] = useState(false);
   const [resetting, setResetting] = useState(false);
   const queue = useRef<SaveQueue>({ running: false, next: null });
@@ -135,16 +145,14 @@ export function useProfileHomeRows(): ProfileHomeRows {
         await resetProfileSectionOverrides({ scope, libraryId: libraryKey });
         return;
       }
-      // Built when sent, against the page and overrides as last read, so it
-      // keeps the override IDs the save before it stored and stores only what
-      // this profile changed.
+      // Built when sent, against the overrides as last read, so it keeps the
+      // override IDs the save before it stored; and against the page the draft
+      // started from, so it stores only what this profile changed.
       const overrides = buildSectionOverrides(entry.state.sections, entry.state.removed, {
         savedOverrides: queryClient.getQueryData<{ overrides: SectionOverride[] }>(
           sectionKeys.profileOverridesRaw(scope, libraryKey),
         )?.overrides,
-        baseline: queryClient.getQueryData<{ sections: SettingsSectionEntry[] }>(
-          sectionKeys.profileOverrides(scope, libraryKey),
-        )?.sections,
+        baseline: entry.baseline,
         newId: newOverrideId.current,
         changedSectionIds: entry.changedIds,
       });
@@ -187,17 +195,20 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const change = useCallback(
     (ids: string | readonly string[], edit: (state: PageState) => PageState | null) => {
       if (!canEdit) return;
-      const base = draftRef.current ?? {
-        sections: serverSections ?? [],
+      const current = draftRef.current;
+      const baseline = current ? draftBaseline.current : (serverSections ?? []);
+      const base = current ?? {
+        sections: baseline,
         removed: hydrateRemovedSystemSections(savedOverrides),
       };
       const next = edit(base);
       if (!next) return;
       setDraft(next);
+      draftBaseline.current = baseline;
       const q = queue.current;
       const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
       for (const id of idList(ids)) changedIds.add(id);
-      q.next = { kind: "save", page, state: next, changedIds };
+      q.next = { kind: "save", page, state: next, baseline, changedIds };
       void drain();
     },
     [canEdit, drain, page, savedOverrides, serverSections, setDraft],
