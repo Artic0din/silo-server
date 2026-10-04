@@ -15,6 +15,15 @@ export type PageRef = { kind: "home" } | { kind: "library"; libraryId: number };
 export interface HomeRowsPageOption {
   ref: PageRef;
   label: string;
+  /** A library page's library type ("movies", "series", ...), when known. */
+  libraryType?: string;
+}
+
+/** A library page a row can be added to. */
+export interface LibraryPage {
+  id: number;
+  label: string;
+  libraryType?: string;
 }
 
 export interface HomeRow {
@@ -52,6 +61,8 @@ export interface HomeRowsCapabilities {
   draftPreview: boolean;
   /** "Titles matching rules" may be added. */
   ruleRows: boolean;
+  /** A row may be added to several library pages at once (library pages only). */
+  libraryCopies: boolean;
 }
 
 /** The collections a collection row may show on this surface. */

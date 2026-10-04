@@ -14,7 +14,7 @@ import {
   type BatchFailure,
   type ShownBatchResult,
 } from "@/hooks/queries/homeRows/useAdminHomeRows";
-import { Pencil, RotateCcw, SquareCheckBig, Star, StarOff, Trash2 } from "lucide-react";
+import { Copy, Pencil, RotateCcw, SquareCheckBig, Star, StarOff, Trash2 } from "lucide-react";
 
 import { toast } from "sonner";
 import {
@@ -30,10 +30,12 @@ import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
 import { RestoreDialog } from "@/components/homeRows/RestoreDialog";
 import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
+import { AddToOtherLibrariesDialog } from "@/components/homeRows/AddToOtherLibrariesDialog";
+import { canCopyToLibraries, copyTargetPages } from "@/lib/homeRows/bulkCopy";
 import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
-import { pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
+import { libraryPagesOf, pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
 import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 
@@ -127,6 +129,12 @@ export default function AdminHomeRows() {
   // The Add row / Edit row dialog: open with no session to add a row.
   const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // ⋯ Add to other libraries…: the row being copied.
+  const [copyRow, setCopyRow] = useState<HomeRow | null>(null);
+  const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
+  /** The library pages a row on this page fits, this page included. */
+  const copyPagesFor = (row: HomeRow) =>
+    activeLibraryId === null ? [] : copyTargetPages(row.config, libraryPages, activeLibraryId);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -349,6 +357,19 @@ export default function AdminHomeRows() {
       },
       shared.moveToTop,
       shared.moveToBottom,
+      ...(adapter.capabilities.libraryCopies &&
+      canCopyToLibraries(row) &&
+      copyPagesFor(row).length > 1
+        ? [
+            {
+              key: "copy",
+              label: "Add to other libraries…",
+              icon: Copy,
+              disabled: busy || adapter.pending,
+              onSelect: () => setCopyRow(row),
+            },
+          ]
+        : []),
       {
         key: "delete",
         label: "Delete row…",
@@ -482,6 +503,18 @@ export default function AdminHomeRows() {
           }}
         />
 
+        {copyRow && activeLibraryId !== null ? (
+          <AddToOtherLibrariesDialog
+            row={copyRow}
+            pages={copyPagesFor(copyRow)}
+            currentId={activeLibraryId}
+            onCopy={(ids) => adapter.copyToLibraries(copyRow.id, ids)}
+            onClose={() => {
+              focus.returnToMenu(copyRow.id);
+              setCopyRow(null);
+            }}
+          />
+        ) : null}
         {rowDialog ? (
           <AddRowDialog
             adapter={adapter}

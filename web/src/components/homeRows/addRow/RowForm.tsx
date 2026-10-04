@@ -14,11 +14,13 @@ import {
   withTitle,
   type RowDraft,
 } from "@/lib/homeRows/rowDraft";
-import type { RowCollections } from "@/lib/homeRows/types";
+import { BULK_LIBRARY_LIMIT } from "@/lib/homeRows/bulkCopy";
+import type { LibraryPage, RowCollections } from "@/lib/homeRows/types";
 import { kindLocked, variantFamily } from "@/lib/homeRows/variants";
 import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { CollectionPicker } from "./CollectionPicker";
 import { CuratedTitlesEditor } from "./CuratedTitlesEditor";
+import { LibraryPageChips } from "./LibraryPageChips";
 import { ParamFields, type ParamLibrary } from "./ParamFields";
 import { MoreOptions } from "./MoreOptions";
 import { RowPreview } from "./RowPreview";
@@ -106,7 +108,8 @@ function KindControl({
 
 /**
  * Step 2 and Edit row, top to bottom: the live preview, (Edit) what the row
- * shows, the one choice that matters, the row's name, then More options.
+ * shows, the one choice that matters, the row's name, (Add row on a library
+ * page) the other library pages, then More options.
  * Collection, rule and Editor's Picks rows put their control above the
  * preview instead.
  */
@@ -123,6 +126,7 @@ export function RowForm({
   onLibraryPage,
   onVariant,
   collectionChoices,
+  libraryPages,
 }: {
   draft: RowDraft;
   onChange: (draft: RowDraft) => void;
@@ -138,6 +142,8 @@ export function RowForm({
   onLibraryPage: boolean;
   onVariant: (presetKey: string) => void;
   collectionChoices: CollectionChoices;
+  /** Add row on a library page, for a kind that can be copied: the pages it may also go to. */
+  libraryPages?: { pages: LibraryPage[]; currentId: number };
 }) {
   const nameId = useId();
   const family = variantLocked ? undefined : variantFamily(draft.sectionType);
@@ -205,12 +211,32 @@ export function RowForm({
         />
         {nameHelp ? <p className="text-muted-foreground text-[13px]">{nameHelp}</p> : null}
       </div>
+      {libraryPages ? (
+        <LibraryPageChips
+          pages={libraryPages.pages}
+          currentId={libraryPages.currentId}
+          currentNote="this page"
+          selectedIds={draft.extraLibraryIds ?? []}
+          onChange={(extraLibraryIds) => onChange({ ...draft, extraLibraryIds })}
+          // The new row on this page is one of the pages the request adds to.
+          maxSelected={BULK_LIBRARY_LIMIT - 1}
+          disabled={draft.hero}
+          help={
+            draft.hero
+              ? "Turn off the hero banner to add this row to other pages."
+              : "Each page gets its own copy, so you can change or remove it there later."
+          }
+        />
+      ) : null}
       <MoreOptions
         itemLimit={draft.itemLimit}
         hero={draft.hero}
         summary={rules ? ruleSortSummary(draft.config) : undefined}
         onItemLimitChange={(itemLimit) => onChange({ ...draft, itemLimit })}
-        onHeroChange={(hero) => onChange({ ...draft, hero })}
+        // A hero row stays on this page alone, so turning it on drops the other pages.
+        onHeroChange={(hero) =>
+          onChange({ ...draft, hero, ...(hero ? { extraLibraryIds: [] } : {}) })
+        }
       >
         {rules ? (
           <RuleSortField

@@ -21,11 +21,13 @@ import { filterRecipeCatalog } from "@/lib/sectionTypes";
 
 import {
   buildAdminSectionPayload,
+  buildBulkCopyPayload,
   buildGalleryAddPayload,
   buildGalleryBulkCreateRequest,
   buildGalleryCreateRequest,
   buildProfileGallerySection,
   buildProfileSectionSaveEntry,
+  buildRowCreateRequest,
   collectionIdOf,
   type BuildAdminSectionPayloadInput,
   type BuildProfileSectionSaveEntryInput,
@@ -35,6 +37,8 @@ import {
   everyRecipe,
   recipeCatalogFixture,
 } from "./recipeCatalogFixture.test-support";
+import { canCopyToLibraries } from "./bulkCopy";
+import { draftForPreset } from "./rowDraft";
 
 const uuid = vi.hoisted(() => ({ next: 0 }));
 vi.mock("@/lib/uuid", () => ({ randomUUID: () => `uuid-${++uuid.next}` }));
@@ -421,6 +425,59 @@ describe("admin bulk create", () => {
       expect(bulkLibraries).toEqual(["3", "5"]);
       expect(bulkRest, `${def.type}/${preset.key}`).toEqual(singleRest);
     }
+  });
+
+  it("sends an Add row draft's library copies with the single create body apart from the libraries", async () => {
+    for (const { def, preset } of everyPreset()) {
+      const draft = draftForPreset(def, preset);
+      if (!canCopyToLibraries(draft)) continue;
+      const page = { kind: "library", libraryId: LIBRARY_ID } as const;
+      const single = await sent(() =>
+        createAdminSection(buildRowCreateRequest(draft, draft.title, page, 3)),
+      );
+      const bulk = await sent(() =>
+        bulkCreateAdminSections(buildBulkCopyPayload({ ...draft, enabled: true }, [LIBRARY_ID, 8])),
+      );
+      const {
+        library_id: _library,
+        position: _position,
+        ...singleRest
+      } = single.body as Record<string, unknown>;
+      const { library_ids: bulkLibraries, ...bulkRest } = bulk.body as Record<string, unknown>;
+      expect(bulk.route).toBe("POST /api/v2/admin/sections/bulk");
+      expect(bulkLibraries).toEqual([String(LIBRARY_ID), "8"]);
+      expect(bulkRest, `${def.type}/${preset.key}`).toEqual(singleRest);
+    }
+  });
+
+  it("copies an existing row as it is, never as a hero banner", async () => {
+    const copy = await sent(() =>
+      bulkCreateAdminSections(
+        buildBulkCopyPayload(
+          {
+            sectionType: "trending_on_server",
+            title: "Trending This Week",
+            itemLimit: 30,
+            config: { window: "7d" },
+            enabled: false,
+          },
+          [8, 9],
+        ),
+      ),
+    );
+    expect(copy).toEqual({
+      route: "POST /api/v2/admin/sections/bulk",
+      body: {
+        scope: "library",
+        library_ids: ["8", "9"],
+        section_type: "trending_on_server",
+        title: "Trending This Week",
+        item_limit: 30,
+        featured: false,
+        enabled: false,
+        config: { window: "7d" },
+      },
+    });
   });
 
   it("marks the confirmation payload as applied to all chosen libraries", () => {

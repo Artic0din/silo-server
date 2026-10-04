@@ -368,6 +368,33 @@ export function buildRowCreateRequest(
   };
 }
 
+/** What a library page copy is made from: a new row's draft or an existing row. */
+export interface BulkCopySource {
+  sectionType: string;
+  title: string;
+  itemLimit: number;
+  config: Record<string, unknown>;
+  enabled: boolean;
+}
+
+/**
+ * The bulk create request that puts a row on each of `libraryIds`. Each page
+ * gets its own copy at its bottom. Copies are never hero banners, so a copy
+ * can't add a second hero to another page.
+ */
+export function buildBulkCopyPayload(
+  { sectionType, title, itemLimit, config, enabled }: BulkCopySource,
+  libraryIds: number[],
+): BulkCreateAdminSections {
+  return buildGalleryBulkCreateRequest(
+    buildGalleryAddPayload(
+      { sectionType, title, itemLimit, featured: false, enabled, config },
+      libraryIds,
+    ),
+    libraryIds,
+  );
+}
+
 /** Kinds whose form edits the config itself: the picked collection's id key, the rules. */
 const FORM_OWNED_CONFIG_TYPES: ReadonlySet<string> = new Set([
   "collection",

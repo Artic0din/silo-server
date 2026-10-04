@@ -20,7 +20,8 @@ import {
   rowKindSentence,
   type PickerCard,
 } from "@/lib/homeRows/catalog";
-import { pageLabel as labelOfPage } from "@/lib/homeRows/pages";
+import { canCopyToLibraries, copyTargetPages, libraryCopyIds } from "@/lib/homeRows/bulkCopy";
+import { pageLabel as labelOfPage, libraryPagesOf } from "@/lib/homeRows/pages";
 import { collectionIdOf } from "@/lib/homeRows/payloads";
 import {
   canSaveDraft,
@@ -191,6 +192,22 @@ export function AddRowDialog({
   let previewOffText = "Previews aren't available on this server.";
   if (adapter.surface === "profile") previewOffText = `You'll see it on ${page} after you add it.`;
   else if (adapter.capabilities.draftPreview && previewWait) previewOffText = previewWait;
+  const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
+  // A new row on a library page may go to other library pages too, when its
+  // settings can be copied as they are, but only to pages it fits.
+  const targetPages =
+    !editing &&
+    adapter.capabilities.libraryCopies &&
+    adapter.page.kind === "library" &&
+    draft !== null &&
+    canCopyToLibraries(draft)
+      ? copyTargetPages(draft.config, libraryPages, adapter.page.libraryId)
+      : [];
+  const copyPages =
+    adapter.page.kind === "library" && targetPages.length > 1
+      ? { pages: targetPages, currentId: adapter.page.libraryId }
+      : undefined;
+  const copies = copyPages && draft ? libraryCopyIds(draft, adapter.page, libraryPages) : [];
   const preview = useRowPreview(
     draft ?? { sectionType: "", config: {} },
     adapter.page,
@@ -237,6 +254,7 @@ export function AddRowDialog({
     const finished = {
       ...draft,
       title: savedTitle(draft, catalog, collectionChoices.current?.title),
+      extraLibraryIds: copies,
     };
     void run(async () => {
       try {
@@ -326,7 +344,9 @@ export function AddRowDialog({
       step === "pick" ? (
         <Steps step={1}>{`New rows go to the bottom of ${page}`}</Steps>
       ) : (
-        <Steps step={2}>{`Goes to the bottom of ${page}`}</Steps>
+        <Steps step={2}>
+          {copies.length > 0 ? "Goes to the bottom of each page" : `Goes to the bottom of ${page}`}
+        </Steps>
       );
   } else if (step === "form") {
     footerStart = (
@@ -454,6 +474,7 @@ export function AddRowDialog({
               libraries={libraries}
               onLibraryPage={adapter.page.kind === "library"}
               onVariant={(presetKey) => setDraft(withVariant(draft, def, presetKey))}
+              libraryPages={copyPages}
             />
           </div>
         ) : null}
@@ -494,7 +515,7 @@ export function AddRowDialog({
                 ) : (
                   <>
                     <Plus aria-hidden className="size-4" />
-                    Add row
+                    {copies.length > 0 ? `Add to ${copies.length + 1} pages` : "Add row"}
                   </>
                 )}
               </Button>

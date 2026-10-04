@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   adminSectionMutationMessage,
+  bulkCreateAdminSections,
   createAdminSection,
   fetchAdminSectionSnapshot,
   reorderAdminSections,
@@ -16,14 +17,16 @@ import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
 import { useAdminRowCollections } from "./useRowCollectionOptions";
-import { pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
+import { libraryPagesOf, pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
 import {
   adminPeekKey,
   fetchRowPreview,
   PEEK_ITEM_LIMIT,
   type PeekRequest,
 } from "@/lib/homeRows/peek";
+import { canCopyToLibraries, libraryCopyIds } from "@/lib/homeRows/bulkCopy";
 import {
+  buildBulkCopyPayload,
   buildRowCreateRequest,
   buildRowUpdateRequest,
   nextAppendPosition,
@@ -124,6 +127,11 @@ export interface AdminHomeRows extends HomeRowsAdapter {
    * Rows already in that state are still read, then skipped.
    */
   setShownMany(ids: string[], shown: boolean): Promise<ShownBatchResult>;
+  /**
+   * Adds a copy of an existing row to each of `libraryIds` other than this
+   * page. Rejects with RowChangedError when the row no longer matches the page.
+   */
+  copyToLibraries(id: string, libraryIds: number[]): Promise<void>;
 }
 
 /**
@@ -158,6 +166,7 @@ export function useAdminHomeRows(): AdminHomeRows {
       ...libraries.map((library) => ({
         ref: { kind: "library" as const, libraryId: library.id },
         label: library.name,
+        libraryType: library.type,
       })),
     ],
     [libraries],
@@ -358,6 +367,21 @@ export function useAdminHomeRows(): AdminHomeRows {
   const create = useCallback(
     (draft: RowDraft) =>
       enqueue(async () => {
+        const copies = libraryCopyIds(draft, page, libraryPagesOf(pages));
+        if (page.kind === "library" && copies.length > 0) {
+          // One transaction puts the row at the bottom of each page. It returns
+          // no ids, so the new row here is the one the refetch adds.
+          const before = new Set(currentList().map((section) => section.id));
+          await bulkCreateAdminSections(
+            buildBulkCopyPayload({ ...draft, enabled: true }, [page.libraryId, ...copies]),
+          );
+          await refresh();
+          return {
+            newIds: currentList()
+              .map((section) => section.id)
+              .filter((id) => !before.has(id)),
+          };
+        }
         // Read the position when the write runs, after any write queued before it.
         const position = nextAppendPosition(currentList().map((section) => section.position));
         const created = await createAdminSection(
@@ -366,7 +390,31 @@ export function useAdminHomeRows(): AdminHomeRows {
         await refresh();
         return { newIds: [created.id] };
       }),
-    [currentList, enqueue, page, refresh],
+    [currentList, enqueue, page, pages, refresh],
+  );
+
+  const copyToLibraries = useCallback(
+    (id: string, libraryIds: number[]) =>
+      enqueue(async () => {
+        const targets = [...new Set(libraryIds)].filter((target) => target !== libraryId);
+        if (targets.length === 0) return;
+        // Copies are made from the row the server holds, and only when it is
+        // still the row on screen, like a quick action.
+        const onScreen = currentList().find((section) => section.id === id);
+        const { section } = await fetchAdminSectionSnapshot(id);
+        if (!onScreen || !sameRow(section, onScreen)) {
+          setConflict({ scope: "row", rowId: id });
+          throw new RowChangedError();
+        }
+        const source = toHomeRow(section);
+        if (!canCopyToLibraries(source))
+          throw new Error("This row can't be added to other libraries.");
+        await bulkCreateAdminSections(
+          buildBulkCopyPayload({ ...source, enabled: section.enabled }, targets),
+        );
+        await refresh();
+      }),
+    [currentList, enqueue, libraryId, refresh],
   );
 
   const openEdit = useCallback(async (id: string) => {
@@ -460,8 +508,13 @@ export function useAdminHomeRows(): AdminHomeRows {
     reorder,
     setShown: (id, shown) => quickAction(id, "shown", shown),
     setHero: (id, hero) => quickAction(id, "hero", hero),
-    capabilities: { draftPreview: previewAvailable, ruleRows: true },
+    capabilities: {
+      draftPreview: previewAvailable,
+      ruleRows: true,
+      libraryCopies: page.kind === "library",
+    },
     create,
+    copyToLibraries,
     openEdit,
     reloadEdit,
     save,

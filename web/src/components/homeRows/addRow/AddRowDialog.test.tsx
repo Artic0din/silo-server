@@ -79,7 +79,7 @@ function adapter(): HomeRowsAdapter {
     reorder: async () => {},
     setShown: async () => {},
     setHero: async () => {},
-    capabilities: { draftPreview: false, ruleRows },
+    capabilities: { draftPreview: false, ruleRows, libraryCopies: false },
     create,
     openEdit: async () => {
       throw new Error("unused");
