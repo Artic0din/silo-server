@@ -66,6 +66,20 @@ function sharedOrder(a: SettingsSectionEntry[], b: SettingsSectionEntry[]): stri
 }
 
 /**
+ * Whether a row added since `baseline` was read has moved: rows are added at
+ * the bottom with rising positions, so any other placement is the profile's.
+ */
+function movedNewRow(sections: SettingsSectionEntry[], baseline: SettingsSectionEntry[]): boolean {
+  const known = new Set(baseline.map((s) => s.id));
+  const firstNew = sections.findIndex((s) => !known.has(s.id));
+  if (firstNew === -1) return false;
+  const tail = sections.slice(firstNew);
+  return tail.some(
+    (s, index) => known.has(s.id) || (index > 0 && s.position < tail[index - 1]!.position),
+  );
+}
+
+/**
  * The override set to save for one page. A change to an admin section keeps
  * the ID of the profile's saved override for that section, or gets one from
  * `newId`: the server's section source policy refuses a legacy Trakt admin
@@ -109,7 +123,8 @@ export function buildSectionOverrides(
   const ordered =
     !baseline ||
     savedOverrides.some((o) => o.section_id && o.position !== undefined) ||
-    stableJson(sharedOrder(sections, baseline)) !== stableJson(sharedOrder(baseline, sections));
+    stableJson(sharedOrder(sections, baseline)) !== stableJson(sharedOrder(baseline, sections)) ||
+    movedNewRow(sections, baseline);
   // A section left out keeps its admin position, so the others are numbered
   // in list order around it and never on it: the server orders sections with
   // equal positions arbitrarily.
