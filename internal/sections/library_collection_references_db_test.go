@@ -15,7 +15,9 @@ import (
 // TestLibraryCollectionReferencesDB checks the rows that show a server
 // collection: a Home row, a library page row and the starter-pack hero rows a
 // template bundle generates are listed, rows showing other collections are
-// not, and the per-collection counts match the list.
+// not, and the per-collection counts match the list. The Home count leaves out
+// turned-off Home rows, which no viewer sees; the total keeps them because
+// they still block a delete.
 func TestLibraryCollectionReferencesDB(t *testing.T) {
 	dsn := os.Getenv("SILO_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -69,6 +71,7 @@ func TestLibraryCollectionReferencesDB(t *testing.T) {
 	}
 	row("home", "home", nil, 7, "Shown on Home", false, true, plain(shown))
 	row("home-hero", "home", nil, 0, "Starter pack hero", true, true, hero(shown, "home", kids))
+	row("home-off", "home", nil, 9, "Off on Home", false, false, plain(shown))
 	row("kids-off", "library", &kids, 2, "Turned off", false, false, plain(shown))
 	row("kids-filler", "library", &kids, 0, "Other row", false, true, `{}`)
 	row("kids-hero", "library", &kids, 1, "Kids hero", true, true, hero(shown, "library", kids))
@@ -111,6 +114,7 @@ func TestLibraryCollectionReferencesDB(t *testing.T) {
 	wanted := slices.Concat([]want{
 		{prefix + "-home-hero", "home", nil, 0, "Starter pack hero", true, true, homeRows},
 		{prefix + "-home", "home", nil, 7, "Shown on Home", false, true, homeRows},
+		{prefix + "-home-off", "home", nil, 9, "Off on Home", false, false, homeRows},
 	}, byLibrary[first], byLibrary[second])
 	if len(refs) != len(wanted) {
 		t.Fatalf("got %d references, want %d: %+v", len(refs), len(wanted), refs)

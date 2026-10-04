@@ -305,8 +305,9 @@ type LibraryCollectionReference struct {
 }
 
 // LibraryCollectionReferenceCount counts the admin page rows that show one
-// library collection: Home counts rows on the Home page, Total adds the rows
-// on library pages.
+// library collection. Home counts the turned-on rows on the Home page, the
+// ones viewers see. Total counts every row on Home and library pages, turned
+// off ones included, because each of them blocks a delete.
 type LibraryCollectionReferenceCount struct {
 	Home  int
 	Total int
@@ -357,7 +358,7 @@ func (r *Repository) CountLibraryCollectionReferencesByID(ctx context.Context, c
 		return out, nil
 	}
 	rows, err := r.query(ctx).Query(ctx, `
-		SELECT config->>'library_collection_id', COUNT(*) FILTER (WHERE scope = 'home'), COUNT(*)
+		SELECT config->>'library_collection_id', COUNT(*) FILTER (WHERE scope = 'home' AND enabled), COUNT(*)
 		FROM page_sections
 		WHERE config->>'library_collection_id' = ANY($1::text[])
 		GROUP BY 1`, collectionIDs)

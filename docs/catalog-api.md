@@ -460,12 +460,12 @@ first, then library pages by library, each in page order. Rows a template bundle
 hero are listed like any other row. An unknown collection answers `404`; a collection no row
 shows answers an empty `items` list.
 
-Each `listAdminCollections` item carries `home_row_count`, the number of Home rows that show the
-collection, and `row_count`, the number of Home and library page rows that show it. One count
-covers the whole list. Both are absent from `getAdminCollection` and every other response that
-returns one collection.
+Each `listAdminCollections` item carries `home_row_count`, the number of turned-on Home rows that
+show the collection, and `row_count`, the number of Home and library page rows that show it,
+turned-off rows included. One count covers the whole list. Both are absent from
+`getAdminCollection` and every other response that returns one collection.
 
-Both reads count rows that are turned off. They read the administrator page layouts only: rows a
+The rows list includes turned-off rows. Both routes read the administrator page layouts only: rows a
 profile added to its own Home are not listed or counted. A collection that `row_count` reports as
 used cannot be deleted (`409`) until those rows stop showing it.
 

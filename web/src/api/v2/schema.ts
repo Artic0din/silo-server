@@ -12558,7 +12558,7 @@ export interface components {
       group_id: string | null;
       /**
        * Format: int64
-       * @description Rows on the administrator Home page that show this collection, turned-off rows included. Set on listAdminCollections items only. Rows profiles added themselves are not counted.
+       * @description Turned-on rows on the administrator Home page that show this collection; turned-off rows are not counted. Set on listAdminCollections items only. Rows profiles added themselves are not counted.
        */
       home_row_count?: number;
       /**
