@@ -19596,6 +19596,11 @@ export interface components {
       /** @example true */
       collection_sort_preferences: boolean;
       /**
+       * @description createCollection stores a description for the acting account
+       * @example true
+       */
+      create_description: boolean;
+      /**
        * @description Catalog query fields a display filter may use
        * @example [
        *       "type",
@@ -24484,6 +24489,11 @@ export interface components {
        * @enum {string}
        */
       collection_type?: "manual" | "smart";
+      /**
+       * @description Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails
+       * @example For wet afternoons
+       */
+      description?: string;
       /** @description Display filter fragment */
       display_query_definition?: unknown;
       /** @example false */
@@ -85565,6 +85575,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };

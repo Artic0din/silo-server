@@ -4251,6 +4251,28 @@
       "body_file": "create_collection_ok.json"
     },
     {
+      "name": "create_collection_with_description_ok",
+      "operation_id": "createCollection",
+      "scenario": "A manual collection created with its description.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"name\":\"Rainy days\",\"description\":\"For wet afternoons\",\"collection_type\":\"manual\"}"
+      },
+      "expected_status": 201,
+      "response_headers": {
+        "Content-Type": "application/json",
+        "Location": "/api/v2/collections/c1"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollection",
+      "body_file": "create_collection_with_description_ok.json"
+    },
+    {
       "name": "create_library_ok",
       "operation_id": "createLibrary",
       "scenario": "A new movie library: 201 with the library and its Location.",
@@ -6100,6 +6122,28 @@
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CatalogSearchCapabilities",
       "body_file": "get_catalog_search_capabilities_ok.json"
+    },
+    {
+      "name": "get_collection_capabilities_ok",
+      "operation_id": "getCollectionCapabilities",
+      "scenario": "Personal collection features, including a description on create.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/collections/capabilities",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Cache-Control": "private, no-cache",
+        "Content-Type": "application/json",
+        "ETag": "\"2ae4107f701005bfc1b3a8b0fc4309d1e75d4cef088aa8be9342bc8137fe764c\""
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/CollectionCapabilities",
+      "body_file": "get_collection_capabilities_ok.json"
     },
     {
       "name": "get_collection_items_ok",
