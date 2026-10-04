@@ -584,9 +584,12 @@ function SortableCollectionCard({
       onPointerDown={
         canReorder
           ? (event) => {
-              // The ⋯ menu renders in a portal, but React still bubbles its
-              // presses here: only a press on the card itself starts a drag.
-              if (!event.currentTarget.contains(event.target as Node)) return;
+              // Only a press on the card itself starts a drag: not one in the
+              // ⋯ menu, which renders in a portal but still bubbles here
+              // through React, and not one on the ⋯ button.
+              const target = event.target as Element;
+              if (!event.currentTarget.contains(target)) return;
+              if (target.closest("button:not([data-drag-handle])")) return;
               listeners?.onPointerDown?.(event);
             }
           : undefined
@@ -616,6 +619,7 @@ function SortableCollectionCard({
               ref={setActivatorNodeRef}
               type="button"
               aria-label={`Drag ${collection.name}`}
+              data-drag-handle
               className="flex size-8 cursor-grab touch-none items-center justify-center rounded-[10px] bg-black/55 text-white opacity-0 backdrop-blur-sm transition group-focus-within/card:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
               {...attributes}
               onKeyDown={listeners?.onKeyDown as KeyboardEventHandler}
