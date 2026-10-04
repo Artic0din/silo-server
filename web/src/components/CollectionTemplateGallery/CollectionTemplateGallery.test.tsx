@@ -187,7 +187,12 @@ describe("CollectionTemplateGallery", () => {
     // Section labels render once in headings; pills render once each as well.
     expect(screen.getAllByText("Trending").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Popular").length).toBeGreaterThan(0);
-    expect(screen.getByText("Core Defaults")).toBeInTheDocument();
+    // Bundles live in Starter packs now; the gallery never asks for them.
+    expect(screen.queryByText("Core Defaults")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "GET /api/v2/admin/collections/template-bundles",
+      expect.anything(),
+    );
   });
 
   it("filters templates by search across title and description", async () => {
@@ -333,162 +338,6 @@ describe("CollectionTemplateGallery", () => {
             url: "https://www.themoviedb.org/list/310-my-movie-list",
             library_ids: ["1"],
           }),
-        }),
-      );
-    });
-  });
-
-  it("previews the core defaults bundle", async () => {
-    const user = userEvent.setup();
-    renderGallery();
-
-    await waitFor(() => {
-      expect(screen.getByText("Core Defaults")).toBeInTheDocument();
-    });
-
-    fetchMock.mockImplementation((path: string) => {
-      if (path === "GET /api/v2/admin/collections/templates")
-        return Promise.resolve(catalogResponse);
-      if (path === "GET /api/v2/admin/collections/template-bundles")
-        return Promise.resolve(bundlesResponse);
-      if (path === "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply") {
-        return Promise.resolve({
-          bundle_id: "core_defaults",
-          dry_run: true,
-          created: [
-            {
-              template_id: "tmdb_trending_movies_week",
-              template_title: "Trending Movies This Week",
-              library_id: "1",
-              library_name: "Movies",
-              reason: "would_create",
-            },
-          ],
-          skipped: [],
-          failed: [],
-          deleted: [],
-          delete_skipped: [],
-          delete_failed: [],
-          sync_queued: [],
-          featured: [],
-          featured_failed: [],
-        });
-      }
-      throw new Error(`unexpected path: ${path}`);
-    });
-
-    await user.click(screen.getByText("Core Defaults"));
-    expect(screen.getByText("Featured Sections")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Preview$/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/Would create 1; skipped 0; failed 0/i)).toBeInTheDocument();
-    });
-    const applyCall = fetchMock.mock.calls.find(
-      ([path]) => path === "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-    );
-    expect(applyCall?.[1]?.body).toMatchObject({
-      featured: {
-        home: { library_id: "1", template_id: "tmdb_trending_movies_week" },
-        libraries: { "1": "tmdb_trending_movies_week" },
-      },
-    });
-  });
-
-  it("previews deleting existing server collections before applying defaults", async () => {
-    const user = userEvent.setup();
-    renderGallery();
-
-    await waitFor(() => {
-      expect(screen.getByText("Core Defaults")).toBeInTheDocument();
-    });
-
-    fetchMock.mockImplementation((path: string) => {
-      if (path === "GET /api/v2/admin/collections/templates")
-        return Promise.resolve(catalogResponse);
-      if (path === "GET /api/v2/admin/collections/template-bundles")
-        return Promise.resolve(bundlesResponse);
-      if (path === "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply") {
-        return Promise.resolve({
-          bundle_id: "core_defaults",
-          dry_run: true,
-          delete_existing: true,
-          deleted: [
-            {
-              library_id: "1",
-              library_name: "Movies",
-              collection_id: "lc_old",
-              collection_title: "Old Movies",
-              reason: "would_delete",
-            },
-          ],
-          delete_skipped: [],
-          delete_failed: [],
-          created: [],
-          skipped: [],
-          failed: [],
-          sync_queued: [],
-          featured: [],
-          featured_failed: [],
-        });
-      }
-      throw new Error(`unexpected path: ${path}`);
-    });
-
-    await user.click(screen.getByText("Core Defaults"));
-    await user.click(screen.getByText("Delete Existing Server Collections"));
-    await user.click(screen.getByRole("button", { name: /^Preview$/i }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Would delete 1; delete skipped 0; delete failed 0/i),
-      ).toBeInTheDocument();
-    });
-    const applyCall = fetchMock.mock.calls.find(
-      ([path]) => path === "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-    );
-    expect(applyCall?.[1]?.body).toMatchObject({
-      dry_run: true,
-      delete_existing: true,
-      library_ids: ["1"],
-    });
-  });
-
-  it("queues the core defaults bundle apply job", async () => {
-    const user = userEvent.setup();
-    renderGallery();
-
-    await waitFor(() => {
-      expect(screen.getByText("Core Defaults")).toBeInTheDocument();
-    });
-
-    fetchMock.mockImplementation((path: string) => {
-      if (path === "GET /api/v2/admin/collections/templates")
-        return Promise.resolve(catalogResponse);
-      if (path === "GET /api/v2/admin/collections/template-bundles")
-        return Promise.resolve(bundlesResponse);
-      if (path === "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job") {
-        return Promise.resolve({
-          id: "job-1",
-          kind: "template_bundle_apply",
-          state: "queued",
-          terminal: false,
-          cancelable: false,
-          created_at: "2026-09-05T00:00:00Z",
-        });
-      }
-      throw new Error(`unexpected path: ${path}`);
-    });
-
-    await user.click(screen.getByText("Core Defaults"));
-    await user.click(screen.getByRole("button", { name: /Apply Defaults/i }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
-        expect.objectContaining({
-          path: { bundle_id: "core_defaults" },
-          body: expect.objectContaining({ library_ids: ["1"] }),
         }),
       );
     });
