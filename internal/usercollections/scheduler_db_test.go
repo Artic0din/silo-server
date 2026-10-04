@@ -48,10 +48,11 @@ func TestSchedulerFailureKeepsAScheduleEditedDuringTheSyncDB(t *testing.T) {
 	daily, weekly := AllowedSyncSchedules["daily"], AllowedSyncSchedules["weekly"]
 	due := time.Now().Add(-time.Minute).UTC().Truncate(time.Microsecond)
 
-	// failDuring creates a collection that is due on the daily schedule,
+	// failOnNode creates a collection that is due on the daily schedule,
 	// applies edit as if it landed while the sync ran, then records the
-	// failure, and returns the stored collection.
-	failDuring := func(t *testing.T, edit *userstore.UpdateCollectionInput) *userstore.Collection {
+	// failure on a node whose clock reads nodeNow, and returns the stored
+	// collection.
+	failOnNode := func(t *testing.T, edit *userstore.UpdateCollectionInput, nodeNow time.Time) *userstore.Collection {
 		t.Helper()
 		c, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 			CreatorProfileID: "owner", Name: "Synced", CollectionType: "mdblist", QueryDefinition: "{}",
@@ -67,12 +68,16 @@ func TestSchedulerFailureKeepsAScheduleEditedDuringTheSyncDB(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		scheduler.advanceAfterFailure(ctx, dueCollection{UserID: account, CollectionID: c.ID}, time.Now())
+		scheduler.advanceAfterFailure(ctx, dueCollection{UserID: account, CollectionID: c.ID}, nodeNow)
 		got, err := store.GetCollection(ctx, c.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return got
+	}
+	failDuring := func(t *testing.T, edit *userstore.UpdateCollectionInput) *userstore.Collection {
+		t.Helper()
+		return failOnNode(t, edit, time.Now())
 	}
 
 	t.Run("an unchanged schedule retries after the minimum interval", func(t *testing.T) {
@@ -95,6 +100,17 @@ func TestSchedulerFailureKeepsAScheduleEditedDuringTheSyncDB(t *testing.T) {
 		got := failDuring(t, &userstore.UpdateCollectionInput{SyncSchedule: &weekly, NextSyncAt: &weeklyNext})
 		if got.NextSyncAt == nil || !got.NextSyncAt.Equal(weeklyNext) {
 			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, weeklyNext)
+		}
+	})
+	t.Run("a node whose clock runs behind the database still pushes the retry back", func(t *testing.T) {
+		// The row is due by the database clock, which is what listDue
+		// selects with. A node an hour behind must still move it, or a
+		// broken source is retried on every tick.
+		nodeNow := time.Now().Add(-time.Hour)
+		got := failOnNode(t, nil, nodeNow)
+		want := nodeNow.Add(time.Duration(MinSyncIntervalHours) * time.Hour)
+		if got.NextSyncAt == nil || got.NextSyncAt.Sub(want).Abs() > time.Second {
+			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, want)
 		}
 	})
 }
