@@ -194,7 +194,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setFeatured(carried?.hero ?? props.section.featured);
       setEnabled("enabled" in props.section ? Boolean(props.section.enabled) : true);
       setQueryDefinition(queryDefinitionFromSectionConfig(config));
-      setSelectedCollectionId(collectionIdOf(config));
+      setSelectedCollectionId(collectionIdOf(config, props.mode));
       setRecipeParams(parseRecipeParams(config));
     } else {
       setSectionType(initialType ?? "recently_added");
@@ -206,7 +206,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setSelectedCollectionId("");
       setRecipeParams({});
     }
-  }, [props.open, props.section, initialType, carried]);
+  }, [props.open, props.section, props.mode, initialType, carried]);
 
   useEffect(() => {
     if (!props.open || showCollectionPicker || showLegacyFilter) return;
@@ -264,7 +264,9 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
   // The row keeps its stored collection until the user picks another one, so
   // only a picked collection must come from the list (its source names the key).
   const storedCollectionId =
-    props.section?.section_type === "collection" ? collectionIdOf(props.section.config) : "";
+    props.section?.section_type === "collection"
+      ? collectionIdOf(props.section.config, props.mode)
+      : "";
   const collectionUnsaveable =
     collectionsLoading ||
     !selectedCollectionId ||
