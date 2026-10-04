@@ -48,6 +48,14 @@ export interface ProfileHomeRowsAdapter extends HomeRowsAdapter {
    * they are gone, so only deleting them is offered.
    */
   pageLock: ProfilePageLock | null;
+  /**
+   * Whether the page lock is known. Admin-only kinds such as Editor's Picks
+   * lock the page too, and only the recipe catalog names them, so a page
+   * holding rows this profile added can't change until the catalog loads.
+   */
+  pageLockCheck: "ready" | "loading" | "failed";
+  /** Loads the recipe catalog again after it failed. */
+  reloadCatalog(): void;
   /** Removes server rows from this page and deletes the profile's own rows, in one save. */
   remove(ids: string[]): void;
   /** Drops every change this profile made on this page. */
@@ -163,16 +171,20 @@ export function useProfileHomeRowsAdapter(): ProfileHomeRowsAdapter {
 
   const { sections } = homeRows;
   const rows = useMemo(() => sections.map(toHomeRow), [sections]);
+  let pageLockCheck: ProfileHomeRowsAdapter["pageLockCheck"] = "ready";
+  if (!ruleRows && flags.isSuccess && !catalog && sections.some((section) => section.is_custom)) {
+    pageLockCheck = catalogQuery.isError ? "failed" : "loading";
+  }
   const pageLock = useMemo<ProfilePageLock | null>(() => {
     // Unknown until the flag loads; a save refused meanwhile still says why.
-    if (ruleRows || !flags.isSuccess) return null;
+    if (ruleRows || !flags.isSuccess || !catalog) return null;
     const kinds = ruleRowKinds(catalog);
     const rowIds = sections
       .filter((section) => section.is_custom && kinds.has(section.section_type))
       .map((section) => section.id);
     return rowIds.length > 0 ? { reason: "rule-rows-off", rowIds } : null;
   }, [catalog, flags.isSuccess, ruleRows, sections]);
-  const canEdit = homeRows.canEdit && pageLock === null;
+  const canEdit = homeRows.canEdit && pageLock === null && pageLockCheck === "ready";
 
   let status: HomeRowsAdapter["status"] = "ready";
   if (!pageKnown || !onRequestedPage) status = "loading";
@@ -317,6 +329,8 @@ export function useProfileHomeRowsAdapter(): ProfileHomeRowsAdapter {
     peek,
     collections,
     pageLock,
+    pageLockCheck,
+    reloadCatalog: () => void catalogQuery.refetch(),
     remove: homeRows.remove,
     reset: homeRows.reset,
     restoreOriginalName,

@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAccessToken, setProfileId } from "@/api/client";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { expectPhoneLayout, stubPhone } from "@/components/homeRows/phoneLayout.test-support";
@@ -13,14 +14,11 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   role: "user" as string | undefined,
   collections: [] as Array<Record<string, unknown>>,
+  catalog: vi.fn(),
 }));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
   v2: mocks.request,
-}));
-vi.mock("@/api/client", async () => ({
-  ...(await vi.importActual<typeof import("@/api/client")>("@/api/client")),
-  captureProfileRequestContext: () => ({ profileId: "p1" }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/useAuth", () => ({
@@ -44,7 +42,7 @@ vi.mock("@/hooks/queries/useAllUserCollections", () => ({
 }));
 vi.mock("@/lib/recipes", async () => ({
   ...(await vi.importActual<typeof import("@/lib/recipes")>("@/lib/recipes")),
-  fetchRecipeCatalog: async () => recipeCatalogFixture,
+  fetchRecipeCatalog: () => mocks.catalog(),
 }));
 
 type Args = {
@@ -126,7 +124,11 @@ async function release(operation: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The signed-in profile; saves are written as it.
+  setAccessToken("token");
+  setProfileId("p1");
   mocks.role = "user";
+  mocks.catalog.mockReset().mockResolvedValue(recipeCatalogFixture);
   mocks.collections = [{ id: "lib-c", title: "Studio Ghibli", source: "library", group: "Movies" }];
   serverRows = {
     home: [entry("a", 0), entry("b", 1)],
@@ -196,6 +198,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setProfileId(null);
+  setAccessToken(null);
 });
 
 async function renderPage(path = "/settings/home-screen", queryClient?: QueryClient) {
@@ -296,6 +300,43 @@ describe("Settings > Home Screen", () => {
       { section_id: "a", id: expect.any(String), hidden: false, title: "Fresh Movies" },
     ]);
     expect(await screen.findByText(/^Renamed from/)).toBeInTheDocument();
+  });
+
+  it("doesn't offer to change a server row's collection, rules or picked titles", async () => {
+    serverRows.home = [
+      entry("c", 0, {
+        section_type: "collection",
+        title: "Ghibli",
+        default_title: "Ghibli",
+        config: { collection_id: "lib-c" },
+      }),
+      entry("f", 1, {
+        section_type: "custom_filter",
+        title: "Short films",
+        default_title: "Short films",
+        config: { query_definition: { groups: [{ match: "all", rules: [] }] } },
+      }),
+      entry("p", 2, {
+        section_type: "admin_curated_list",
+        title: "Staff picks",
+        default_title: "Staff picks",
+        config: { item_ids: [] },
+      }),
+    ];
+    await renderPage();
+    const controls: Array<[string, () => HTMLElement | null]> = [
+      ["Ghibli", () => screen.queryByRole("searchbox", { name: "Search collections" })],
+      ["Short films", () => screen.queryByRole("button", { name: "Add rule" })],
+      ["Staff picks", () => screen.queryByRole("searchbox", { name: "Search titles to add" })],
+    ];
+    for (const [title, control] of controls) {
+      await chooseFromMenu(title, "Edit row…");
+      const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+      expect(within(dialog).getByLabelText("Row name")).toHaveValue(title);
+      expect(control()).not.toBeInTheDocument();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    }
   });
 
   it("says what a renamed row was called and gives it its name back", async () => {
@@ -609,6 +650,38 @@ describe("rule rows on Settings > Home Screen", () => {
       expect(screen.queryByText(/Rule rows are turned off on this server/)).toBeNull(),
     );
     await waitFor(() => expect(rowSwitch("Show Row a on my Home")).toBeEnabled());
+  });
+
+  it("keeps the page from changing until the kinds of rows load, as Editor's Picks rows lock it too", async () => {
+    mocks.catalog.mockRejectedValueOnce(new Error("catalog down"));
+    saved.home = [
+      {
+        id: "picks-1",
+        position: 2,
+        hidden: false,
+        title: "Staff Picks",
+        section_type: "admin_curated_list",
+        config: { item_ids: [] },
+      },
+    ];
+    render(
+      <MemoryRouter initialEntries={["/settings/home-screen"]}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <HomeScreenSettings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByText(/The kinds of rows didn't load, so this page can't change/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
+    expect(rowSwitch("Show Row a on my Home")).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const note = await screen.findByText(/Rule rows are turned off on this server/);
+    expect(note).toHaveTextContent("(Staff Picks)");
   });
 
   it("never locks an admin account's page", async () => {

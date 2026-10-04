@@ -15,12 +15,13 @@ import {
   withTitle,
   type RowDraft,
 } from "@/lib/homeRows/rowDraft";
-import type { RowCollections } from "@/lib/homeRows/types";
+import { BULK_LIBRARY_LIMIT } from "@/lib/homeRows/bulkCopy";
+import type { LibraryPage, RowCollections } from "@/lib/homeRows/types";
 import { kindLocked, variantFamily } from "@/lib/homeRows/variants";
 import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { CollectionPicker } from "./CollectionPicker";
 import { CuratedTitlesEditor } from "./CuratedTitlesEditor";
-import { LibraryPageChips, type LibraryPage } from "./LibraryPageChips";
+import { LibraryPageChips } from "./LibraryPageChips";
 import { ParamFields, type ParamLibrary } from "./ParamFields";
 import { MoreOptions } from "./MoreOptions";
 import { RowPreview } from "./RowPreview";
@@ -128,6 +129,7 @@ export function RowForm({
   collectionChoices,
   libraryPages,
   ruleRowsNote = false,
+  contentLocked = false,
 }: {
   draft: RowDraft;
   onChange: (draft: RowDraft) => void;
@@ -147,11 +149,16 @@ export function RowForm({
   libraryPages?: { pages: LibraryPage[]; currentId: number };
   /** On a rule row, end the form by saying which switch lets profiles add rule rows too. */
   ruleRowsNote?: boolean;
+  /**
+   * What the row shows can't change (a server row on Settings > Home Screen):
+   * no collection picker, rules or title list, and no rule order.
+   */
+  contentLocked?: boolean;
 }) {
   const nameId = useId();
   const family = variantLocked ? undefined : variantFamily(draft.sectionType);
   const rules = FILTER_SECTION_TYPES.has(draft.sectionType);
-  const control = (
+  const control = contentLocked ? null : (
     <KindControl
       draft={draft}
       onChange={onChange}
@@ -221,6 +228,8 @@ export function RowForm({
           currentNote="this page"
           selectedIds={draft.extraLibraryIds ?? []}
           onChange={(extraLibraryIds) => onChange({ ...draft, extraLibraryIds })}
+          // The new row on this page is one of the pages the request adds to.
+          maxSelected={BULK_LIBRARY_LIMIT - 1}
           disabled={draft.hero}
           help={
             draft.hero
@@ -239,7 +248,7 @@ export function RowForm({
           onChange({ ...draft, hero, ...(hero ? { extraLibraryIds: [] } : {}) })
         }
       >
-        {rules ? (
+        {rules && !contentLocked ? (
           <RuleSortField
             value={queryDefinitionFromSectionConfig(draft.config)}
             onChange={(query) => onChange(withRules(draft, query))}

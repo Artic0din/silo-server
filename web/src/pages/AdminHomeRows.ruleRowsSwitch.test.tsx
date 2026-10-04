@@ -147,7 +147,7 @@ describe("Let profiles add rule rows", () => {
     expect(settingReads()).toBe(1);
     expect(item).toHaveAttribute("aria-checked", "false");
     expect(item).toHaveAccessibleDescription(
-      "Profiles can build their own “Titles matching rules” rows.",
+      "Profiles can build their own “Titles matching rules” and “Editor's picks” rows.",
     );
   });
 
@@ -211,7 +211,7 @@ describe("Let profiles add rule rows", () => {
       name: "Turn off rule rows for profiles?",
     });
     expect(dialog).toHaveAccessibleDescription(
-      "Profiles that already have rule rows keep them, but can't change that page until they delete them.",
+      "Profiles that already have rule rows or Editor's picks rows keep them, but can't change that page until they delete them.",
     );
     expect(screen.queryByRole("menu")).toBeNull();
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));

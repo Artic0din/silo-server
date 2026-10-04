@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PageSectionConfig } from "@/api/types";
 import {
   useDeleteSection,
@@ -42,7 +42,7 @@ import { RuleRowsOffDialog } from "@/components/homeRows/RuleRowsOffDialog";
 import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { AddToOtherLibrariesDialog } from "@/components/homeRows/AddToOtherLibrariesDialog";
-import { canCopyToLibraries } from "@/lib/homeRows/bulkCopy";
+import { canCopyToLibraries, copyTargetPages } from "@/lib/homeRows/bulkCopy";
 import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
@@ -85,6 +85,11 @@ export default function AdminHomeRows() {
   const focus = useRowFocus(adapter.rows, adapter.pending);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const snapshotRequest = useRef(0);
+  // A row or order read started on one page must not open a dialog, or arm a
+  // confirmation, after the admin has moved to another page.
+  useLayoutEffect(() => {
+    snapshotRequest.current++;
+  }, [currentPageKey]);
   const [deleteETag, setDeleteETag] = useState<string | null>(null);
   const [deleteConflict, setDeleteConflict] = useState(false);
   const deletedRow = useRef(false);
@@ -140,7 +145,9 @@ export default function AdminHomeRows() {
   const ruleRowsSetting = useProfileRuleRowsSetting(moreOpen);
   const [confirmRuleRowsOff, setConfirmRuleRowsOff] = useState(false);
   const [turningRuleRowsOff, setTurningRuleRowsOff] = useState(false);
-  const offerLibraryCopies = adapter.capabilities.libraryCopies && libraryPages.length > 1;
+  /** The library pages a row on this page fits, this page included. */
+  const copyPagesFor = (row: HomeRow) =>
+    activeLibraryId === null ? [] : copyTargetPages(row.config, libraryPages, activeLibraryId);
 
   const rowIds = useMemo(() => adapter.rows.map((row) => row.id), [adapter.rows]);
   const selectedSections = useMemo(
@@ -338,11 +345,12 @@ export default function AdminHomeRows() {
     {
       key: "profile-rule-rows",
       label: "Let profiles add rule rows",
+      // The server flag admits every admin-only kind, Editor's picks too.
       help:
         ruleRowsSetting.refusal ??
         (ruleRowsSetting.failed
           ? "Couldn't read this setting. Open More again to retry."
-          : "Profiles can build their own “Titles matching rules” rows."),
+          : "Profiles can build their own “Titles matching rules” and “Editor's picks” rows."),
       icon: Users,
       group: true,
       checked: ruleRowsSetting.allowed === true,
@@ -384,7 +392,9 @@ export default function AdminHomeRows() {
       },
       shared.moveToTop,
       shared.moveToBottom,
-      ...(offerLibraryCopies && canCopyToLibraries(row)
+      ...(adapter.capabilities.libraryCopies &&
+      canCopyToLibraries(row) &&
+      copyPagesFor(row).length > 1
         ? [
             {
               key: "copy",
@@ -538,7 +548,7 @@ export default function AdminHomeRows() {
         {copyRow && activeLibraryId !== null ? (
           <AddToOtherLibrariesDialog
             row={copyRow}
-            pages={libraryPages}
+            pages={copyPagesFor(copyRow)}
             currentId={activeLibraryId}
             onCopy={(ids) => adapter.copyToLibraries(copyRow.id, ids)}
             onClose={() => {

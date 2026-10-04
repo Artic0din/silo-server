@@ -52,7 +52,7 @@ const SCOPE_NOUNS: Record<string, string> = {
   audiobook: "audiobooks",
   ebook: "books",
   manga: "manga",
-  video: "videos",
+  video: "movies and shows",
 };
 
 /** How a rule row with no rules is ordered, keyed "field:order". The default (newest added) says nothing. */

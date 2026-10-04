@@ -154,6 +154,19 @@ describe("buildSectionOverrides against the page as it was read", () => {
     });
   });
 
+  it("keeps what an earlier save without an ID stored, under a new ID", () => {
+    const saved = [{ id: "", section_id: "b", title: "Hot", item_limit: 30 }];
+    const next = page.map((s) => (s.id === "a" ? { ...s, hidden: true } : s));
+    const overrides = build(next, { savedOverrides: saved, changedSectionId: "a" });
+    expect(overrides.find((o) => o.section_id === "b")).toEqual({
+      section_id: "b",
+      id: "new-b",
+      hidden: false,
+      title: "Hot",
+      item_limit: 30,
+    });
+  });
+
   it("stores every row's position once the profile moves a row", () => {
     const next = [page[1]!, page[0]!, page[2]!];
     expect(build(next, { changedSectionId: "b" })).toEqual([

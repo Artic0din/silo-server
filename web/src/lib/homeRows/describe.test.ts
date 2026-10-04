@@ -162,6 +162,9 @@ describe("describeRow", () => {
     expect(text(describeRow(row("custom_filter", { media_scope: "series" }), home))).toBe(
       "All shows",
     );
+    expect(text(describeRow(row("custom_filter", { media_scope: "video" }), home))).toBe(
+      "All movies and shows",
+    );
   });
 
   it("says how a rule row with no rules is ordered, so a top-rated row is not just all movies", () => {
