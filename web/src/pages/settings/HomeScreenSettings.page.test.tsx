@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAccessToken, setProfileId } from "@/api/client";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import HomeScreenSettings from "./HomeScreenSettings";
 
@@ -53,8 +54,16 @@ async function release(operation: string) {
   await act(async () => resume());
 }
 
+afterEach(() => {
+  setProfileId(null);
+  setAccessToken(null);
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // Saves are written as the profile that made them.
+  setAccessToken("token");
+  setProfileId("profile");
   saved = [];
   puts = [];
   held = new Map();

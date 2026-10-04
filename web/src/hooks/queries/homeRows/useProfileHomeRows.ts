@@ -2,6 +2,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { arrayMove } from "@dnd-kit/sortable";
 import { toast } from "sonner";
+import {
+  captureProfileRequestContext,
+  isCapturedProfileAuthorityActive,
+  type ProfileRequestContextSnapshot,
+} from "@/api/client";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { sectionKeys } from "@/hooks/queries/keys";
 import {
@@ -28,9 +33,11 @@ interface PageState {
   removed: RemovedSystemOverride[];
 }
 
-type QueueEntry =
-  | { kind: "save"; page: PageRef; state: PageState; changedIds: Set<string> }
-  | { kind: "reset"; page: PageRef };
+/** `profile` is the household profile that made the change; only it is written. */
+type QueueEntry = { page: PageRef; profile: ProfileRequestContextSnapshot } & (
+  | { kind: "save"; state: PageState; changedIds: Set<string> }
+  | { kind: "reset" }
+);
 
 interface SaveQueue {
   running: boolean;
@@ -81,8 +88,10 @@ export interface ProfileHomeRows {
  * version, so saves go out one at a time: changes made while one is in flight
  * merge into a single next save that carries every row they touched, and the
  * newest state wins. A failed save puts the last saved state back unless a
- * newer change is still to be sent. The page can't be switched until its saves
- * and the refetch after them land.
+ * newer change is still to be sent, which then also carries the failed save's
+ * rows. A change is written only as the profile that made it: one still queued
+ * when another profile is picked is dropped. The page can't be switched until
+ * its saves and the refetch after them land.
  */
 export function useProfileHomeRows(): ProfileHomeRows {
   const queryClient = useQueryClient();
@@ -117,7 +126,11 @@ export function useProfileHomeRows(): ProfileHomeRows {
     async (entry: QueueEntry) => {
       const { scope, libraryKey } = pageQuery(entry.page);
       if (entry.kind === "reset") {
-        await resetProfileSectionOverrides({ scope, libraryId: libraryKey });
+        await resetProfileSectionOverrides({
+          scope,
+          libraryId: libraryKey,
+          profileContext: entry.profile,
+        });
         return;
       }
       // Built when sent, so it keeps the override IDs the save before it stored.
@@ -128,7 +141,12 @@ export function useProfileHomeRows(): ProfileHomeRows {
         newId: newOverrideId.current,
         changedSectionIds: entry.changedIds,
       });
-      await replaceProfileSectionOverrides({ scope, library_id: libraryKey, overrides });
+      await replaceProfileSectionOverrides({
+        scope,
+        library_id: libraryKey,
+        overrides,
+        profileContext: entry.profile,
+      });
       const now = Date.now();
       for (const id of entry.changedIds) writes.current.set(id, now);
     },
@@ -143,6 +161,8 @@ export function useProfileHomeRows(): ProfileHomeRows {
     while (q.next) {
       const entry = q.next;
       q.next = null;
+      // The cached overrides it builds on now belong to the other profile.
+      if (!isCapturedProfileAuthorityActive(entry.profile)) continue;
       try {
         await send(entry);
         if (entry.kind === "reset") toast.success("Sections reset to default");
@@ -151,8 +171,15 @@ export function useProfileHomeRows(): ProfileHomeRows {
           toast.error("Failed to reset section customizations");
         } else {
           toast.error(sectionSaveErrorMessage(error));
-          // A newer change still to be sent carries the user's latest state; keep it.
-          if (!q.next) setDraft(null);
+          // A newer change still to be sent carries the user's latest state, this
+          // save's edits included; keep it, and name this save's rows in it.
+          // Read through the ref: that change arrived during the await.
+          const newer = queue.current.next;
+          if (newer?.kind === "save") {
+            for (const id of entry.changedIds) newer.changedIds.add(id);
+          } else if (!newer) {
+            setDraft(null);
+          }
         }
       }
       // A failed save may still have landed, so refetch after every attempt.
@@ -167,6 +194,8 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const change = useCallback(
     (id: string, edit: (state: PageState) => PageState | null) => {
       if (!canEdit) return;
+      const profile = captureProfileRequestContext();
+      if (!profile) return;
       const base = draftRef.current ?? {
         sections: serverSections ?? [],
         removed: hydrateRemovedSystemSections(savedOverrides),
@@ -177,7 +206,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
       const q = queue.current;
       const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
       changedIds.add(id);
-      q.next = { kind: "save", page, state: next, changedIds };
+      q.next = { kind: "save", page, profile, state: next, changedIds };
       void drain();
     },
     [canEdit, drain, page, savedOverrides, serverSections, setDraft],
@@ -227,10 +256,12 @@ export function useProfileHomeRows(): ProfileHomeRows {
 
   const reset = useCallback(() => {
     if (!canEdit) return;
+    const profile = captureProfileRequestContext();
+    if (!profile) return;
     // Edits wait for the reset: until the page refetches they would be built on
     // the overrides it drops and save them again.
     setResetting(true);
-    queue.current.next = { kind: "reset", page };
+    queue.current.next = { kind: "reset", page, profile };
     void drain();
   }, [canEdit, drain, page]);
 
