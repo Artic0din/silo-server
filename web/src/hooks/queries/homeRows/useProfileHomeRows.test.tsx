@@ -271,7 +271,7 @@ describe("useProfileHomeRows", () => {
 
     expect(shownTitles(result.current.sections)).toEqual(["a", "b", "c"]);
     expect(mocks.error).toHaveBeenCalledWith(
-      "Failed to save section changes: This action is not available in demo mode.",
+      "Could not save your rows: This action is not available in demo mode.",
     );
   });
 
@@ -371,7 +371,7 @@ describe("useProfileHomeRows", () => {
     expect(calls.indexOf("DELETE /api/v2/profile/sections")).toBeGreaterThan(
       calls.indexOf("PUT /api/v2/profile/sections"),
     );
-    expect(mocks.success).toHaveBeenCalledWith("Sections reset to default");
+    expect(mocks.success).toHaveBeenCalledWith("Reset to the server's rows.");
     expect(result.current.canEdit).toBe(true);
     expect(shownTitles(result.current.sections)).toEqual(["a", "b", "c"]);
   });

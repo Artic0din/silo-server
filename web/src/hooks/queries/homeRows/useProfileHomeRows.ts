@@ -173,10 +173,10 @@ export function useProfileHomeRows(): ProfileHomeRows {
       q.next = null;
       try {
         await send(entry);
-        if (entry.kind === "reset") toast.success("Sections reset to default");
+        if (entry.kind === "reset") toast.success("Reset to the server's rows.");
       } catch (error) {
         if (entry.kind === "reset") {
-          toast.error("Failed to reset section customizations");
+          toast.error("Could not reset your rows");
         } else {
           toast.error(sectionSaveErrorMessage(error));
           // A newer change still to be sent carries the user's latest state; keep it.

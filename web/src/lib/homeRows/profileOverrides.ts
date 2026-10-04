@@ -267,5 +267,5 @@ export function sectionSaveErrorMessage(error: unknown): string {
     error instanceof V2ProblemError && error.problemType === "permission_denied"
       ? error.problem.detail?.trim()
       : undefined;
-  return detail ? `Failed to save section changes: ${detail}` : "Failed to save section changes";
+  return detail ? `Could not save your rows: ${detail}` : "Could not save your rows";
 }
