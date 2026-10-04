@@ -80,6 +80,7 @@ function show() {
           etag={'"original"'}
           libraries={[]}
           initialLibraryId={7}
+          backTo="/admin/collections?view=list&libraryId=7"
           onClose={vi.fn()}
         />
       </MemoryRouter>
