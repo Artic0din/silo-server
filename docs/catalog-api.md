@@ -138,8 +138,10 @@ the multipart `data` field alike; the collection is created with an empty descri
 
 `previewCollection` (`POST /api/v2/collections/preview`) returns the first titles a smart query
 matches within the acting profile's access. Each item carries `poster_url`, a card-size poster URL,
-when the title has a poster, and omits the member when it has none. The URL can be signed and
-expire, like other artwork URLs, so read a fresh preview rather than storing it.
+when the title has a poster, and omits the member when it has none. A missing `poster_url` alone
+does not show whether the server returns posters: check `preview_posters` in the
+`getCollectionCapabilities` document. The URL can be signed and expire, like other artwork URLs,
+so read a fresh preview rather than storing it.
 `previewAdminCollection` items carry the same field.
 
 The frozen `/api/v1/collections/preview` response is unchanged and carries no poster.
