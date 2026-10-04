@@ -19830,7 +19830,7 @@ export interface components {
        */
       abbreviation: string;
       /**
-       * @description IANA zone name; omitted unless the node's TZ environment variable names one
+       * @description IANA zone name, from the node's TZ environment variable or UTC when TZ is empty or names no known zone; omitted when the node uses its system default zone or a TZ file path
        * @example America/Chicago
        */
       name?: string;

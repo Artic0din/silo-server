@@ -112,7 +112,7 @@ func TestCollectionCapabilitiesReportScheduleTimeZone(t *testing.T) {
 }
 
 // TestScheduleTimeZoneAt pins the offset and abbreviation across daylight
-// saving time, and the IANA name only for a TZ value that names a zone.
+// saving time, and the IANA name only when the local zone has one.
 func TestScheduleTimeZoneAt(t *testing.T) {
 	chicago, err := time.LoadLocation("America/Chicago")
 	if err != nil {
@@ -134,19 +134,36 @@ func TestScheduleTimeZoneAt(t *testing.T) {
 		t.Errorf("half-hour offset = %q, want +05:30", got)
 	}
 
-	for tz, want := range map[string]string{
-		"":                                 "",
+	// Names as Go assigns them to time.Local: the TZ value when it names a
+	// zone, "UTC" when loading TZ fails, "Local" for /etc/localtime, and the
+	// path for any other TZ file.
+	for name, want := range map[string]string{
 		"America/Chicago":                  "America/Chicago",
-		":America/Chicago":                 "America/Chicago",
 		"UTC":                              "UTC",
 		"Local":                            "",
-		"/etc/localtime":                   "",
 		"/usr/share/zoneinfo/Europe/Paris": "",
-		"Not/AZone":                        "",
+		"":                                 "",
 	} {
-		if got := ianaZoneName(tz); got != want {
-			t.Errorf("ianaZoneName(%q) = %q, want %q", tz, got, want)
+		if got := ianaZoneName(name); got != want {
+			t.Errorf("ianaZoneName(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// TestScheduleTimeZoneNamesTheZoneGoLoaded checks that the reported name
+// comes from the zone the offset was read from, so the two cannot disagree.
+func TestScheduleTimeZoneNamesTheZoneGoLoaded(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skipf("time zone database unavailable: %v", err)
+	}
+	saved := time.Local
+	time.Local = tokyo
+	t.Cleanup(func() { time.Local = saved })
+
+	want := CollectionScheduleTimeZone{UTCOffset: "+09:00", Abbreviation: "JST", Name: "Asia/Tokyo"}
+	if got := (&Registry{}).scheduleTimeZone(); got != want {
+		t.Errorf("scheduleTimeZone() = %+v, want %+v", got, want)
 	}
 }
 

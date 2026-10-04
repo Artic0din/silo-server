@@ -114,8 +114,9 @@ Both collection capability documents, `getCollectionCapabilities` and
   `utc_offset` is the current offset from UTC as `±hh:mm` (for example `-05:00`), daylight
   saving time included. `abbreviation` is the current abbreviation the node's time zone
   database reports (for example `CDT`; some zones report a numeric form such as `-03`).
-  `name` is the IANA zone name (for example `America/Chicago`) and is present only when the
-  node's `TZ` environment variable names a zone. Each node reports its own zone, and the
+  `name` is the IANA zone name (for example `America/Chicago`): the zone the node's `TZ`
+  environment variable names, or `UTC` when `TZ` is empty or names no known zone. It is
+  omitted when the node uses its system default zone or a `TZ` file path. Each node reports its own zone, and the
   offset changes with daylight saving time, so read it with the schedule rather than
   storing it.
 

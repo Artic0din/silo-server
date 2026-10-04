@@ -1,9 +1,7 @@
 package apiv2
 
 import (
-	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -13,11 +11,8 @@ import (
 type CollectionScheduleTimeZone struct {
 	UTCOffset    string `json:"utc_offset" pattern:"^[+-][0-9]{2}:[0-9]{2}$" doc:"Current offset from UTC, daylight saving time included" example:"-05:00"`
 	Abbreviation string `json:"abbreviation" doc:"Current zone abbreviation as the node's time zone database reports it; some zones report a numeric form such as -03" example:"CDT"`
-	Name         string `json:"name,omitempty" doc:"IANA zone name; omitted unless the node's TZ environment variable names one" example:"America/Chicago"`
+	Name         string `json:"name,omitempty" doc:"IANA zone name, from the node's TZ environment variable or UTC when TZ is empty or names no known zone; omitted when the node uses its system default zone or a TZ file path" example:"America/Chicago"`
 }
-
-// localScheduleZoneName is read once: Go reads TZ once to set time.Local.
-var localScheduleZoneName = sync.OnceValue(func() string { return ianaZoneName(os.Getenv("TZ")) })
 
 // scheduleTimeZone reports the zone cron schedules use on this node now.
 // Collection sync schedules evaluate cron with time.Now() in time.Local.
@@ -25,7 +20,7 @@ func (reg *Registry) scheduleTimeZone() CollectionScheduleTimeZone {
 	if reg.deps.ScheduleZone != nil {
 		return reg.deps.ScheduleZone()
 	}
-	return scheduleTimeZoneAt(time.Now(), localScheduleZoneName())
+	return scheduleTimeZoneAt(time.Now(), ianaZoneName(time.Local.String()))
 }
 
 // scheduleTimeZoneAt describes now's zone, with name as the IANA name when
@@ -35,18 +30,14 @@ func scheduleTimeZoneAt(now time.Time, name string) CollectionScheduleTimeZone {
 	return CollectionScheduleTimeZone{UTCOffset: now.Format("-07:00"), Abbreviation: abbreviation, Name: name}
 }
 
-// ianaZoneName returns the IANA zone a TZ value names, or "" when it is unset,
-// a file path, or not a zone the database knows. A leading colon is dropped,
-// as Go does when it reads TZ.
-func ianaZoneName(tz string) string {
-	tz = strings.TrimPrefix(tz, ":")
-	if tz == "" || tz == "Local" || strings.HasPrefix(tz, "/") {
+// ianaZoneName returns the IANA name of a time.Local location name, or "".
+// Go names time.Local after the TZ value it loaded, "UTC" when loading TZ
+// failed, "Local" for the system default, or the file path for a TZ path.
+func ianaZoneName(name string) string {
+	if name == "" || name == "Local" || strings.HasPrefix(name, "/") {
 		return ""
 	}
-	if _, err := time.LoadLocation(tz); err != nil {
-		return ""
-	}
-	return tz
+	return name
 }
 
 // mdblistSearch reports whether the MDBList search the collection editors use
