@@ -688,8 +688,11 @@ export function ManualContentsPanel({
       className="surface-panel grid content-start gap-4 rounded-[22px] p-5 sm:p-6"
     >
       <header>
-        <h2 id={headingId} className="flex items-center gap-2.5 text-[17px] font-semibold">
-          Titles
+        {/* The tag and the tick sit by the heading, not in it, so its name stays "Titles". */}
+        <div className="flex items-center gap-2.5">
+          <h2 id={headingId} className="text-[17px] font-semibold">
+            Titles
+          </h2>
           {!created ? (
             <span className="bg-muted text-muted-foreground rounded-md px-2 py-0.5 text-[12px] font-medium">
               {NOT_CREATED_YET}
@@ -711,7 +714,7 @@ export function ManualContentsPanel({
               </>
             ) : null}
           </span>
-        </h2>
+        </div>
         <p className="text-muted-foreground mt-1 text-[13.5px]">
           {!created ? TITLES_CAPTION.create : TITLES_CAPTION[scope.kind]}
         </p>
