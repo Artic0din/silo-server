@@ -152,13 +152,31 @@ describe("SectionEditorDrawer collection rows", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("keeps an admin row's stored collection key on a rename", async () => {
-    const config = { user_collection_id: "legacy", sort_by: "title" };
+  it("keeps an admin row's library collection the list doesn't hold on a rename", async () => {
+    const config = { library_collection_id: "lib-gone", sort_by: "title" };
     const onSave = renderAdmin(adminRow(config));
 
     await rename("Ghibli");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave.mock.calls[0]![0]).toMatchObject({ title: "Ghibli", config });
+  });
+
+  // The admin endpoint rejects a collection row without library_collection_id,
+  // so a legacy personal-collection row needs a library collection picked.
+  it("makes an admin pick a library collection for a legacy personal-collection row", async () => {
+    const onSave = renderAdmin(adminRow({ user_collection_id: "legacy", sort_by: "title" }));
+
+    await rename("Ghibli");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Collection" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Studio Ghibli" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave.mock.calls[0]![0]).toMatchObject({
+      title: "Ghibli",
+      config: { library_collection_id: "lib-1", sort_by: "title" },
+    });
   });
 });
