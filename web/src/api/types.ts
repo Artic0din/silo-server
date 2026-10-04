@@ -1486,6 +1486,8 @@ export interface CollectionPreviewResponse {
 
 export interface CreateCollectionRequest {
   name: string;
+  /** Accepted when collection capabilities report `create_description`. */
+  description?: string;
   collection_type?: "manual" | "smart";
   is_shared?: boolean;
   query_definition?: QueryDefinition;

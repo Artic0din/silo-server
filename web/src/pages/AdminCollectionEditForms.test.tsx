@@ -106,10 +106,8 @@ function renderForm(form: ReactElement) {
   render(<QueryClientProvider client={client}>{form}</QueryClientProvider>);
 }
 
-function collectionModeSelect() {
-  const select = screen
-    .getAllByRole("combobox")
-    .find((element) => element.textContent === "Manual");
+function collectionModeSelect(mode: "Manual" | "Smart" = "Manual") {
+  const select = screen.getAllByRole("combobox").find((element) => element.textContent === mode);
   if (!select) throw new Error("Collection Mode select not found");
   return select;
 }
@@ -129,7 +127,7 @@ describe("admin manual collection type", () => {
     expect(collectionModeSelect()).toBeDisabled();
   });
 
-  it("can still be chosen for a new collection", () => {
+  it("is made on the collection editor page, so a new collection here is Smart", () => {
     renderForm(
       <CollectionForm
         collection={null}
@@ -139,7 +137,7 @@ describe("admin manual collection type", () => {
       />,
     );
 
-    expect(collectionModeSelect()).toBeEnabled();
+    expect(collectionModeSelect("Smart")).toBeDisabled();
   });
 });
 

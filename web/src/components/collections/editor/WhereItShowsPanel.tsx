@@ -1,0 +1,178 @@
+import { useId } from "react";
+import { Link } from "react-router";
+import { useQueries } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
+
+import { fetchAdminCollections } from "@/api/adminCollections";
+import { adminKeys } from "@/hooks/queries/keys";
+import {
+  PERSONAL_TAB_HELP,
+  SHOW_ON_TAB_LABEL,
+  SHOW_TO_OTHER_PROFILES_HELP,
+  SHOW_TO_OTHER_PROFILES_LABEL,
+  serverTabHelp,
+  unshareWarning,
+} from "@/lib/collections/copy";
+import { SERVER_SCOPE, type CollectionDraft } from "@/lib/collections/scope";
+
+import { focusLibrariesLine } from "../fields/librariesLineFocus";
+import { ToggleRow } from "../fields/ToggleRow";
+
+interface NamedLibrary {
+  id: number;
+  name: string;
+}
+
+/** The shelf (group) a server collection sits on in each library's Collections tab. */
+function useShelves(collectionId: string | undefined, libraries: readonly NamedLibrary[]) {
+  const lists = useQueries({
+    queries: libraries.map((library) => ({
+      queryKey: adminKeys.collections(library.id),
+      queryFn: () => fetchAdminCollections(library.id),
+      enabled: Boolean(collectionId),
+      staleTime: 60 * 1000,
+    })),
+  });
+  return libraries.map((library, index) => {
+    const data = lists[index]?.data;
+    const groupId = data?.collections.find((entry) => entry.id === collectionId)?.group_id;
+    const shelf = groupId ? data?.groups.find((group) => group.id === groupId)?.name : undefined;
+    return `${library.name} › ${shelf ?? "no heading"}`;
+  });
+}
+
+function ServerFacts({
+  collectionId,
+  libraries,
+}: {
+  collectionId?: string;
+  libraries: readonly NamedLibrary[];
+}) {
+  const shelves = useShelves(collectionId, libraries);
+  const first = libraries[0];
+  return (
+    <dl className="grid grid-cols-[82px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13.5px]">
+      <dt className="text-muted-foreground">Libraries</dt>
+      <dd>
+        {libraries.length > 0 ? libraries.map((library) => library.name).join(", ") : "None yet"}{" "}
+        <button
+          type="button"
+          className="font-medium underline underline-offset-4"
+          onClick={focusLibrariesLine}
+        >
+          Change
+        </button>
+      </dd>
+      <dt className="text-muted-foreground">Shelf</dt>
+      <dd>
+        {collectionId ? shelves.join(", ") : "Lands with no heading"}
+        {collectionId && first ? (
+          <>
+            {" "}
+            <Link
+              to={SERVER_SCOPE.paths.list({ view: "arrange", libraryId: first.id })}
+              className="font-medium underline underline-offset-4"
+            >
+              Arrange
+            </Link>
+          </>
+        ) : null}
+      </dd>
+    </dl>
+  );
+}
+
+/**
+ * Where the collection shows. Server: its libraries, its shelf in each and
+ * the Collections tab switch. Personal: sharing with the other profiles on the
+ * account (hidden on a single-profile account) and the Collections tab switch.
+ */
+export function WhereItShowsPanel({
+  scopeKind,
+  collectionId,
+  draft,
+  onChange,
+  libraries,
+  otherProfileNames,
+  savedShared,
+}: {
+  scopeKind: "server" | "personal";
+  collectionId?: string;
+  draft: CollectionDraft;
+  onChange: (update: (draft: CollectionDraft) => CollectionDraft) => void;
+  /** Server: the collection's libraries, named. */
+  libraries: readonly NamedLibrary[];
+  /** Personal: the account's other profiles; empty on a single-profile account. */
+  otherProfileNames: readonly string[];
+  /** Personal: whether the saved collection is shared. */
+  savedShared: boolean;
+}) {
+  const id = useId();
+  return (
+    <section
+      aria-labelledby={`${id}-heading`}
+      data-panel="where"
+      className="surface-panel grid content-start gap-5 rounded-[22px] p-5 sm:p-6"
+    >
+      <h2 id={`${id}-heading`} className="text-[17px] font-semibold">
+        Where it shows
+      </h2>
+      {scopeKind === "server" && draft.server ? (
+        <>
+          <ServerFacts collectionId={collectionId} libraries={libraries} />
+          <div className="border-border/70 border-t pt-5">
+            <ToggleRow
+              label={SHOW_ON_TAB_LABEL}
+              help={serverTabHelp(libraries.map((library) => library.name))}
+              checked={draft.server.visibility === "visible"}
+              onCheckedChange={(on) =>
+                onChange((current) => ({
+                  ...current,
+                  server: { ...current.server, visibility: on ? "visible" : "hidden" },
+                }))
+              }
+            />
+          </div>
+        </>
+      ) : null}
+      {scopeKind === "personal" && draft.personal ? (
+        <>
+          {otherProfileNames.length > 0 ? (
+            <ToggleRow
+              label={SHOW_TO_OTHER_PROFILES_LABEL}
+              help={SHOW_TO_OTHER_PROFILES_HELP}
+              checked={draft.personal.shared}
+              onCheckedChange={(shared) =>
+                onChange((current) => ({
+                  ...current,
+                  personal: { inLibraryTabs: false, ...current.personal, shared },
+                }))
+              }
+            >
+              {collectionId && savedShared && !draft.personal.shared ? (
+                <p
+                  role="note"
+                  className="border-warning/50 bg-warning/10 flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13px]"
+                >
+                  <AlertTriangle aria-hidden className="text-warning mt-0.5 size-4 shrink-0" />
+                  {unshareWarning(otherProfileNames)}
+                </p>
+              ) : null}
+            </ToggleRow>
+          ) : null}
+          <ToggleRow
+            label={SHOW_ON_TAB_LABEL}
+            help={PERSONAL_TAB_HELP}
+            checked={draft.personal.inLibraryTabs}
+            onCheckedChange={(inLibraryTabs) =>
+              onChange((current) => ({
+                ...current,
+                personal: { shared: false, ...current.personal, inLibraryTabs },
+              }))
+            }
+          />
+        </>
+      ) : null}
+    </section>
+  );
+}

@@ -33,7 +33,7 @@ import {
   useUserCollectionPreview,
 } from "@/hooks/queries/collectionPreviews";
 
-import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/personalCollectionCopy";
+import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/copy";
 import { ReadOnlyCollectionNotice } from "./ReadOnlyCollectionNotice";
 import { ShowToOtherProfilesField } from "./ShowToOtherProfilesField";
 import CollectionGuidedRulesEditor from "./CollectionGuidedRulesEditor";

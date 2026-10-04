@@ -33,7 +33,7 @@ import {
 } from "@/components/collections/CollectionBuilder";
 import { ReadOnlyCollectionNotice } from "@/components/collections/ReadOnlyCollectionNotice";
 import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
-import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/personalCollectionCopy";
+import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/copy";
 import { ownerName } from "@/lib/collections/personalOwnership";
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { useCatalogWindow } from "@/hooks/queries/catalog";

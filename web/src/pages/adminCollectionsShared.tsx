@@ -41,7 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, ListPlus, Sparkles, TrendingUp } from "lucide-react";
+import { Download, ListFilter, ListPlus, Sparkles, TrendingUp } from "lucide-react";
 import { SyncScheduleField } from "@/components/collections/SyncScheduleField";
 import { TMDBListURLField } from "@/components/collections/TMDBListURLField";
 import { isValidTMDBListURL, parseTMDBListID } from "@/lib/tmdbList";
@@ -123,7 +123,8 @@ export function toAdminCollectionBuilderValue(
   return createCollectionBuilderValue({
     title: collection?.title ?? "",
     description: collection?.description ?? "",
-    collection_type: !collection || collection.collection_type === "manual" ? "manual" : "smart",
+    // New Manual collections are made on the collection editor page, so a new one here is Smart.
+    collection_type: collection?.collection_type === "manual" ? "manual" : "smart",
     visibility: collection?.visibility ?? "visible",
     featured: collection?.featured ?? false,
     query_definition: normalizeQueryDefinition({
@@ -520,7 +521,7 @@ export function CollectionForm({
       onChange={setDraft}
       defaultAdvanced
       allowLibrarySelection={false}
-      lockCollectionType={Boolean(collection)}
+      lockCollectionType
       onSubmit={() => {
         const body = {
           ...toAdminCollectionRequest(draft),
@@ -642,7 +643,7 @@ export function CollectionForm({
   );
 }
 
-export type CollectionSourcePick = CollectionSourceType | "templates";
+export type CollectionSourcePick = CollectionSourceType | "smart" | "templates";
 
 export function AdminCollectionArtworkField(props: ComponentProps<typeof ImageUploadField>) {
   const { data: capabilities } = useAdminCollectionCapabilities();
@@ -677,6 +678,7 @@ export function SourceTypeSelector({
 
   options.push(
     { type: "manual", icon: ListPlus, label: "Manual", subtitle: "Curate items by hand" },
+    { type: "smart", icon: ListFilter, label: "Smart", subtitle: "Match titles with rules" },
     { type: "mdblist", icon: Download, label: "MDBList", subtitle: "Sync from an MDBList URL" },
     {
       type: "tmdb",
@@ -689,7 +691,7 @@ export function SourceTypeSelector({
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {options
-        .filter((opt) => opt.type === "manual" || capabilities?.imports)
+        .filter((opt) => opt.type === "manual" || opt.type === "smart" || capabilities?.imports)
         .map((opt) => (
           <button
             key={opt.type}

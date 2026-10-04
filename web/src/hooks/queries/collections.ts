@@ -66,8 +66,10 @@ export function useCollectionItems(
   collectionId: string,
   cursor = "",
   source: "user" | "library" = "user",
+  enabled = true,
 ) {
   return useQuery({
+    enabled,
     queryKey:
       source === "user"
         ? [...collectionKeys.items(collectionId), "page", cursor]

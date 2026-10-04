@@ -1,9 +1,21 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { isNotFoundProblem, V2ProblemError } from "@/api/v2/request";
-import type { CollectionScope, EditorSnapshot, WireCollection } from "@/lib/collections/scope";
+import { isNotFoundProblem, v2, V2ProblemError } from "@/api/v2/request";
+import { ARTWORK_SLOT_LABEL, DRAFT_FIELD_LABEL, SAVE_FAILED } from "@/lib/collections/copy";
+import { changedFields, mergeDraft, takeFields, type DraftField } from "@/lib/collections/draft";
+import type {
+  ArtworkDraft,
+  ArtworkSlot,
+  ArtworkSlotDraft,
+  CollectionDraft,
+  CollectionScope,
+  CollectionView,
+  EditorSnapshot,
+  SavableDraft,
+  WireCollection,
+} from "@/lib/collections/scope";
 
 /**
  * An editor read may carry no artwork URLs (they are presigned, and would move
@@ -123,4 +135,314 @@ export function useScopeDelete<Raw extends WireCollection>(
         void scope.invalidate(queryClient);
     },
   });
+}
+
+/** PUT one title into a manual collection at `position` (not guarded; the collection's revision moves). */
+export function putCollectionItem<Raw extends WireCollection>(
+  scope: CollectionScope<Raw>,
+  id: string,
+  itemId: string,
+  position: number,
+) {
+  return v2(
+    scope.itemSource === "user"
+      ? "PUT /api/v2/collections/{id}/items/{item_id}"
+      : "PUT /api/v2/admin/collections/{id}/items/{item_id}",
+    { path: { id, item_id: itemId }, body: { position } },
+  );
+}
+
+export function isArtworkStaged(slot: ArtworkSlotDraft | undefined): boolean {
+  return Boolean(slot?.file || slot?.sourceUrl?.trim() || slot?.remove);
+}
+
+function stagedSlots(artwork: ArtworkDraft): ArtworkSlot[] {
+  return (["poster", "backdrop"] as const).filter((slot) => isArtworkStaged(artwork[slot]));
+}
+
+function isPreconditionFailed(error: unknown) {
+  return error instanceof V2ProblemError && error.status === 412;
+}
+
+interface DraftState<Raw extends WireCollection> {
+  /** Set once the collection exists. */
+  id?: string;
+  /** The collection's current ETag; refreshed after every write. */
+  etag?: string;
+  view?: CollectionView<Raw>;
+  /** The collection as last read, as a draft: what `draft` is compared and merged against. */
+  base: CollectionDraft;
+  draft: CollectionDraft;
+  /** Fields both this draft and someone else changed, after a merge. */
+  conflicts: DraftField[];
+}
+
+export interface CreateResult {
+  id: string;
+  /** Staged titles that couldn't be added; they stay staged for Try again. */
+  failedItems: string[];
+}
+
+/**
+ * A collection editor's draft: the copy it started from, what the person has
+ * changed, and the token its next save sends.
+ *
+ * Titles save on their own, and each title write moves the collection's
+ * revision. `syncWithServer` reads the collection again and merges
+ * (`mergeDraft`), so the next Save sends a current ETag and keeps every field
+ * the person changed. A save that still answers 412 merges and retries once;
+ * a field both sides changed stops the save and is listed in `conflicts`.
+ */
+export function useCollectionDraft<Raw extends WireCollection>(
+  scope: CollectionScope<Raw>,
+  init: { snapshot?: EditorSnapshot<Raw>; kind: "manual" | "smart"; libraryId?: number | null },
+) {
+  const queryClient = useQueryClient();
+  const [state, setStateValue] = useState<DraftState<Raw>>(() => {
+    const draft = scope.toDraft(init.snapshot?.view ?? null, init);
+    return {
+      id: init.snapshot?.view.id,
+      etag: init.snapshot?.etag,
+      view: init.snapshot?.view,
+      base: draft,
+      draft,
+      conflicts: [],
+    };
+  });
+  // Merges and saves read the latest state, not the render they started in.
+  const current = useRef(state);
+  const setState = useCallback((update: (previous: DraftState<Raw>) => DraftState<Raw>) => {
+    current.current = update(current.current);
+    setStateValue(current.current);
+  }, []);
+  const [isSaving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [artworkErrors, setArtworkErrors] = useState<Partial<Record<ArtworkSlot, string>>>({});
+  const syncRun = useRef(0);
+  const initKind = init.kind;
+
+  const readFresh = useCallback(
+    async (id: string, artworkChanged: boolean): Promise<EditorSnapshot<Raw>> => {
+      const fresh = await queryClient.fetchQuery({
+        queryKey: scope.keys.snapshot(id),
+        queryFn: () => scope.fetchSnapshot(id),
+        staleTime: 0,
+      });
+      // The editor read may carry no artwork; after an artwork change the list has the new one.
+      const listed = artworkChanged
+        ? (
+            await queryClient.fetchQuery({
+              queryKey: scope.keys.list,
+              queryFn: () => scope.fetchList(),
+              staleTime: 0,
+            })
+          ).collections.find((entry) => entry.id === id)
+        : current.current.view?.raw;
+      return { etag: fresh.etag, view: scope.toView(withListedArtwork(fresh.view.raw, listed)) };
+    },
+    [queryClient, scope],
+  );
+
+  const setDraft = useCallback(
+    (update: (draft: CollectionDraft) => CollectionDraft) =>
+      setState((previous) => ({ ...previous, draft: update(previous.draft) })),
+    [setState],
+  );
+
+  /** Reads the collection again and merges it into the draft. */
+  const syncWithServer = useCallback(async (): Promise<{ conflicts: DraftField[] }> => {
+    const id = current.current.id;
+    if (!id) return { conflicts: [] };
+    const run = ++syncRun.current;
+    const fresh = await readFresh(id, false);
+    // A later read answers for both.
+    if (run !== syncRun.current) return { conflicts: current.current.conflicts };
+    const theirs = scope.toDraft(fresh.view, { kind: initKind });
+    const merged = mergeDraft(current.current.base, current.current.draft, theirs);
+    setState((previous) => ({
+      ...previous,
+      etag: fresh.etag,
+      view: fresh.view,
+      base: merged.base,
+      draft: { ...merged.draft, stagedItems: previous.draft.stagedItems },
+      conflicts: merged.conflicts,
+    }));
+    return { conflicts: merged.conflicts };
+  }, [initKind, readFresh, scope, setState]);
+
+  /** After a save: the fresh copy is the new base; edits made while saving stay. */
+  const rebase = useCallback(
+    async (
+      id: string,
+      saved: CollectionDraft,
+      failedArtwork: ArtworkSlot[],
+      warnings: string[],
+    ) => {
+      await scope.invalidate(queryClient, id);
+      const fresh = await readFresh(id, stagedSlots(saved.artwork).length > 0);
+      const theirs = scope.toDraft(fresh.view, { kind: initKind });
+      const kept = Object.fromEntries(
+        failedArtwork.map((slot) => [slot, saved.artwork[slot]]),
+      ) as ArtworkDraft;
+      setArtworkErrors(
+        Object.fromEntries(
+          failedArtwork.map((slot) => [
+            slot,
+            warnings.find((warning) => warning.startsWith(`${slot}:`)) ?? warnings[0] ?? "",
+          ]),
+        ),
+      );
+      setState((previous) => {
+        const later = mergeDraft(saved, previous.draft, theirs).draft;
+        return {
+          ...previous,
+          id,
+          etag: fresh.etag,
+          view: fresh.view,
+          base: theirs,
+          draft: { ...later, artwork: kept, stagedItems: previous.draft.stagedItems },
+          conflicts: [],
+        };
+      });
+    },
+    [initKind, queryClient, readFresh, scope, setState],
+  );
+
+  const addStaged = useCallback(
+    async (id: string, itemIds: readonly string[], firstPosition: number) => {
+      const failed: string[] = [];
+      for (const [index, itemId] of itemIds.entries()) {
+        try {
+          await putCollectionItem(scope, id, itemId, firstPosition + index);
+        } catch {
+          failed.push(itemId);
+        }
+      }
+      return failed;
+    },
+    [scope],
+  );
+
+  /** Creates the collection, then adds its staged titles in order. */
+  const create = useCallback(async (): Promise<CreateResult | null> => {
+    const saved = current.current.draft;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const outcome = await scope.create(saved as SavableDraft);
+      const failedItems = await addStaged(outcome.id, saved.stagedItems ?? [], 0);
+      setState((previous) => ({ ...previous, id: outcome.id }));
+      await rebase(outcome.id, saved, outcome.failedArtwork, outcome.warnings);
+      setDraft((draft) => ({
+        ...draft,
+        stagedItems: failedItems.length ? failedItems : undefined,
+      }));
+      return { id: outcome.id, failedItems };
+    } catch (error) {
+      setSaveError(scope.errorMessage(error, SAVE_FAILED));
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  }, [addStaged, rebase, scope, setDraft, setState]);
+
+  /** Tries the titles that failed after create again, at the end of the collection. */
+  const retryStagedItems = useCallback(
+    async (firstPosition: number) => {
+      const { id, draft } = current.current;
+      if (!id || !draft.stagedItems?.length) return;
+      const failed = await addStaged(id, draft.stagedItems, firstPosition);
+      setDraft((next) => ({ ...next, stagedItems: failed.length ? failed : undefined }));
+      await scope.invalidate(queryClient, id);
+      await syncWithServer();
+    },
+    [addStaged, queryClient, scope, setDraft, syncWithServer],
+  );
+
+  /**
+   * Saves the draft with the current ETag. A 412 merges the newer copy; with no
+   * conflicting field the save is retried once, otherwise it stops at the conflict.
+   */
+  const save = useCallback(async (): Promise<boolean> => {
+    const id = current.current.id;
+    if (!id) return false;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      for (let attempt = 0; ; attempt++) {
+        const { draft, etag } = current.current;
+        try {
+          const outcome = await scope.update({ id, etag: etag ?? "" }, draft as SavableDraft);
+          await rebase(id, draft, outcome.failedArtwork, outcome.warnings);
+          return true;
+        } catch (error) {
+          if (!isPreconditionFailed(error)) throw error;
+          const { conflicts } = await syncWithServer();
+          if (conflicts.length > 0) return false;
+          if (attempt > 0) {
+            // Changed again under the retry: let the person decide.
+            setState((previous) => ({
+              ...previous,
+              conflicts: changedFields(previous.base, previous.draft),
+            }));
+            return false;
+          }
+        }
+      }
+    } catch (error) {
+      setSaveError(scope.errorMessage(error, SAVE_FAILED));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [rebase, scope, setState, syncWithServer]);
+
+  const resolveConflicts = useCallback(
+    (take: "mine" | "theirs") =>
+      setState((previous) => ({
+        ...previous,
+        draft:
+          take === "theirs"
+            ? takeFields(previous.draft, previous.base, previous.conflicts)
+            : previous.draft,
+        conflicts: [],
+      })),
+    [setState],
+  );
+
+  /** Back to the collection as last read. Titles are already saved and stay. */
+  const discard = useCallback(() => {
+    setArtworkErrors({});
+    setSaveError(null);
+    setState((previous) => ({
+      ...previous,
+      draft: { ...previous.base, stagedItems: previous.draft.stagedItems },
+      conflicts: [],
+    }));
+  }, [setState]);
+
+  const changed = changedFields(state.base, state.draft);
+  const artwork = stagedSlots(state.draft.artwork);
+  return {
+    ...state,
+    setDraft,
+    changed,
+    /** What the save bar names: changed fields, then staged artwork. */
+    pendingLabels: [
+      ...new Set([
+        ...changed.map((field) => DRAFT_FIELD_LABEL[field]),
+        ...artwork.map((slot) => ARTWORK_SLOT_LABEL[slot]),
+      ]),
+    ],
+    isDirty: changed.length > 0 || artwork.length > 0,
+    isSaving,
+    saveError,
+    artworkErrors,
+    syncWithServer,
+    create,
+    save,
+    retryStagedItems,
+    resolveConflicts,
+    discard,
+  };
 }

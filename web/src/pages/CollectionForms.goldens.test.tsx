@@ -1,11 +1,11 @@
 /**
- * Goldens: the requests today's collection forms send to create and update
- * manual and smart collections, admin and personal, through the editor pages.
+ * Goldens: the requests the collection editor page sends to create and update
+ * manual collections, and today's smart forms inside it, admin and personal.
  * Later editor work changes a golden here only on purpose.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,8 +21,7 @@ import {
 } from "@/test/fixtures/collectionAnswers";
 import { goldens } from "@/test/fixtures/collectionBodies";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import AdminCollectionEditor from "./AdminCollectionEditor";
-import CollectionEditor from "./CollectionEditor";
+import CollectionEditorPage from "./CollectionEditorPage";
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 vi.mock("@/hooks/queries/profiles", () => ({
@@ -80,20 +79,28 @@ function showPage(url: string) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // A data router: the editor page guards unsaved changes with `useBlocker`.
+  const router = createMemoryRouter(
+    [
+      { path: "/admin/collections", element: <p>Admin collections page</p> },
+      {
+        element: <CollectionEditorPage scope="server" />,
+        children: [{ path: "/admin/collections/new" }, { path: "/admin/collections/:id/edit" }],
+      },
+      { path: "/collections", element: <p>Collections page</p> },
+      {
+        element: <CollectionEditorPage scope="personal" />,
+        children: [{ path: "/collections/new" }, { path: "/collections/:id/edit" }],
+      },
+    ],
+    { initialEntries: [url] },
+  );
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[url]}>
-        <Routes>
-          <Route path="/admin/collections" element={<p>Admin collections page</p>} />
-          <Route path="/admin/collections/new" element={<AdminCollectionEditor />} />
-          <Route path="/admin/collections/:id/edit" element={<AdminCollectionEditor />} />
-          <Route path="/collections" element={<p>Collections page</p>} />
-          <Route path="/collections/new" element={<CollectionEditor />} />
-          <Route path="/collections/:id/edit" element={<CollectionEditor />} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return router;
 }
 
 async function closedTo(page: "Admin collections page" | "Collections page") {
@@ -104,18 +111,10 @@ function artworkField(label: "Poster" | "Backdrop") {
   return screen.getByText(label, { selector: "label" }).parentElement!;
 }
 
-async function artworkShown(label: "Poster" | "Backdrop") {
-  await screen.findByText(label, { selector: "label" });
-}
-
 function chooseArtworkFile(label: "Poster" | "Backdrop", name: string) {
   fireEvent.change(artworkField(label).querySelector("input[type=file]")!, {
     target: { files: [new File(["image"], name, { type: "image/png" })] },
   });
-}
-
-function pasteArtworkURL(label: "Poster" | "Backdrop", url: string) {
-  fireEvent.change(within(artworkField(label)).getByRole("textbox"), { target: { value: url } });
 }
 
 function deleteArtwork(label: "Poster" | "Backdrop") {
@@ -138,58 +137,91 @@ function writes() {
   return v2Recorder.writes();
 }
 
-describe("admin manual and smart collections", () => {
+/** An artwork slot on the editor page's Details panel. */
+function editorSlot(label: "Poster" | "Backdrop") {
+  return screen.getByRole("group", { name: label });
+}
+
+function chooseEditorFile(label: "Poster" | "Backdrop", name: string) {
+  fireEvent.change(within(editorSlot(label)).getByLabelText(`Upload ${label.toLowerCase()}`), {
+    target: { files: [new File(["image"], name, { type: "image/png" })] },
+  });
+}
+
+function pasteEditorLink(label: "Poster" | "Backdrop", url: string) {
+  fireEvent.change(within(editorSlot(label)).getByLabelText(`${label} link`), {
+    target: { value: url },
+  });
+}
+
+async function nameField() {
+  return screen.findByRole("textbox", { name: "Name" });
+}
+
+function saveBar() {
+  return screen.getByRole("region", { name: "Unsaved changes" });
+}
+
+/** Saves from the editor page; it stays open on the collection. */
+async function saveOnPage(count: number) {
+  fireEvent.click(within(saveBar()).getByRole("button", { name: "Save" }));
+  await vi.waitFor(() => expect(writes()).toHaveLength(count));
+  await vi.waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
+  );
+}
+
+describe("admin manual collections on the editor page", () => {
   it("creates a manual collection, then uploads its poster and backdrop in that order", async () => {
-    showPage("/admin/collections/new?libraryId=1");
+    const router = showPage("/admin/collections/new?libraryId=1");
     fireEvent.click(await screen.findByRole("button", { name: /^Manual/ }));
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Staff picks" } });
-    chooseArtworkFile("Poster", "poster.png");
-    pasteArtworkURL("Backdrop", "https://images.example/backdrop.png");
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    fireEvent.change(await nameField(), { target: { value: "Staff picks" } });
+    chooseEditorFile("Poster", "poster.png");
+    pasteEditorLink("Backdrop", "https://images.example/backdrop.png");
+    fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+    await vi.waitFor(() =>
+      expect(router.state.location.pathname).toBe("/admin/collections/c1/edit"),
+    );
     expect(writes()).toEqual(goldens.adminManualCreate);
   });
 
-  it("creates a smart collection with its rules and sort", async () => {
-    showPage("/admin/collections/new?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: /^Manual/ }));
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "New this month" } });
-    await pickOption(comboboxShowing("Manual"), "Smart");
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
-    expect(writes()).toEqual(goldens.adminSmartCreate);
-  });
-
-  it("updates a manual collection with featured and collection_type in the PATCH", async () => {
+  it("updates a manual collection with collection_type and without featured in the PATCH", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}", { ...adminCollection, featured: true });
     showPage("/admin/collections/c1/edit?libraryId=1");
-    fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    fireEvent.change(await nameField(), { target: { value: "Renamed" } });
+    await saveOnPage(1);
     expect(writes()).toEqual(goldens.adminManualUpdate);
-    expect(writes()[0]!.body).toHaveProperty("featured", false);
+    expect(writes()[0]!.body).not.toHaveProperty("featured");
   });
 
   it("deletes a staged poster removal only after the PATCH succeeds", async () => {
     v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList(withArtwork()));
     showPage("/admin/collections/c1/edit?libraryId=1");
-    await artworkShown("Poster");
-    deleteArtwork("Poster");
+    fireEvent.click(await screen.findByRole("button", { name: "Remove poster" }));
     await act(async () => {});
     expect(writes()).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    await saveOnPage(2);
     expect(writes()).toEqual(goldens.adminStagedPosterRemoval);
   });
 
   it("replaces a removed backdrop with a file without deleting it", async () => {
     v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList(withArtwork()));
     showPage("/admin/collections/c1/edit?libraryId=1");
-    await artworkShown("Backdrop");
-    deleteArtwork("Backdrop");
-    chooseArtworkFile("Backdrop", "backdrop.png");
+    fireEvent.click(await screen.findByRole("button", { name: "Remove backdrop" }));
+    chooseEditorFile("Backdrop", "backdrop.png");
+    await saveOnPage(2);
+    expect(writes()).toEqual(goldens.adminBackdropReplacement);
+  });
+});
+
+describe("admin smart collections in today's form", () => {
+  it("creates a smart collection with its rules and sort", async () => {
+    showPage("/admin/collections/new?libraryId=1");
+    fireEvent.click(await screen.findByRole("button", { name: /^Smart/ }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "New this month" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
     await closedTo("Admin collections page");
-    expect(writes()).toEqual(goldens.adminBackdropReplacement);
+    expect(writes()).toEqual(goldens.adminSmartCreate);
   });
 });
 
@@ -262,23 +294,23 @@ describe("personal manual and smart collections", () => {
     expect(writes()).toEqual(goldens.personalSmartCreate);
   });
 
-  it("creates a manual collection with a pasted poster URL in the POST body", async () => {
-    showPage("/collections/new");
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Rainy days" } });
+  it("opens the editor page for Manual and sends a pasted poster URL in the POST body", async () => {
+    const router = showPage("/collections/new");
+    await screen.findByLabelText("Name");
     await pickOption(comboboxShowing("Smart"), "Manual");
-    pasteArtworkURL("Poster", "https://images.example/poster.png");
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Collections page");
+    await vi.waitFor(() => expect(router.state.location.search).toBe("?type=manual"));
+    fireEvent.change(await nameField(), { target: { value: "Rainy days" } });
+    pasteEditorLink("Poster", "https://images.example/poster.png");
+    fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+    await vi.waitFor(() => expect(router.state.location.pathname).toBe("/collections/c1/edit"));
     expect(writes()).toEqual(goldens.personalManualCreate);
   });
 
-  it("updates a manual collection without a description", async () => {
+  it("updates a manual collection with its description", async () => {
     showPage("/collections/c1/edit");
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Collections page");
+    fireEvent.change(await nameField(), { target: { value: "Renamed" } });
+    await saveOnPage(1);
     expect(writes()).toEqual(goldens.personalManualUpdate);
-    expect(writes()[0]!.body).not.toHaveProperty("description");
   });
 });
 
@@ -287,6 +319,42 @@ describe("personal poster removal waits for Save", () => {
     v2Recorder.answer("GET /api/v2/collections", {
       items: [{ ...getCollectionOk, poster_url: "https://images.example/poster.png" }],
     });
+  });
+
+  async function removePosterOnPage() {
+    fireEvent.click(await screen.findByRole("button", { name: "Remove poster" }));
+    expect(within(editorSlot("Poster")).queryByRole("img")).toBeNull();
+    expect(
+      within(editorSlot("Poster")).getByText("The poster is removed when you save."),
+    ).toBeTruthy();
+  }
+
+  it("manual: sends nothing when you leave without saving", async () => {
+    showPage("/collections/c1/edit");
+    await removePosterOnPage();
+    await act(async () => {});
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole("link", { name: "Collections" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    await closedTo("Collections page");
+    expect(writes()).toEqual([]);
+  });
+
+  it("manual: deletes the poster after the PATCH on Save", async () => {
+    showPage("/collections/c1/edit");
+    await removePosterOnPage();
+    await act(async () => {});
+    expect(writes()).toEqual([]);
+    await saveOnPage(2);
+    expect(writes()).toEqual(goldens.personalStagedPosterRemoval);
+  });
+
+  it("manual: uploads a file chosen after the removal and sends no DELETE", async () => {
+    showPage("/collections/c1/edit");
+    await removePosterOnPage();
+    chooseEditorFile("Poster", "poster.png");
+    await saveOnPage(2);
+    expect(writes()).toEqual(goldens.personalPosterReplacement);
   });
 
   async function removePoster() {
@@ -300,34 +368,6 @@ describe("personal poster removal waits for Save", () => {
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     await closedTo("Collections page");
   }
-
-  it("manual: sends nothing when you leave without saving", async () => {
-    showPage("/collections/c1/edit");
-    await removePoster();
-    await act(async () => {});
-    expect(writes()).toEqual([]);
-    await leaveWithoutSaving();
-    expect(writes()).toEqual([]);
-  });
-
-  it("manual: deletes the poster after the PATCH on Save", async () => {
-    showPage("/collections/c1/edit");
-    await removePoster();
-    await act(async () => {});
-    expect(writes()).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Collections page");
-    expect(writes()).toEqual(goldens.personalStagedPosterRemoval);
-  });
-
-  it("manual: uploads a file chosen after the removal and sends no DELETE", async () => {
-    showPage("/collections/c1/edit");
-    await removePoster();
-    chooseArtworkFile("Poster", "poster.png");
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Collections page");
-    expect(writes()).toEqual(goldens.personalPosterReplacement);
-  });
 
   describe("smart", () => {
     beforeEach(() => {
@@ -363,25 +403,18 @@ describe("personal poster removal waits for Save", () => {
 });
 
 describe("personal manual page: a title added before Save", () => {
-  it("leaves the form's ETag behind, so Save answers 412", async () => {
+  it("saves the rename with the ETag the add left behind", async () => {
     showPage("/collections/c1/edit");
-    fireEvent.change(await screen.findByPlaceholderText("Search the catalog to add titles…"), {
+    fireEvent.change(await screen.findByRole("combobox", { name: "Add a title" }), {
       target: { value: "alien" },
     });
     // The first search hit is already in the collection; add the second.
-    const [firstNew] = await screen.findAllByRole("button", { name: "Add" });
-    fireEvent.click(firstNew!);
+    const options = await screen.findAllByRole("option");
+    fireEvent.click(options.find((option) => !option.hasAttribute("aria-disabled"))!);
     await vi.waitFor(() => expect(writes()).toHaveLength(1));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await vi.waitFor(() => expect(writes()).toHaveLength(2));
+    fireEvent.change(await nameField(), { target: { value: "Renamed" } });
+    await saveOnPage(2);
     expect(writes()).toEqual(goldens.personalAddThenRename);
-    expect(v2Recorder.etag("/api/v2/collections/c1")).toBe('"/api/v2/collections/c1#2"');
-    await vi.waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        expect.stringContaining("This collection changed while you were editing."),
-      ),
-    );
-    expect(screen.queryByText("Collections page")).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });
