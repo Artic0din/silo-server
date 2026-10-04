@@ -8,7 +8,7 @@ import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Library } from "@/api/types";
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
@@ -22,8 +22,10 @@ import {
 } from "@/test/fixtures/collectionAnswers";
 import { goldens } from "@/test/fixtures/collectionBodies";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import AdminCollectionEditor from "./AdminCollectionEditor";
-import CollectionEditor from "./CollectionEditor";
+import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
+import CollectionEditorPage from "./CollectionEditorPage";
+
+beforeAll(preloadLegacyCollectionEditors);
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 vi.mock("@/hooks/queries/profiles", () => ({
@@ -116,10 +118,14 @@ function show(element: ReactElement, url = "/") {
         <Routes>
           <Route path="/" element={element} />
           <Route path="/admin/collections" element={<p>Admin collections page</p>} />
-          <Route path="/admin/collections/new" element={<AdminCollectionEditor />} />
-          <Route path="/admin/collections/:id/edit" element={<AdminCollectionEditor />} />
+          <Route element={<CollectionEditorPage scope="server" />}>
+            <Route path="/admin/collections/new" />
+            <Route path="/admin/collections/:id/edit" />
+          </Route>
           <Route path="/collections" element={<p>Collections page</p>} />
-          <Route path="/collections/:id/edit" element={<CollectionEditor />} />
+          <Route element={<CollectionEditorPage scope="personal" />}>
+            <Route path="/collections/:id/edit" />
+          </Route>
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

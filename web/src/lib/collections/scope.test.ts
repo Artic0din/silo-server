@@ -16,7 +16,7 @@ import {
   personalSyncedCollection,
 } from "@/test/fixtures/collectionAnswers";
 import { goldens } from "@/test/fixtures/collectionBodies";
-import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
+import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
 import {
   PERSONAL_SCOPE,
   SERVER_SCOPE,
@@ -213,7 +213,7 @@ describe("toDraft", () => {
       },
       rawSortConfig: {},
       artwork: {},
-      server: { visibility: "visible", pinFirst: false },
+      server: { visibility: "visible" },
     });
     expect(SERVER_SCOPE.toDraft(null, { kind: "manual" })).toMatchObject({
       kind: "manual",
@@ -276,7 +276,26 @@ describe("isReadOnly", () => {
   });
 });
 
-describe("create and update send today's bodies", () => {
+/**
+ * The smart page still saves through its own form until it moves onto the
+ * scope, so its goldens keep today's body. Through the scope a personal body
+ * also carries `description`, and an admin PATCH leaves out `featured`.
+ */
+function throughScope(golden: readonly RecordedCall[]) {
+  return golden.map((call) => {
+    if (!call.body || typeof call.body !== "object") return call;
+    const { featured: _featured, ...body } = call.body as Record<string, unknown>;
+    if (call.operation === "PATCH /api/v2/admin/collections/{id}") return { ...call, body };
+    if (
+      call.operation.startsWith("PATCH /api/v2/collections/") ||
+      call.operation === "POST /api/v2/collections"
+    )
+      return { ...call, body: { ...body, description: "" } };
+    return call;
+  });
+}
+
+describe("create and update send the editor's bodies", () => {
   it("creates a server manual collection, then its poster and backdrop", async () => {
     const draft = savable(SERVER_SCOPE.toDraft(null, { kind: "manual", libraryId: 1 }));
     const result = await SERVER_SCOPE.create({
@@ -287,7 +306,7 @@ describe("create and update send today's bodies", () => {
         backdrop: { sourceUrl: " https://images.example/backdrop.png " },
       },
     });
-    expect(result).toEqual({ id: "c1", warnings: [] });
+    expect(result).toEqual({ id: "c1", warnings: [], failedArtwork: [] });
     expect(writes()).toEqual(goldens.adminManualCreate);
   });
 
@@ -302,7 +321,7 @@ describe("create and update send today's bodies", () => {
     const { draft, etag } = await loaded(SERVER_SCOPE);
     await expect(
       SERVER_SCOPE.update({ id: "c1", etag }, { ...draft, name: "Renamed" }),
-    ).resolves.toEqual({ warnings: [] });
+    ).resolves.toEqual({ warnings: [], failedArtwork: [] });
     expect(writes()).toEqual(goldens.adminManualUpdate);
   });
 
@@ -317,7 +336,7 @@ describe("create and update send today's bodies", () => {
     );
     const { draft, etag } = await loaded(SERVER_SCOPE);
     await SERVER_SCOPE.update({ id: "c1", etag }, draft);
-    expect(writes()).toEqual(goldens.adminSmartUnchanged[label]);
+    expect(writes()).toEqual(throughScope(goldens.adminSmartUnchanged[label]));
   });
 
   it.each([
@@ -333,7 +352,7 @@ describe("create and update send today's bodies", () => {
       );
       const { draft, etag } = await loaded(PERSONAL_SCOPE);
       await PERSONAL_SCOPE.update({ id: "c1", etag }, draft);
-      expect(writes()).toEqual(goldens.personalSmartUnchanged[label]);
+      expect(writes()).toEqual(throughScope(goldens.personalSmartUnchanged[label]));
     },
   );
 
@@ -344,8 +363,8 @@ describe("create and update send today's bodies", () => {
       name: "Comfort",
       artwork: { poster: { file: png("poster.png") } },
     });
-    expect(result).toEqual({ id: "c1", warnings: [] });
-    expect(writes()).toEqual(goldens.personalSmartCreate);
+    expect(result).toEqual({ id: "c1", warnings: [], failedArtwork: [] });
+    expect(writes()).toEqual(throughScope(goldens.personalSmartCreate));
   });
 
   it("creates a personal manual collection with a pasted poster URL in the POST body", async () => {
@@ -364,6 +383,44 @@ describe("create and update send today's bodies", () => {
     expect(writes()).toEqual(goldens.personalManualUpdate);
   });
 
+  it("creates a server collection unpinned and never sends featured on a save", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}", { ...adminCollection, featured: true });
+    const { draft, etag } = await loaded(SERVER_SCOPE);
+    await SERVER_SCOPE.update({ id: "c1", etag }, draft);
+    await SERVER_SCOPE.create({ ...draft, name: "Copy" });
+    const [patch, post] = writes();
+    expect(patch!.body).not.toHaveProperty("featured");
+    expect(post!.body).toHaveProperty("featured", false);
+  });
+
+  it("removes staged artwork after the save, and a new file in the slot wins", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}", adminCollection);
+    const { draft, etag } = await loaded(SERVER_SCOPE);
+    await SERVER_SCOPE.update(
+      { id: "c1", etag },
+      {
+        ...draft,
+        artwork: { poster: { remove: true }, backdrop: { remove: true, file: png("b.png") } },
+      },
+    );
+    expect(writes().map((call) => `${call.operation} ${JSON.stringify(call.query ?? {})}`)).toEqual(
+      [
+        "PATCH /api/v2/admin/collections/{id} {}",
+        'DELETE /api/v2/admin/collections/{id}/image {"type":"poster"}',
+        "PUT /api/v2/admin/collections/{id}/backdrop {}",
+      ],
+    );
+  });
+
+  it("removes a staged personal poster after the PATCH", async () => {
+    const { draft, etag } = await loaded(PERSONAL_SCOPE);
+    await PERSONAL_SCOPE.update(
+      { id: "c1", etag },
+      { ...draft, artwork: { poster: { remove: true } } },
+    );
+    expect(writes()).toEqual(goldens.personalStagedPosterRemoval);
+  });
+
   it("reports a poster that failed after the collection saved as a warning", async () => {
     v2Recorder.answer("PUT /api/v2/collections/{id}/poster", () => {
       throw new Error("too large");
@@ -371,7 +428,7 @@ describe("create and update send today's bodies", () => {
     const draft = savable(PERSONAL_SCOPE.toDraft(null, { kind: "manual" }));
     await expect(
       PERSONAL_SCOPE.create({ ...draft, name: "X", artwork: { poster: { file: png("p.png") } } }),
-    ).resolves.toEqual({ id: "c1", warnings: ["too large"] });
+    ).resolves.toEqual({ id: "c1", warnings: ["too large"], failedArtwork: ["poster"] });
   });
 
   it("answers a stale ETag with the precondition failure", async () => {

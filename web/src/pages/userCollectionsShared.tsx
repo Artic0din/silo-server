@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import type { Collection, CreateCollectionRequest, UpdateCollectionRequest } from "@/api/types";
 import { useProfiles } from "@/hooks/queries/profiles";
 import { useUserLibraries } from "@/hooks/queries/libraries";
@@ -143,6 +144,7 @@ export function UserCollectionForm({
   etag?: string;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState(() => toUserCollectionBuilderValue(collection));
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [posterSourceUrl, setPosterSourceUrl] = useState("");
@@ -206,7 +208,14 @@ export function UserCollectionForm({
     <CollectionBuilder
       mode="user"
       value={draft}
-      onChange={setDraft}
+      onChange={(next) => {
+        // A new Manual collection is made on the collection editor page.
+        if (!collection && next.collection_type === "manual") {
+          navigate(PERSONAL_SCOPE.paths.create({ type: "manual" }));
+          return;
+        }
+        setDraft(next);
+      }}
       onSubmit={handleSubmit}
       submitLabel="Save Collection"
       libraries={builderLibraries}

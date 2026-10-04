@@ -1,18 +1,14 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ArrowLeft } from "lucide-react";
 
-import { isNotFoundProblem } from "@/api/v2/request";
+import type { LibraryCollection } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import PageUnavailable from "@/components/PageUnavailable";
-import ViewTransitionLink from "@/components/ViewTransitionLink";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
-import { ManualCollectionItemsEditor } from "@/components/collections/ManualCollectionItemsEditor";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
-import { useScopeEditor } from "@/hooks/queries/collectionScope";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { SERVER_SCOPE } from "@/lib/collections/scope";
+import { SERVER_SCOPE, type EditorSnapshot } from "@/lib/collections/scope";
 import { isListBackedCollectionType } from "@/lib/collections/types";
 
 import {
@@ -25,86 +21,52 @@ import {
 } from "./adminCollectionsShared";
 import SmartCollectionWizard from "./SmartCollectionWizard";
 
-function inferCollectionSourceType(collectionType?: string): CollectionSourceType {
-  if (collectionType === "mdblist") return "mdblist";
-  if (collectionType === "tmdb") return "tmdb";
-  if (collectionType === "trakt") return "trakt";
-  return "manual";
-}
+type CreateChoice = Exclude<CollectionSourceType, "manual" | "trakt"> | "smart";
 
-export default function AdminCollectionEditor() {
+const CREATE_TITLES: Record<CreateChoice, string> = {
+  smart: "New Smart Collection",
+  mdblist: "Import MDBList Collection",
+  tmdb: "Import TMDB Collection",
+};
+
+/**
+ * The server editors that haven't moved onto the collection editor page yet,
+ * rendered inside it: the create chooser (its Manual card opens the editor
+ * page) and the Smart and Synced list editors for a saved collection. The page
+ * loads the collection and handles loading, missing and read-only states.
+ */
+export default function AdminCollectionEditor({
+  snapshot,
+  initialLibraryId = null,
+}: {
+  /** A saved Smart collection or Synced list; none for the create chooser. */
+  snapshot?: EditorSnapshot<LibraryCollection>;
+  initialLibraryId?: number | null;
+}) {
   const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  const initialLibraryId = Number(searchParams.get("libraryId")) || null;
   const returnPath = SERVER_SCOPE.paths.list({ libraryId: initialLibraryId });
-  const isCreate = !id;
   const { data: libraries = [] } = useAdminLibraries();
-  const editor = useScopeEditor(SERVER_SCOPE, id);
-  const frozen = editor.snapshot;
-  const collection = frozen?.view.raw ?? null;
-  const [sourceType, setSourceType] = useState<CollectionSourceType | null>(null);
+  const collection = snapshot?.view.raw ?? null;
+  const [choice, setChoice] = useState<CreateChoice | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
 
-  const activeSourceType = collection
-    ? inferCollectionSourceType(collection.collection_type)
-    : sourceType;
-
-  const sourceTypeTitles: Record<CollectionSourceType, string> = {
-    manual: "New Manual Collection",
-    mdblist: "Import MDBList Collection",
-    tmdb: "Import TMDB Collection",
-    trakt: "Import Trakt Collection",
-  };
   const title = collection
     ? `Edit ${collection.title}`
-    : (activeSourceType && sourceTypeTitles[activeSourceType]) || "Add Collection";
-
+    : (choice && CREATE_TITLES[choice]) || "Add Collection";
   const description = collection
     ? "Collections now open in a dedicated workspace so rules, artwork, and preview can stay visible."
-    : activeSourceType === null
+    : choice === null
       ? "Choose how this collection should be created."
       : "Build the collection in a full-page editor instead of a cramped dialog.";
 
-  useDocumentTitle(!isCreate && isNotFoundProblem(editor.error) ? "Not found" : title);
-
-  if (editor.isLoading && (!isCreate || libraries.length === 0)) {
-    return <div className="page-shell py-8">Loading collection editor...</div>;
-  }
-
-  if (!isCreate && !collection) {
-    if (editor.error && !isNotFoundProblem(editor.error)) {
-      return (
-        <PageUnavailable
-          title="Couldn't load this collection"
-          description="Something went wrong while loading it. Try again in a moment."
-          onRetry={() => void editor.refetch()}
-          retrying={editor.isFetching}
-        />
-      );
-    }
-    return (
-      <PageUnavailable
-        title="Collection not found"
-        description="It may have been deleted, or the link may be wrong."
-      >
-        <Button asChild variant="outline">
-          <ViewTransitionLink to={returnPath} up>
-            All collections
-          </ViewTransitionLink>
-        </Button>
-      </PageUnavailable>
-    );
-  }
+  useDocumentTitle(title);
 
   // The wizard owns its own page chrome (back button, title, step indicator).
-  // Short-circuit the legacy editor shell so we don't render nested headers.
-  const useWizard = collection && collection.collection_type === "smart";
-  if (useWizard) {
+  if (collection?.collection_type === "smart") {
     return (
       <SmartCollectionWizard
         mode="admin"
-        etag={frozen?.etag}
+        etag={snapshot?.etag}
         collection={collection}
         libraries={libraries}
         initialLibraryId={initialLibraryId}
@@ -129,20 +91,20 @@ export default function AdminCollectionEditor() {
           </div>
         </div>
 
-        {!collection && activeSourceType !== null ? (
-          <Button variant="outline" onClick={() => setSourceType(null)}>
+        {!collection && choice !== null ? (
+          <Button variant="outline" onClick={() => setChoice(null)}>
             Change Source Type
           </Button>
         ) : null}
       </div>
 
-      {!collection && activeSourceType === null ? (
+      {!collection && choice === null ? (
         <Card className="surface-panel rounded-2xl border-0 shadow-none">
           <CardHeader>
             <CardTitle>Choose a Collection Type</CardTitle>
             <CardDescription>
-              Smart/manual collections open the full query builder. Imports keep their
-              source-specific setup.
+              Manual collections open the collection editor. Smart collections open the query
+              builder. Imports keep their source-specific setup.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -151,8 +113,12 @@ export default function AdminCollectionEditor() {
               onSelect={(type) => {
                 if (type === "templates") {
                   setGalleryOpen(true);
-                } else {
-                  setSourceType(type);
+                } else if (type === "manual") {
+                  navigate(
+                    SERVER_SCOPE.paths.create({ type: "manual", libraryId: initialLibraryId }),
+                  );
+                } else if (type !== "trakt") {
+                  setChoice(type);
                 }
               }}
             />
@@ -166,40 +132,21 @@ export default function AdminCollectionEditor() {
         libraries={libraries}
         initialLibraryId={initialLibraryId}
         onCreated={() => {
-          if (isCreate) navigate(returnPath);
+          if (!collection) navigate(returnPath);
         }}
       />
 
-      {collection ? (
-        // Smart admin collections route to the wizard above; here we only see
-        // imported (mdblist/tmdb/trakt) or legacy manual collections.
-        isListBackedCollectionType(collection.collection_type) ? (
-          <CollectionEditForm
-            libraries={libraries}
-            collection={collection}
-            etag={frozen?.etag}
-            initialLibraryId={initialLibraryId}
-            onClose={() => navigate(returnPath)}
-          />
-        ) : (
-          <CollectionForm
-            libraries={libraries}
-            collection={collection}
-            etag={frozen?.etag}
-            initialLibraryId={initialLibraryId}
-            onClose={() => navigate(returnPath)}
-          />
-        )
+      {collection && isListBackedCollectionType(collection.collection_type) ? (
+        <CollectionEditForm
+          libraries={libraries}
+          collection={collection}
+          etag={snapshot?.etag}
+          initialLibraryId={initialLibraryId}
+          onClose={() => navigate(returnPath)}
+        />
       ) : null}
 
-      {collection?.collection_type === "manual" && (
-        <section className="space-y-3">
-          <h2 className="text-lg font-semibold">Items</h2>
-          <ManualCollectionItemsEditor collectionId={collection.id} scope={SERVER_SCOPE} />
-        </section>
-      )}
-
-      {!collection && activeSourceType === "manual" ? (
+      {!collection && choice === "smart" ? (
         <CollectionForm
           libraries={libraries}
           collection={null}
@@ -208,7 +155,7 @@ export default function AdminCollectionEditor() {
         />
       ) : null}
 
-      {!collection && activeSourceType === "mdblist" ? (
+      {!collection && choice === "mdblist" ? (
         <MDBListImportForm
           libraries={libraries}
           initialLibraryId={initialLibraryId}
@@ -216,7 +163,7 @@ export default function AdminCollectionEditor() {
         />
       ) : null}
 
-      {!collection && activeSourceType === "tmdb" ? (
+      {!collection && choice === "tmdb" ? (
         <TMDBPresetForm
           libraries={libraries}
           initialLibraryId={initialLibraryId}

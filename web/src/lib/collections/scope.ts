@@ -63,6 +63,8 @@ export type WireCollection = LibraryCollection | Collection;
 export interface ArtworkSlotDraft {
   file?: File | null;
   sourceUrl?: string;
+  /** Remove the saved image on Save; a new file or link in the same slot wins. */
+  remove?: boolean;
 }
 export type ArtworkDraft = Partial<Record<ArtworkSlot, ArtworkSlotDraft>>;
 
@@ -80,7 +82,13 @@ export interface CollectionDraft {
   /** Personal manual only: the display filter. */
   showOnly?: DisplayQueryDefinition;
   artwork: ArtworkDraft;
-  server?: { visibility: "visible" | "hidden"; pinFirst: boolean };
+  /** Manual, before the collection exists: titles to add, in order, once it is created. */
+  stagedItems?: string[];
+  /**
+   * Pin (`featured`) is not here: it is set in Arrange, so an editor creates
+   * with it off and never sends it on a save.
+   */
+  server?: { visibility: "visible" | "hidden" };
   personal?: { shared: boolean; inLibraryTabs: boolean };
 }
 
@@ -118,6 +126,11 @@ export interface PreviewItem {
   title: string;
   type: string;
   poster_url?: string;
+}
+
+export interface SaveOutcome {
+  warnings: string[];
+  failedArtwork: ArtworkSlot[];
 }
 
 export interface SyncOutcome {
@@ -174,8 +187,9 @@ export interface CollectionScope<Raw extends WireCollection = WireCollection> {
   /** The list the scope's pages read; the same request and cache entry they use. */
   fetchList(): Promise<{ collections: Raw[] }>;
   fetchSnapshot(id: string): Promise<EditorSnapshot<Raw>>;
-  create(draft: SavableDraft): Promise<{ id: string; warnings: string[] }>;
-  update(ref: { id: string; etag: string }, draft: SavableDraft): Promise<{ warnings: string[] }>;
+  /** `failedArtwork`: the slots whose upload or removal failed after the collection saved. */
+  create(draft: SavableDraft): Promise<{ id: string } & SaveOutcome>;
+  update(ref: { id: string; etag: string }, draft: SavableDraft): Promise<SaveOutcome>;
   remove(ref: { id: string; etag: string }): Promise<void>;
   sync(id: string): Promise<SyncOutcome>;
   preview(rules: QueryDefinition, limit: number): Promise<{ items: PreviewItem[]; total: number }>;
@@ -244,14 +258,34 @@ function trimmedSource(slot: ArtworkSlotDraft | undefined) {
   return slot?.sourceUrl?.trim() || undefined;
 }
 
-function serverRequest(draft: SavableDraft): CreateLibraryCollectionRequest {
+/** Admin artwork errors read "poster: …" or "backdrop: …". */
+function serverOutcome(artworkErrors: string[]): SaveOutcome {
+  return {
+    warnings: artworkErrors,
+    failedArtwork: (["poster", "backdrop"] as const).filter((slot) =>
+      artworkErrors.some((error) => error.startsWith(`${slot}:`)),
+    ),
+  };
+}
+
+function personalOutcome(posterError: string | undefined): SaveOutcome {
+  return posterError
+    ? { warnings: [posterError], failedArtwork: ["poster"] }
+    : { warnings: [], failedArtwork: [] };
+}
+
+/** The slots whose saved image a save removes. */
+function removedArtwork(draft: SavableDraft): ArtworkSlot[] {
+  return (["poster", "backdrop"] as const).filter((slot) => draft.artwork[slot]?.remove);
+}
+
+function serverRequest(draft: SavableDraft): Omit<CreateLibraryCollectionRequest, "featured"> {
   return {
     library_ids: draft.libraryIds,
     title: draft.name,
     description: draft.description,
     collection_type: draft.kind,
     visibility: draft.server?.visibility ?? "visible",
-    featured: draft.server?.pinFirst ?? false,
     query_definition: smartRules(draft),
     sort_config: draft.kind === "smart" ? (draft.rawSortConfig ?? {}) : undefined,
     poster_source_url: trimmedSource(draft.artwork.poster),
@@ -262,6 +296,7 @@ function serverRequest(draft: SavableDraft): CreateLibraryCollectionRequest {
 function personalFields(draft: SavableDraft) {
   return {
     name: draft.name,
+    description: draft.description,
     is_shared: draft.personal?.shared ?? false,
     query_definition: smartRules(draft),
     sort_config: draft.kind === "smart" ? (draft.rawSortConfig ?? {}) : undefined,
@@ -340,10 +375,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
       rules: rulesFor(draftKind, { ...view?.raw.query_definition, library_ids: libraryIds }),
       rawSortConfig: view?.raw.sort_config ?? {},
       artwork: {},
-      server: {
-        visibility: view?.server?.visibility ?? "visible",
-        pinFirst: view?.server?.pinFirst ?? false,
-      },
+      server: { visibility: view?.server?.visibility ?? "visible" },
     };
   },
 
@@ -358,14 +390,17 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
 
   async create(draft) {
     const request = serverRequest(draft);
-    const created = await v2("POST /api/v2/admin/collections", { body: adminCreateBody(request) });
+    // Made in the editor, so not pinned: Pin is an Arrange action.
+    const created = await v2("POST /api/v2/admin/collections", {
+      body: adminCreateBody({ ...request, featured: false }),
+    });
     const { artworkErrors } = await saveAdminArtwork(
       created,
       request,
       draft.artwork.poster?.file,
       draft.artwork.backdrop?.file,
     );
-    return { id: created.id, warnings: artworkErrors };
+    return { id: created.id, ...serverOutcome(artworkErrors) };
   },
 
   async update(ref, draft) {
@@ -373,6 +408,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
     const updated = await v2("PATCH /api/v2/admin/collections/{id}", {
       path: { id: ref.id },
       headers: { "If-Match": requiredETag(ref.etag) },
+      // No `featured`: a stale editor must not undo a Pin set in Arrange.
       body: adminUpdateBody(request),
     });
     const { artworkErrors } = await saveAdminArtwork(
@@ -380,8 +416,9 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
       request,
       draft.artwork.poster?.file,
       draft.artwork.backdrop?.file,
+      removedArtwork(draft),
     );
-    return { warnings: artworkErrors };
+    return serverOutcome(artworkErrors);
   },
 
   async remove(ref) {
@@ -488,7 +525,7 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
     };
     const created = await v2("POST /api/v2/collections", { body: collectionCreateToV2(body) });
     const { posterError } = await saveCollectionPoster(created, draft.artwork.poster?.file);
-    return { id: created.id, warnings: posterError ? [posterError] : [] };
+    return { id: created.id, ...personalOutcome(posterError) };
   },
 
   async update(ref, draft) {
@@ -502,8 +539,9 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
       updated,
       draft.artwork.poster?.file,
       trimmedSource(draft.artwork.poster),
+      draft.artwork.poster?.remove,
     );
-    return { warnings: posterError ? [posterError] : [] };
+    return personalOutcome(posterError);
   },
 
   async remove(ref) {

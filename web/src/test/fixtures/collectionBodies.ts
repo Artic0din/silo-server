@@ -80,7 +80,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin manual update. Today the editor PATCH carries `featured`. */
+  /** Admin manual update from the editor page. The PATCH leaves out `featured`, so Pin set in Arrange stays. */
   adminManualUpdate: [
     {
       operation: "PATCH /api/v2/admin/collections/{id}",
@@ -93,7 +93,6 @@ export const goldens = {
         description: "",
         collection_type: "manual",
         visibility: "visible",
-        featured: false,
         library_ids: ["1"],
       },
     },
@@ -111,7 +110,6 @@ export const goldens = {
         description: "",
         collection_type: "manual",
         visibility: "visible",
-        featured: false,
         library_ids: ["1"],
       },
     },
@@ -137,7 +135,6 @@ export const goldens = {
         description: "",
         collection_type: "manual",
         visibility: "visible",
-        featured: false,
         library_ids: ["1"],
       },
     },
@@ -413,7 +410,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal manual create: a pasted poster URL rides in the POST body, and no `description` is sent. */
+  /** Personal manual create from the editor page: a pasted poster URL rides in the POST body, with `description`. */
   personalManualCreate: [
     {
       operation: "POST /api/v2/collections",
@@ -421,6 +418,7 @@ export const goldens = {
       headers: {},
       body: {
         name: "Rainy days",
+        description: "",
         collection_type: "manual",
         is_shared: false,
         include_in_server_collections: false,
@@ -428,7 +426,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal manual update: no `description`. */
+  /** Personal manual update from the editor page, with `description`. */
   personalManualUpdate: [
     {
       operation: "PATCH /api/v2/collections/{id}",
@@ -438,6 +436,7 @@ export const goldens = {
       },
       body: {
         name: "Renamed",
+        description: "",
         is_shared: false,
         include_in_server_collections: false,
       },
@@ -453,6 +452,7 @@ export const goldens = {
       },
       body: {
         name: "Rainy days",
+        description: "",
         is_shared: false,
         include_in_server_collections: false,
       },
@@ -469,6 +469,7 @@ export const goldens = {
       },
       body: {
         name: "Rainy days",
+        description: "",
         is_shared: false,
         include_in_server_collections: false,
       },
@@ -521,24 +522,25 @@ export const goldens = {
     },
     personalPosterDelete,
   ] satisfies Writes,
-  /** Personal manual page: adding a title moves the collection's ETag, and the rename's PATCH still sends the one the page loaded with, so the server answers 412. */
+  /** Personal manual editor: a title added after the one already there goes to the end, and the rename's PATCH sends the ETag the add left behind. */
   personalAddThenRename: [
     {
       operation: "PUT /api/v2/collections/{id}/items/{item_id}",
       path: "/api/v2/collections/c1/items/movie:alien-1979",
       headers: {},
       body: {
-        position: 0,
+        position: 1,
       },
     },
     {
       operation: "PATCH /api/v2/collections/{id}",
       path: "/api/v2/collections/c1",
       headers: {
-        "If-Match": '"/api/v2/collections/c1#1"',
+        "If-Match": '"/api/v2/collections/c1#2"',
       },
       body: {
         name: "Renamed",
+        description: "",
         is_shared: false,
         include_in_server_collections: false,
       },

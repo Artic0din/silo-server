@@ -1,40 +1,34 @@
-import { useId } from "react";
+import type { ReactNode } from "react";
 
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SHOW_TO_OTHER_PROFILES_HELP, SHOW_TO_OTHER_PROFILES_LABEL } from "@/lib/collections/copy";
+
+import { ToggleRow } from "./fields/ToggleRow";
 
 /**
  * The one sharing switch of a personal collection (#1615): on, every profile
- * on the login sees it read-only; off, only its creator does.
+ * on the login sees it read-only; off, only its creator does. `children` sits
+ * under the switch (the unshare warning, say).
  */
 export function ShowToOtherProfilesField({
   checked,
   onCheckedChange,
   disabled = false,
+  children,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
+  children?: ReactNode;
 }) {
-  const id = useId();
   return (
-    <div className="border-border flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
-      <div>
-        <Label htmlFor={id} className="text-sm font-medium">
-          Show to other profiles
-        </Label>
-        <p id={`${id}-help`} className="text-muted-foreground mt-1 text-xs">
-          Every profile on this login will see this collection. Titles a profile can&apos;t access
-          stay hidden from it. Nobody else on the server can see it.
-        </p>
-      </div>
-      <Switch
-        id={id}
-        aria-describedby={`${id}-help`}
-        checked={checked}
-        onCheckedChange={onCheckedChange}
-        disabled={disabled}
-      />
-    </div>
+    <ToggleRow
+      label={SHOW_TO_OTHER_PROFILES_LABEL}
+      help={SHOW_TO_OTHER_PROFILES_HELP}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      disabled={disabled}
+    >
+      {children}
+    </ToggleRow>
   );
 }

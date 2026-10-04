@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { V2ProblemError } from "@/api/v2/request";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import AdminCollectionEditor from "./AdminCollectionEditor";
+import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
+import CollectionEditorPage from "./CollectionEditorPage";
+
+beforeAll(preloadLegacyCollectionEditors);
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 const state = vi.hoisted(() => ({ props: undefined as unknown }));
@@ -37,7 +40,9 @@ function show() {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/edit/c1"]}>
         <Routes>
-          <Route path="/edit/:id" element={<AdminCollectionEditor />} />
+          <Route element={<CollectionEditorPage scope="server" />}>
+            <Route path="/edit/:id" />
+          </Route>
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -62,7 +67,7 @@ beforeEach(() => {
   );
 });
 
-describe("admin canonical editor snapshot", () => {
+describe("the editor page keeps the collection it opened", () => {
   it("keeps the definition and ETag together across background refetches", async () => {
     show();
     expect(await screen.findByText(`Original poster.png ${ORIGINAL_ETAG}`)).toBeInTheDocument();
@@ -94,7 +99,7 @@ describe("admin canonical editor snapshot", () => {
     await waitFor(() =>
       expect(v2Recorder.callsOf("GET /api/v2/admin/collections/{id}")).toHaveLength(1),
     );
-    expect(screen.getByText("Loading collection editor...")).toBeInTheDocument();
+    expect(screen.getByText("Loading collection editor…")).toBeInTheDocument();
 
     await act(async () => listed(adminCollectionList({ ...smart, poster_url: "hydrated.png" })));
 

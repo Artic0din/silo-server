@@ -19,6 +19,7 @@ import { useScopeDelete, useScopeSync } from "@/hooks/queries/collectionScope";
 import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { useAvailableUserLibraries } from "@/hooks/queries/libraries";
 import type { CollectionPageAccess } from "@/hooks/useCollectionPageAccess";
+import { personalDeleteDescription, serverDeleteDescription } from "@/lib/collections/copy";
 import { PERSONAL_SCOPE, type CollectionScope, type EditorSnapshot } from "@/lib/collections/scope";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
@@ -74,20 +75,6 @@ export function CollectionPageActions({
       libraryId={libraryId}
     />
   );
-}
-
-function serverDeleteDescription(libraryNames: string[]) {
-  if (libraryNames.length === 0) return "It's removed for everyone. This can't be undone.";
-  const last = libraryNames[libraryNames.length - 1];
-  const named =
-    libraryNames.length === 1 ? last : `${libraryNames.slice(0, -1).join(", ")} and ${last}`;
-  return `It's removed from ${named} for everyone. This can't be undone.`;
-}
-
-function personalDeleteDescription(shared: boolean) {
-  return shared
-    ? "It's removed for you and every profile you share it with. This can't be undone."
-    : "This can't be undone.";
 }
 
 function ManageActions({

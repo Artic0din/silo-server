@@ -105,7 +105,12 @@ describe("AdminCollections helpers", () => {
   });
 
   it("serializes manual admin drafts into the richer request shape", () => {
-    const body = toAdminCollectionRequest(toAdminCollectionBuilderValue(null, 4));
+    const body = toAdminCollectionRequest(
+      toAdminCollectionBuilderValue(
+        { collection_type: "manual", library_ids: [4] } as LibraryCollection,
+        null,
+      ),
+    );
 
     expect(body.library_ids).toEqual([4]);
     expect(body.collection_type).toBe("manual");

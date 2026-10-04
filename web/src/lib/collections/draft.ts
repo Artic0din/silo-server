@@ -1,0 +1,119 @@
+/**
+ * Pure rules for a collection editor's draft: which fields changed, and how a
+ * draft absorbs a newer copy of the collection without losing what the
+ * person typed (a three-way merge against the copy the draft started from).
+ *
+ * Artwork is staged separately and is not a draft field; `kind` is fixed once
+ * the collection exists.
+ */
+import type { CollectionDraft } from "./scope";
+
+export type DraftField =
+  | "name"
+  | "description"
+  | "libraryIds"
+  | "rules"
+  | "rawSortConfig"
+  | "showOnly"
+  | "visibility"
+  | "shared"
+  | "inLibraryTabs";
+
+interface FieldAccess {
+  get(draft: CollectionDraft): unknown;
+  set(draft: CollectionDraft, value: unknown): CollectionDraft;
+}
+
+const FIELDS: Record<DraftField, FieldAccess> = {
+  name: { get: (d) => d.name, set: (d, v) => ({ ...d, name: v as string }) },
+  description: {
+    get: (d) => d.description,
+    set: (d, v) => ({ ...d, description: v as string }),
+  },
+  // The order libraries were ticked in means nothing.
+  libraryIds: {
+    get: (d) => [...d.libraryIds].sort((a, b) => a - b),
+    set: (d, v) => ({ ...d, libraryIds: [...(v as number[])] }),
+  },
+  rules: { get: (d) => d.rules, set: (d, v) => ({ ...d, rules: v as CollectionDraft["rules"] }) },
+  rawSortConfig: {
+    get: (d) => d.rawSortConfig,
+    set: (d, v) => ({ ...d, rawSortConfig: v as CollectionDraft["rawSortConfig"] }),
+  },
+  showOnly: {
+    get: (d) => d.showOnly,
+    set: (d, v) => ({ ...d, showOnly: v as CollectionDraft["showOnly"] }),
+  },
+  visibility: {
+    get: (d) => d.server?.visibility,
+    set: (d, v) =>
+      d.server ? { ...d, server: { ...d.server, visibility: v as "visible" | "hidden" } } : d,
+  },
+  shared: {
+    get: (d) => d.personal?.shared,
+    set: (d, v) => (d.personal ? { ...d, personal: { ...d.personal, shared: v as boolean } } : d),
+  },
+  inLibraryTabs: {
+    get: (d) => d.personal?.inLibraryTabs,
+    set: (d, v) =>
+      d.personal ? { ...d, personal: { ...d.personal, inLibraryTabs: v as boolean } } : d,
+  },
+};
+
+const FIELD_ORDER = Object.keys(FIELDS) as DraftField[];
+
+/** JSON with sorted object keys, so key order never reads as a change. */
+function stable(value: unknown): string {
+  return JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)),
+        )
+      : entry,
+  );
+}
+
+function same(a: unknown, b: unknown) {
+  return stable(a) === stable(b);
+}
+
+/** The fields whose values differ between two drafts, in a fixed order. */
+export function changedFields(a: CollectionDraft, b: CollectionDraft): DraftField[] {
+  return FIELD_ORDER.filter((field) => !same(FIELDS[field].get(a), FIELDS[field].get(b)));
+}
+
+/** `draft` with `fields` taken from `from`. */
+export function takeFields(
+  draft: CollectionDraft,
+  from: CollectionDraft,
+  fields: readonly DraftField[],
+): CollectionDraft {
+  return fields.reduce((next, field) => FIELDS[field].set(next, FIELDS[field].get(from)), draft);
+}
+
+/**
+ * Three-way merge of the person's draft (`mine`) and a newer copy of the
+ * collection (`theirs`) against the copy the draft started from (`base`).
+ * Per field: untouched by the person → theirs; untouched by the server →
+ * mine; both changed to the same value → that value; both changed
+ * differently → mine, reported as a conflict. Staged artwork stays as it is.
+ * `theirs` becomes the new base.
+ */
+export function mergeDraft(
+  base: CollectionDraft,
+  mine: CollectionDraft,
+  theirs: CollectionDraft,
+): { base: CollectionDraft; draft: CollectionDraft; conflicts: DraftField[] } {
+  const conflicts: DraftField[] = [];
+  let draft: CollectionDraft = { ...theirs, artwork: mine.artwork };
+  for (const field of FIELD_ORDER) {
+    const { get } = FIELDS[field];
+    const was = get(base);
+    const ours = get(mine);
+    const server = get(theirs);
+    if (same(ours, was) || same(ours, server)) continue; // theirs is already in `draft`
+    if (!same(server, was)) conflicts.push(field);
+    draft = FIELDS[field].set(draft, ours);
+  }
+  return { base: theirs, draft, conflicts };
+}
