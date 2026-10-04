@@ -318,11 +318,6 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 			libraryIDs = intersectInts(libraryIDs, access.AllowedLibraryIDs)
 		}
 	}
-	// A restricted reader whose allowed libraries share none with the query's
-	// own sees nothing. The empty intersection must not fall through as "no
-	// library scope", which would run the query across every library.
-	noAllowedLibrary := access.AllowedLibraryIDs != nil && len(libraryIDs) == 0
-
 	// Scope can be set externally (e.g. catalog resolver pre-fills it from
 	// the request) or implied by the query definition's MediaScope (e.g.
 	// section fetchers construct executors without setting Scope and rely
@@ -413,7 +408,9 @@ func (e *QueryExecutor) buildPreviewPagePlan(
 		args = append(args, libScopeArgs...)
 		argIdx += len(libScopeArgs)
 	}
-	if noAllowedLibrary {
+	if access.AllowedLibraryIDs != nil && len(libraryIDs) == 0 {
+		// The allowlist shares no library with the query. An empty library
+		// list would otherwise scope nothing and match every library.
 		conditions = append(conditions, "1 = 0")
 	}
 	if access.AllowedContentIDs != nil {
