@@ -48,8 +48,13 @@ const SORTED_BY: Readonly<Record<GroupSortMode, string | null>> = {
   most_items: "most titles",
 };
 
+/** Plain string order, as the server compares ids and names (Go's `<`, not a locale). */
+function compare(a: string, b: string) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function byId(a: { id: string }, b: { id: string }) {
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return compare(a.id, b.id);
 }
 
 function move<T>(list: readonly T[], from: number, to: number): T[] {
@@ -94,14 +99,14 @@ export function boardShelves(
   return slots.map((slot) => slot.shelf);
 }
 
-/** A shelf's collections in the order viewers see them. */
+/** A shelf's collections in the order viewers see them, sorted as the server sorts them. */
 export function shownCollections(shelf: Shelf): LibraryCollection[] {
   const list = [...shelf.collections];
   switch (shelf.sortMode) {
     case "name_asc":
-      return list.sort((a, b) => a.title.localeCompare(b.title));
+      return list.sort((a, b) => compare(a.title, b.title));
     case "name_desc":
-      return list.sort((a, b) => b.title.localeCompare(a.title));
+      return list.sort((a, b) => compare(b.title, a.title));
     case "recent":
       return list.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
     case "most_items":

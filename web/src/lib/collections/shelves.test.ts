@@ -90,6 +90,23 @@ describe("shownCollections", () => {
   ] as const)("orders a %s shelf the way viewers see it", (mode, ids) => {
     expect(shownCollections(shelf(mode)).map((entry) => entry.id)).toEqual(ids);
   });
+
+  it("orders names the way the server does, uppercase before lowercase", () => {
+    const mixed: Shelf = {
+      ...shelf("name_asc"),
+      collections: [
+        collection("t", { title: "tick, tick... BOOM!" }),
+        collection("e", { title: "Élite" }),
+        collection("z", { title: "Zodiac" }),
+      ],
+    };
+    expect(shownCollections(mixed).map((entry) => entry.id)).toEqual(["z", "t", "e"]);
+    expect(shownCollections({ ...mixed, sortMode: "name_desc" }).map((entry) => entry.id)).toEqual([
+      "e",
+      "t",
+      "z",
+    ]);
+  });
 });
 
 describe("shelfCountLine", () => {
