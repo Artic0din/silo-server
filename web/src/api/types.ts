@@ -4618,6 +4618,8 @@ export interface SettingsSectionEntry {
   id: string;
   section_type: string;
   title: string;
+  /** The admin row's own title; empty for a profile-built row. Absent on entries built locally. */
+  default_title?: string;
   featured: boolean;
   item_limit: number;
   hidden: boolean;

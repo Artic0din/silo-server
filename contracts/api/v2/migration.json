@@ -35150,7 +35150,7 @@
         "path": "/api/v2/profile/sections/settings",
         "operation_id": "getProfileSectionSettings"
       },
-      "notes": "Conditionally registered: authMiddleware != nil; sectionHandler != nil. v2 registers the operation unconditionally and reports capability state instead. Path keeps the v1 shape. Collection envelope (items) instead of {sections}; config is an extension bag."
+      "notes": "Conditionally registered: authMiddleware != nil; sectionHandler != nil. v2 registers the operation unconditionally and reports capability state instead. Path keeps the v1 shape. Collection envelope (items) instead of {sections}; config is an extension bag. Adds default_title, the administrator's title for the row, which v1 does not return."
     },
     {
       "listener": "api",
