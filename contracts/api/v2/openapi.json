@@ -22579,6 +22579,13 @@
               "unsupported"
             ],
             "type": "string"
+          },
+          "sync_schedule_editable": {
+            "description": "updateCollection accepts sync_schedule on a synced list; false when imports is false",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           }
         },
         "required": [
@@ -22596,6 +22603,7 @@
           "create_description",
           "mdblist_search",
           "schedule_time_zone",
+          "sync_schedule_editable",
           "revision",
           "state",
           "allowed"
@@ -34680,6 +34688,20 @@
             ],
             "type": "string"
           },
+          "sync_cadence": {
+            "description": "The cadence sync_schedule names; empty when the collection is not synced, custom for a schedule no cadence name produces",
+            "enum": [
+              "",
+              "daily",
+              "weekly",
+              "monthly",
+              "custom"
+            ],
+            "examples": [
+              ""
+            ],
+            "type": "string"
+          },
           "sync_schedule": {
             "description": "Empty when the collection is not synced",
             "examples": [
@@ -34713,6 +34735,7 @@
           "group_id",
           "source_url",
           "sync_schedule",
+          "sync_cadence",
           "next_sync_at",
           "last_sync_at",
           "last_sync_status",
@@ -35057,6 +35080,19 @@
           "query_definition": {},
           "sort_config": {},
           "source_url": {
+            "type": "string"
+          },
+          "sync_schedule": {
+            "description": "A synced list's cadence; empty stops scheduled syncs. Cron expressions are refused. Accepted when getCollectionCapabilities reports sync_schedule_editable",
+            "enum": [
+              "",
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "examples": [
+              "weekly"
+            ],
             "type": "string"
           }
         },

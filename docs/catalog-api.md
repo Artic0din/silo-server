@@ -120,6 +120,9 @@ Both collection capability documents, `getCollectionCapabilities` and
   offset changes with daylight saving time, so read it with the schedule rather than
   storing it.
 
+`getCollectionCapabilities` also reports `sync_schedule_editable`, `true` when `updateCollection`
+accepts `sync_schedule`; see [Personal sync schedules](#personal-sync-schedules).
+
 ## Personal collection descriptions
 
 `createCollection` (`POST /api/v2/collections`) accepts an optional `description`, stored
@@ -173,6 +176,29 @@ whether it runs on import, through `syncCollection`, or on the collection's sche
   collection, empty and with a failed first sync the caller can retry.
 
 Each viewer of a shared collection still sees only the titles that viewer can access.
+
+## Personal sync schedules
+
+`updateCollection` (`PATCH /api/v2/collections/{id}`) accepts `sync_schedule` on a synced list
+(a collection imported from MDBList, TMDB, or Trakt). The value is a cadence name, `daily`,
+`weekly`, or `monthly`, or `""` to stop scheduled syncs; `syncCollection` still syncs on demand.
+Cron expressions are a validation failure for every account, administrators included, and so is
+`sync_schedule` on a manual or smart collection or `null`. A cadence sets `next_sync_at` to the
+schedule's next run; `""` sets `sync_schedule` to `""` and `next_sync_at` to `null`. Only the
+collection's creator can change it, as with every other member. Check `sync_schedule_editable`
+in the `getCollectionCapabilities` document before sending it: a server without that flag rejects
+the member as unknown, and the flag is `false` when `imports` is.
+
+Collection reads carry `sync_cadence`, the cadence `sync_schedule` names: `daily`, `weekly`,
+`monthly`, `""` when the collection is not synced, or `custom` for a stored schedule no cadence
+name produces. Read it instead of matching cron expressions.
+
+A sync that is running when the schedule changes, on any node, records its result but leaves the
+`next_sync_at` the change set. A failed scheduled sync retries after the minimum interval only
+when the schedule was not changed while it ran.
+
+The frozen `/api/v1/collections/{id}` update ignores a `sync_schedule` member, and `/api/v1`
+collection responses carry no `sync_cadence`.
 
 ## Library-scoped version lists
 

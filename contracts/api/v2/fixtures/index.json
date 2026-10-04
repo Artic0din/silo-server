@@ -6139,7 +6139,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"ad513d4ad18e08beb14ec7ab6cf9d7b8ab2492c659d57a51712dc368840cd2c8\""
+        "ETag": "\"554d61cfdf385e3579a148b41cc585b53e9e7be8007dbe26586de784cb127a4c\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",

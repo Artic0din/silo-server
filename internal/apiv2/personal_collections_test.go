@@ -198,8 +198,8 @@ func TestListCollections(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"items":[{"id":"c1","profile_id":"p-owner","creator_profile_id":"p-owner","name":"Rainy days","description":"","collection_type":"manual","is_shared":false,"allowed_profile_ids":[],"query_definition":{},"sort_config":{},"sort_order":0,"group_id":null,"source_url":"","sync_schedule":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"},` +
-		`{"id":"c2","profile_id":"p-owner","creator_profile_id":"p-owner","name":"Rainy days","description":"","collection_type":"manual","is_shared":false,"allowed_profile_ids":[],"query_definition":{},"sort_config":{},"sort_order":1,"group_id":"g1","source_url":"","sync_schedule":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"}],` +
+	want := `{"items":[{"id":"c1","profile_id":"p-owner","creator_profile_id":"p-owner","name":"Rainy days","description":"","collection_type":"manual","is_shared":false,"allowed_profile_ids":[],"query_definition":{},"sort_config":{},"sort_order":0,"group_id":null,"source_url":"","sync_schedule":"","sync_cadence":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"},` +
+		`{"id":"c2","profile_id":"p-owner","creator_profile_id":"p-owner","name":"Rainy days","description":"","collection_type":"manual","is_shared":false,"allowed_profile_ids":[],"query_definition":{},"sort_config":{},"sort_order":1,"group_id":"g1","source_url":"","sync_schedule":"","sync_cadence":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"}],` +
 		`"groups":[{"id":"g1","name":"Seasonal","slug":"seasonal","default_sort_mode":"manual","sort_order":0}]}` + "\n"
 	if rec.Body.String() != want {
 		t.Fatalf("body = %s", rec.Body.String())
@@ -230,7 +230,7 @@ func TestGetCollectionCapabilities(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"groups":false,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"mdblist_search":true,"schedule_time_zone":{"utc_offset":"-05:00","abbreviation":"CDT","name":"America/Chicago"}}` + "\n"
+	want := `{"groups":false,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"mdblist_search":true,"schedule_time_zone":{"utc_offset":"-05:00","abbreviation":"CDT","name":"America/Chicago"},"sync_schedule_editable":false}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}

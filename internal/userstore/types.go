@@ -332,6 +332,11 @@ type UpdateCollectionSyncStateInput struct {
 	ItemCount  int
 	LastSyncAt time.Time
 	NextSyncAt *time.Time
+	// ScheduleAtStart is the collection's sync_schedule when the sync began.
+	// NextSyncAt is written only while the stored schedule still equals it, so
+	// a schedule edited during the sync, on any node, keeps the next_sync_at
+	// the edit wrote. The rest of the sync state is written either way.
+	ScheduleAtStart *string
 }
 
 type CollectionItemReplacement struct {

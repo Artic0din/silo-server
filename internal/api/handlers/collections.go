@@ -77,6 +77,10 @@ type PersonalCollectionUpdateRequest struct {
 	IncludeInServerCollections *bool                  `json:"include_in_server_collections"`
 	PosterSourceURL            *string                `json:"poster_source_url"`
 	GroupID                    optionalNullableString `json:"group_id"`
+	// SyncSchedule is a cadence name (see usercollections.AllowedSyncSchedules)
+	// or "" to stop syncing. Set only by the /api/v2 adapter; the frozen
+	// /api/v1 update never accepted one and still ignores it.
+	SyncSchedule *string `json:"-"`
 }
 
 type collectionItemRequest struct {

@@ -318,6 +318,9 @@ func (h *UserCollectionImportHandler) createImportedCollection(
 			Message:    syncErr.Error(),
 			LastSyncAt: time.Now().UTC(),
 			NextSyncAt: usercollections.InitialNextSyncAt(schedule),
+
+			// The sync started on the schedule the collection was created with.
+			ScheduleAtStart: schedule,
 		})
 		updated = collection
 		updated.LastSyncStatus = "failed"

@@ -163,12 +163,13 @@ func (s *Service) ownerFilter(ctx context.Context, userID int, store userstore.U
 		"error", err,
 	)
 	if stateErr := store.UpdateCollectionSyncState(ctx, userstore.UpdateCollectionSyncStateInput{
-		ID:         collection.ID,
-		Status:     "failed",
-		Message:    ErrOwnerAccessUnavailable.Error(),
-		ItemCount:  collection.ItemCount,
-		LastSyncAt: time.Now().UTC(),
-		NextSyncAt: collection.NextSyncAt,
+		ID:              collection.ID,
+		Status:          "failed",
+		Message:         ErrOwnerAccessUnavailable.Error(),
+		ItemCount:       collection.ItemCount,
+		LastSyncAt:      time.Now().UTC(),
+		NextSyncAt:      collection.NextSyncAt,
+		ScheduleAtStart: collection.SyncSchedule,
 	}); stateErr != nil {
 		s.logger.ErrorContext(ctx, "user collection sync: recording the failed sync failed",
 			"user_id", userID,
@@ -568,12 +569,13 @@ func (s *Service) applyResult(
 	}
 
 	if err := store.UpdateCollectionSyncState(ctx, userstore.UpdateCollectionSyncStateInput{
-		ID:         collection.ID,
-		Status:     status,
-		Message:    message,
-		ItemCount:  len(matched),
-		LastSyncAt: completedAt,
-		NextSyncAt: nextSyncAt,
+		ID:              collection.ID,
+		Status:          status,
+		Message:         message,
+		ItemCount:       len(matched),
+		LastSyncAt:      completedAt,
+		NextSyncAt:      nextSyncAt,
+		ScheduleAtStart: collection.SyncSchedule,
 	}); err != nil {
 		return nil, nil, err
 	}

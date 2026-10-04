@@ -44,6 +44,7 @@ type PersonalCollectionUpdate struct {
 	IncludeInServerCollections *bool           `json:"include_in_server_collections,omitempty" nullable:"false"`
 	PosterSourceURL            *string         `json:"poster_source_url,omitempty" nullable:"false"`
 	GroupID                    *ID             `json:"group_id,omitempty" nullable:"true" doc:"Null removes the group; omitted leaves it unchanged"`
+	SyncSchedule               *string         `json:"sync_schedule,omitempty" nullable:"false" enum:",daily,weekly,monthly" doc:"A synced list's cadence; empty stops scheduled syncs. Cron expressions are refused. Accepted when getCollectionCapabilities reports sync_schedule_editable" example:"weekly"`
 }
 type PersonalCollectionUpdateInput struct {
 	IfMatch     string `header:"If-Match"`
@@ -208,7 +209,7 @@ func (reg *Registry) updatePersonalCollection(ctx context.Context, in *PersonalC
 		return nil, NewProblem(TypeValidationFailed, "Update artwork using the separate poster operation.")
 	}
 	b := in.Body
-	r := handlers.PersonalCollectionUpdateRequest{Name: b.Name, Description: b.Description, IsShared: b.IsShared, QueryDefinition: b.QueryDefinition, SortConfig: b.SortConfig, SourceURL: b.SourceURL, MaxItems: b.MaxItems, DisplayQueryDefinition: b.DisplayQueryDefinition, IncludeInServerCollections: b.IncludeInServerCollections, PosterSourceURL: b.PosterSourceURL}
+	r := handlers.PersonalCollectionUpdateRequest{Name: b.Name, Description: b.Description, IsShared: b.IsShared, QueryDefinition: b.QueryDefinition, SortConfig: b.SortConfig, SourceURL: b.SourceURL, MaxItems: b.MaxItems, DisplayQueryDefinition: b.DisplayQueryDefinition, IncludeInServerCollections: b.IncludeInServerCollections, PosterSourceURL: b.PosterSourceURL, SyncSchedule: b.SyncSchedule}
 	if b.AllowedProfileIDs != nil {
 		r.AllowedProfileIDs = new(stringsOfIDs(*b.AllowedProfileIDs))
 	}
