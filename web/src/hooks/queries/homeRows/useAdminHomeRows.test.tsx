@@ -267,6 +267,26 @@ describe("useAdminHomeRows", () => {
     expect(result.current.adapter.rows[0]!.hero).toBe(false);
   });
 
+  it("rereads the page when a quick action's response is lost after the server applied it", async () => {
+    const { result } = setup();
+    await ready(result);
+    const implementation = mocks.request.getMockImplementation()!;
+    mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
+      const response = await implementation(operation, args);
+      if (operation === "PATCH /api/v2/admin/sections/{id}") throw new TypeError("Failed to fetch");
+      return response;
+    });
+    await act(async () => result.current.adapter.setShown("a", false));
+    expect(mocks.error).toHaveBeenCalledWith("Failed to fetch");
+    expect(result.current.adapter.rows[0]!.shown).toBe(false);
+    expect(result.current.adapter.conflict).toBeNull();
+
+    mocks.request.mockImplementation(implementation);
+    await act(async () => result.current.adapter.setHero("a", true));
+    expect(result.current.adapter.conflict).toBeNull();
+    expect(rows[0]).toEqual(expect.objectContaining({ enabled: false, featured: true }));
+  });
+
   it("runs writes one at a time, each against the version after the last", async () => {
     const { result } = setup();
     await ready(result);
@@ -453,6 +473,23 @@ describe("useAdminHomeRows", () => {
       expect(outcome.changedIds).toEqual(["a"]);
       expect(outcome.failures).toEqual([expect.objectContaining({ id: "t", reason: "legacy" })]);
       expect(writes().map((call) => call.args.path?.id)).toEqual(["a"]);
+    });
+
+    it("reports a row that looks already done here but was changed on another client", async () => {
+      rows = [row("a", { enabled: false }), row("b", { enabled: false })];
+      const { result } = setup();
+      await ready(result);
+      perRowVersions();
+      rows = rows.map((entry) => (entry.id === "a" ? { ...entry, enabled: true } : entry));
+      let outcome!: Awaited<ReturnType<typeof result.current.adapter.setShownMany>>;
+      await act(async () => {
+        outcome = await result.current.adapter.setShownMany(["a", "b"], false);
+      });
+      expect(outcome.changedIds).toEqual([]);
+      expect(outcome.failures).toEqual([
+        expect.objectContaining({ id: "a", title: "Title a", reason: "changed" }),
+      ]);
+      expect(writes()).toHaveLength(0);
     });
 
     it("stays pending from the first write until the refetch after the batch", async () => {
