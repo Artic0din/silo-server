@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAccessToken, setProfileId } from "@/api/client";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
@@ -16,10 +17,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
   v2: mocks.request,
-}));
-vi.mock("@/api/client", async () => ({
-  ...(await vi.importActual<typeof import("@/api/client")>("@/api/client")),
-  captureProfileRequestContext: () => ({ profileId: "p1" }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/useAuth", () => ({
@@ -125,6 +122,9 @@ async function release(operation: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The signed-in profile; saves are written as it.
+  setAccessToken("token");
+  setProfileId("p1");
   mocks.role = "user";
   mocks.collections = [{ id: "lib-c", title: "Studio Ghibli", source: "library", group: "Movies" }];
   serverRows = {
@@ -195,6 +195,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setProfileId(null);
+  setAccessToken(null);
 });
 
 async function renderPage(path = "/settings/home-screen", queryClient?: QueryClient) {

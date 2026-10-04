@@ -86,6 +86,18 @@ describe("RuleBuilder", () => {
     expect(screen.queryByRole("button", { name: "Easy" })).toBeNull();
   });
 
+  it("offers movies and shows together as one kind, and shows it when stored", () => {
+    const { unmount } = render(<Harness initial={query()} />);
+    choose(screen.getByRole("combobox", { name: "Kind of titles" }), "Movies & shows");
+    expect(latest?.media_scope).toBe("video");
+    unmount();
+
+    render(<Harness initial={query({ media_scope: "video" })} />);
+    expect(screen.getByRole("combobox", { name: "Kind of titles" })).toHaveTextContent(
+      "Movies & shows",
+    );
+  });
+
   it("changes how the first group's rules combine from the sentence", () => {
     render(<Harness initial={query()} />);
     choose(screen.getByRole("combobox", { name: "How the rules combine" }), "any");

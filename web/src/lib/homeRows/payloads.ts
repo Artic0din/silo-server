@@ -134,10 +134,19 @@ function preserveGeneratedSectionMetadata(
   return merged;
 }
 
-/** The collection a collection row's config points at, or "" for none. */
-export function collectionIdOf(config?: Record<string, unknown>): string {
+type CollectionRowSurface = "profile" | "admin";
+
+/**
+ * The collection a collection row's config points at, or "" for none. Admin
+ * rows read only `library_collection_id`: the admin endpoint rejects a row
+ * without it, so a legacy `user_collection_id` there counts as no selection.
+ */
+export function collectionIdOf(
+  config?: Record<string, unknown>,
+  surface: CollectionRowSurface = "profile",
+): string {
   const userValue = config?.user_collection_id;
-  if (typeof userValue === "string" && userValue) return userValue;
+  if (surface === "profile" && typeof userValue === "string" && userValue) return userValue;
   const libraryValue = config?.library_collection_id;
   return typeof libraryValue === "string" ? libraryValue : "";
 }
@@ -147,14 +156,16 @@ export function collectionIdOf(config?: Record<string, unknown>): string {
  * stored config byte for byte, so a row whose collection isn't in the picker
  * list (still loading, or shared and since gone) keeps its id key. A newly
  * picked collection replaces both id keys with `key` and keeps the rest.
- * `stored` is the row's config only when the row already was a collection row.
+ * `stored` is the row's config only when the row already was a collection row;
+ * `surface` decides which stored key counts as its selection (see collectionIdOf).
  */
 function collectionRowConfig(
   stored: Record<string, unknown> | undefined,
   selectedCollectionId: string,
   key: "user_collection_id" | "library_collection_id",
+  surface: CollectionRowSurface,
 ): Record<string, unknown> {
-  if (stored && collectionIdOf(stored) === selectedCollectionId) {
+  if (stored && selectedCollectionId && collectionIdOf(stored, surface) === selectedCollectionId) {
     return { ...stored };
   }
   const rest = { ...stored };
@@ -177,6 +188,7 @@ export function withPickedCollection(
     config,
     option.id,
     option.source === "user" ? "user_collection_id" : "library_collection_id",
+    "profile",
   );
 }
 
@@ -227,6 +239,7 @@ export function buildProfileSectionSaveEntry({
       section?.section_type === "collection" ? section.config : undefined,
       selectedCollectionId,
       selected?.source === "user" ? "user_collection_id" : "library_collection_id",
+      "profile",
     );
   } else if (FILTER_SECTION_TYPES.has(sectionType)) {
     config = preserveGeneratedSectionMetadata(
@@ -291,6 +304,7 @@ export function buildAdminSectionPayload({
       section?.section_type === "collection" ? base : undefined,
       selectedCollectionId,
       "library_collection_id",
+      "admin",
     );
   } else if (FILTER_SECTION_TYPES.has(sectionType)) {
     config = withQueryDefinition(base, queryDefinition);

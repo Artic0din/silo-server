@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAccessToken, setProfileId, type ProfileRequestContextSnapshot } from "@/api/client";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { v2Problem } from "@/api/v2/problems.test-support";
 import { useProfileHomeRows } from "./useProfileHomeRows";
@@ -14,6 +15,7 @@ vi.mock("@/api/v2/request", async () => ({
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error } }));
 
 type Args = {
+  profileContext?: ProfileRequestContextSnapshot;
   query?: { scope?: string; library_id?: string };
   body?: { overrides: SectionOverride[] };
 };
@@ -36,7 +38,7 @@ function entry(id: string, overrides: Partial<SettingsSectionEntry> = {}): Setti
 
 /** The server rows of each page and the overrides the profile saved for it. */
 let pages: Record<string, { rows: SettingsSectionEntry[]; saved: SectionOverride[] }>;
-let puts: Array<{ page: string; overrides: SectionOverride[] }>;
+let puts: Array<{ page: string; overrides: SectionOverride[]; profileId?: string }>;
 let calls: string[];
 /** Operations a test holds open; each call parks until the test settles it. */
 let held: Map<string, Array<{ resolve: () => void; reject: (error: unknown) => void }>>;
@@ -89,6 +91,8 @@ async function settle(operation: string, error?: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setAccessToken("token");
+  setProfileId("parent");
   pages = {
     home: {
       rows: [entry("a"), entry("b", { position: 1 }), entry("c", { position: 2 })],
@@ -109,7 +113,11 @@ beforeEach(() => {
     if (operation === "GET /api/v2/profile/sections/settings") return { items: resolve(key) };
     if (operation === "GET /api/v2/profile/sections") return { items: pages[key]!.saved };
     if (operation === "PUT /api/v2/profile/sections") {
-      puts.push({ page: key, overrides: args.body!.overrides });
+      puts.push({
+        page: key,
+        overrides: args.body!.overrides,
+        profileId: args.profileContext?.profileId,
+      });
       pages[key]!.saved = args.body!.overrides;
       return { items: args.body!.overrides };
     }
@@ -119,6 +127,11 @@ beforeEach(() => {
     }
     throw new Error(`Unexpected ${operation}`);
   });
+});
+
+afterEach(() => {
+  setProfileId(null);
+  setAccessToken(null);
 });
 
 function setup() {
@@ -233,6 +246,44 @@ describe("useProfileHomeRows", () => {
     expect(puts[1]!.overrides.map((o) => o.section_id)).toEqual(["a", "c"]);
     expect(puts[1]!.overrides.every((o) => o.position === undefined)).toBe(true);
     expect(puts[1]!.overrides.every((o) => o.item_limit === undefined)).toBe(true);
+  });
+
+  it("keeps an older edit when its save fails and a newer save is queued", async () => {
+    pages.home!.rows = [
+      entry("a"),
+      entry("trakt", { position: 1, config: { source: "trakt", list: "trending" } }),
+      entry("b", { position: 2 }),
+    ];
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    // The Trakt row's edit is in flight when the next change is made.
+    act(() => result.current.saveSection({ ...result.current.sections[1]!, title: "Trakt" }));
+    act(() => result.current.setHidden("b", true));
+    await settle("PUT /api/v2/profile/sections", v2Problem(500, "internal", "boom"));
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    expect(puts.at(-1)!.overrides).toContainEqual(
+      expect.objectContaining({ section_id: "trakt", title: "Trakt" }),
+    );
+    expect(hiddenIds(puts.at(-1)!.overrides)).toEqual(["b"]);
+  });
+
+  it("sends each save as the profile that made it, and drops it after a profile switch", async () => {
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.setHidden("a", true));
+    act(() => result.current.setHidden("b", true));
+    await waitFor(() => expect(held.get("PUT /api/v2/profile/sections")).toHaveLength(1));
+    // Another household profile is picked while the first save is in flight.
+    setProfileId("child");
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    expect(puts.map((put) => put.profileId)).toEqual(["parent"]);
+    expect(calls.filter((c) => c === "PUT /api/v2/profile/sections")).toHaveLength(1);
   });
 
   it("refuses a page switch while the page still has saves to send", async () => {

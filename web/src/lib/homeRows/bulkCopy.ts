@@ -1,7 +1,10 @@
 import { sectionLibraryFilterIds } from "@/lib/sectionLibraryFilter";
 import { isTraktConfig } from "@/lib/sectionTypes";
 import type { RowDraft } from "./rowDraft";
-import type { PageRef } from "./types";
+import type { LibraryPage, PageRef } from "./types";
+
+/** The most library ids one bulk create takes. */
+export const BULK_LIBRARY_LIMIT = 100;
 
 /**
  * Kinds whose settings belong to the page they were made on: a collection or
@@ -46,14 +49,41 @@ export function canCopyToLibraries(row: {
   );
 }
 
+function libraryTypeOf(page: LibraryPage | undefined): string | undefined {
+  return page?.libraryType?.trim().toLowerCase() || undefined;
+}
+
+/**
+ * The library pages a row on page `currentId` can go to, that page included.
+ * A row set to one kind of title, like a default "Recently Added Movies" row
+ * with media_scope "movie", would be empty or wrong in another kind of
+ * library, so it only goes to pages of this page's library type.
+ */
+export function copyTargetPages(
+  config: Record<string, unknown>,
+  pages: readonly LibraryPage[],
+  currentId: number,
+): LibraryPage[] {
+  if (typeof config.media_scope !== "string" || config.media_scope === "") return [...pages];
+  const here = libraryTypeOf(pages.find((page) => page.id === currentId));
+  return pages.filter(
+    (page) => page.id === currentId || (here !== undefined && libraryTypeOf(page) === here),
+  );
+}
+
 /**
  * The other library pages an Add row draft also goes to: none on Home, for a
- * hero row, or for a kind that can't be copied. Never the current page.
+ * hero row, or for a kind that can't be copied, and only pages the row fits.
+ * Never the current page.
  */
 export function libraryCopyIds(
   draft: Pick<RowDraft, "sectionType" | "config" | "hero" | "extraLibraryIds">,
   page: PageRef,
+  pages: readonly LibraryPage[],
 ): number[] {
   if (page.kind !== "library" || draft.hero || !canCopyToLibraries(draft)) return [];
-  return [...new Set(draft.extraLibraryIds ?? [])].filter((id) => id !== page.libraryId);
+  const fits = new Set(copyTargetPages(draft.config, pages, page.libraryId).map((p) => p.id));
+  return [...new Set(draft.extraLibraryIds ?? [])].filter(
+    (id) => id !== page.libraryId && fits.has(id),
+  );
 }

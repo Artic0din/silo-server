@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { ProfileRequestContextSnapshot } from "@/api/client";
 import { V2ProblemError } from "@/api/v2/request";
 import {
   fetchAdminSections,
@@ -44,6 +45,8 @@ export interface SaveOverridesRequest {
   scope: ProfileSectionScope;
   library_id?: string;
   overrides: SectionOverride[];
+  /** The profile to write as, when it must not follow a later profile switch. */
+  profileContext?: ProfileRequestContextSnapshot;
 }
 
 /**
@@ -292,6 +295,7 @@ export function replaceProfileSectionOverrides(data: SaveOverridesRequest) {
   return v2("PUT /api/v2/profile/sections", {
     query: sectionScopeQuery(data.scope, data.library_id),
     body: { overrides: data.overrides },
+    profileContext: data.profileContext,
   });
 }
 
@@ -299,9 +303,11 @@ export function replaceProfileSectionOverrides(data: SaveOverridesRequest) {
 export function resetProfileSectionOverrides(params: {
   scope: ProfileSectionScope;
   libraryId?: string;
+  profileContext?: ProfileRequestContextSnapshot;
 }) {
   return v2("DELETE /api/v2/profile/sections", {
     query: sectionScopeQuery(params.scope, params.libraryId),
+    profileContext: params.profileContext,
   });
 }
 
