@@ -33,8 +33,7 @@ type PersonalCollectionIDInput struct {
 type PersonalCollectionUpdate struct {
 	Name                       *string         `json:"name,omitempty" nullable:"false" minLength:"1"`
 	Description                *string         `json:"description,omitempty" nullable:"false"`
-	IsShared                   *bool           `json:"is_shared,omitempty" nullable:"false"`
-	AllowedProfileIDs          *[]ID           `json:"allowed_profile_ids,omitempty" nullable:"false"`
+	IsShared                   *bool           `json:"is_shared,omitempty" nullable:"false" doc:"Show the collection to every profile on the login"`
 	QueryDefinition            json.RawMessage `json:"query_definition,omitempty"`
 	SortConfig                 json.RawMessage `json:"sort_config,omitempty"`
 	SourceURL                  *string         `json:"source_url,omitempty" nullable:"false"`
@@ -43,7 +42,7 @@ type PersonalCollectionUpdate struct {
 	DisplayQueryDefinition     json.RawMessage `json:"display_query_definition,omitempty"`
 	IncludeInServerCollections *bool           `json:"include_in_server_collections,omitempty" nullable:"false"`
 	PosterSourceURL            *string         `json:"poster_source_url,omitempty" nullable:"false"`
-	GroupID                    *ID             `json:"group_id,omitempty" nullable:"true" doc:"Null removes the group; omitted leaves it unchanged"`
+	GroupID                    *ID             `json:"group_id,omitempty" nullable:"true" doc:"Omit: personal collection groups are no longer supported, and setting it answers capability_unsupported"`
 }
 type PersonalCollectionUpdateInput struct {
 	IfMatch     string `header:"If-Match"`
@@ -81,6 +80,7 @@ type PersonalCollectionPreviewItem struct {
 	ContentID ID     `json:"content_id"`
 	Title     string `json:"title"`
 	Type      string `json:"type"`
+	PosterURL string `json:"poster_url,omitempty" doc:"Card-size poster URL; omitted when the item has none"`
 }
 type PersonalCollectionPreviewOutput struct {
 	Body struct {
@@ -156,7 +156,9 @@ func registerPersonalCollectionLifecycle(reg *Registry) {
 	upload.MaxBodyBytes = maxPosterBytes + posterFormOverhead
 	Register(reg, upload, reg.uploadPersonalCollectionPoster)
 	Register(reg, op(http.MethodGet, "/collections/{id}", "getCollection", "Read a collection visible to the acting profile."), reg.getPersonalCollection)
-	Register(reg, op(http.MethodPatch, "/collections/{id}", "updateCollection", "Update the creator's collection; omitted fields are unchanged."), reg.updatePersonalCollection)
+	update := op(http.MethodPatch, "/collections/{id}", "updateCollection", "Update the creator's collection; omitted fields are unchanged. Another profile's shared collection answers permission_denied.")
+	update.Errors = append(update.Errors, http.StatusNotImplemented) // group_id, or a feature the account's store lacks
+	Register(reg, update, reg.updatePersonalCollection)
 	noContent := func(method, path, id, summary string) Operation {
 		o := op(method, path, id, summary)
 		o.DefaultStatus = http.StatusNoContent
@@ -208,9 +210,6 @@ func (reg *Registry) updatePersonalCollection(ctx context.Context, in *PersonalC
 	}
 	b := in.Body
 	r := handlers.PersonalCollectionUpdateRequest{Name: b.Name, Description: b.Description, IsShared: b.IsShared, QueryDefinition: b.QueryDefinition, SortConfig: b.SortConfig, SourceURL: b.SourceURL, MaxItems: b.MaxItems, DisplayQueryDefinition: b.DisplayQueryDefinition, IncludeInServerCollections: b.IncludeInServerCollections, PosterSourceURL: b.PosterSourceURL}
-	if b.AllowedProfileIDs != nil {
-		r.AllowedProfileIDs = new(stringsOfIDs(*b.AllowedProfileIDs))
-	}
 	if b.LibraryIDs != nil {
 		ids, p := intsOfIDs(*b.LibraryIDs, "library_ids")
 		if p != nil {
@@ -294,13 +293,13 @@ func (reg *Registry) previewPersonalCollection(ctx context.Context, in *Personal
 	if p != nil {
 		return nil, p
 	}
-	v, e := s.PreviewPersonalCollection(ctx, handlers.PersonalCollectionPreviewRequest{QueryDefinition: in.Body.QueryDefinition, Limit: in.Body.Limit}, handlers.AccessFilterFromContext(ctx, ""))
+	v, e := s.PreviewPersonalCollection(ctx, handlers.PersonalCollectionPreviewRequest{QueryDefinition: in.Body.QueryDefinition, Limit: in.Body.Limit, WithPosters: true}, handlers.AccessFilterFromContext(ctx, ""))
 	if e != nil {
 		return nil, collectionProblem(e)
 	}
 	items := make([]PersonalCollectionPreviewItem, 0, len(v.Items))
 	for _, i := range v.Items {
-		items = append(items, PersonalCollectionPreviewItem{ContentID: ID(i.ContentID), Title: i.Title, Type: i.Type})
+		items = append(items, PersonalCollectionPreviewItem{ContentID: ID(i.ContentID), Title: i.Title, Type: i.Type, PosterURL: i.PosterURL})
 	}
 	out := &PersonalCollectionPreviewOutput{}
 	out.Body.Collection = NewCollection(items)
