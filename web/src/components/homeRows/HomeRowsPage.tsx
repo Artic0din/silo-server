@@ -165,7 +165,7 @@ export function HomeRowsPage({
   );
 
   return (
-    <div className={cn("mx-auto grid max-w-[1000px] gap-7", narrow && "pb-24")}>
+    <div className={cn("mx-auto grid max-w-[1000px] gap-7", (narrow || selectMode) && "pb-24")}>
       <header className="page-header gap-5">
         <div className="space-y-3">
           <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{title}</h1>

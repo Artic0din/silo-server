@@ -348,7 +348,7 @@ describe("HomeRowsPage", () => {
       element.getAttribute("aria-label"),
     );
     expect(focusable).toEqual(["Select Row A", "Row A is on for everyone", "More for Row A"]);
-    expect(screen.getByRole("toolbar", { name: "0 rows selected" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Selected rows" })).toHaveTextContent("0 selected");
   });
 
   it("selects every row with Select all and shows how many are selected", async () => {
@@ -358,14 +358,24 @@ describe("HomeRowsPage", () => {
     await userEvent.click(selectAll);
     expect(screen.getByRole("checkbox", { name: "Select Row B" })).toBeChecked();
     expect(selectAll).toBeChecked();
-    expect(screen.getByRole("toolbar", { name: "2 rows selected" })).toHaveTextContent(
-      "2 selected",
-    );
+    expect(
+      within(screen.getByRole("group", { name: "Selected rows" })).getByRole("status"),
+    ).toHaveTextContent("2 selected");
     await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
     expect(harness.turnOn).toHaveBeenCalledTimes(1);
     await userEvent.click(selectAll);
     expect(screen.getByRole("checkbox", { name: "Select Row A" })).not.toBeChecked();
     expect(screen.getByRole("button", { name: "Turn on" })).toBeDisabled();
+  });
+
+  it("pins the selection bar to the bottom of the screen and keeps the last row clear of it", () => {
+    render(<FakePage initialRows={[makeRow("a")]} selectable />);
+    // The bar is fixed to the viewport, not sticky: an ancestor that clips
+    // overflow would leave a sticky bar at the end of a long list.
+    const bar = screen.getByRole("group", { name: "Selected rows" });
+    expect(bar.closest(".fixed")).not.toBeNull();
+    expect(bar.closest(".sticky")).toBeNull();
+    expect(screen.getByRole("banner").parentElement).toHaveClass("pb-24");
   });
 
   it("refuses to act on more than 100 rows at a time", () => {
@@ -396,7 +406,7 @@ describe("HomeRowsPage", () => {
     render(<FakePage initialRows={[makeRow("a")]} selectable />);
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(harness.onExit).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Selected rows" })).not.toBeInTheDocument();
   });
 
   it("asks for a range when a row's checkbox is shift-clicked or Shift+Space is pressed", async () => {
@@ -410,6 +420,15 @@ describe("HomeRowsPage", () => {
     expect(harness.onSelect).toHaveBeenLastCalledWith("c", true, true);
     await userEvent.keyboard(" ");
     expect(harness.onSelect).toHaveBeenLastCalledWith("c", false, false);
+    // A browser's keyboard click may not carry Shift, so Shift+Space is read
+    // from the key down.
+    const rowA = screen.getByRole("checkbox", { name: "Select Row A" });
+    fireEvent.keyDown(rowA, { key: " ", shiftKey: true });
+    fireEvent.click(rowA);
+    expect(harness.onSelect).toHaveBeenLastCalledWith("a", false, true);
+    // The Shift state is used once; a plain click after it does not extend.
+    fireEvent.click(rowA);
+    expect(harness.onSelect).toHaveBeenLastCalledWith("a", true, false);
   });
 
   it("does not start a drag in select mode", () => {
@@ -449,7 +468,7 @@ describe("HomeRowsPage", () => {
     }));
     render(<FakePage initialRows={[makeRow("a")]} selectable />);
     expect(screen.queryByRole("region", { name: "Page actions" })).not.toBeInTheDocument();
-    expect(screen.getByRole("toolbar", { name: "1 row selected" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Selected rows" })).toHaveTextContent("1 selected");
   });
 
   it("uses profile wording on the profile surface", () => {

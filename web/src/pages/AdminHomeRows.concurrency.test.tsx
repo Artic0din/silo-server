@@ -364,7 +364,35 @@ describe("admin section captured snapshots", () => {
     await screen.findByRole("switch", { name: "Original A is off for everyone" });
     expect(screen.getByRole("switch", { name: "Original B is on for everyone" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select Original B" })).toBeChecked();
-    expect(screen.getByRole("toolbar", { name: "3 rows selected" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Selected rows" })).toHaveTextContent("3 selected");
+  });
+  it("keeps the selection bar's actions off until a row write and its refetch land", async () => {
+    await setup();
+    await chooseMoreAction("Select rows");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Original A" }));
+    const actions = ["Turn on", "Turn off", "Delete…"].map((name) =>
+      screen.getByRole("button", { name }),
+    );
+    for (const action of actions) expect(action).toBeEnabled();
+    const implementation = mocks.request.getMockImplementation()!;
+    let releaseList: (() => void) | null = null;
+    let patched = false;
+    mocks.request.mockImplementation((operation: string, args: Args) => {
+      if (operation === "PATCH /api/v2/admin/sections/{id}") patched = true;
+      if (patched && operation === "GET /api/v2/admin/sections")
+        return new Promise((resolve) => {
+          releaseList = () => resolve(implementation(operation, args));
+        });
+      return implementation(operation, args);
+    });
+    fireEvent.click(screen.getByRole("switch", { name: "Original B is on for everyone" }));
+    await waitFor(() => expect(releaseList).toBeTypeOf("function"));
+    for (const action of actions) expect(action).toBeDisabled();
+    await act(async () => releaseList!());
+    await waitFor(() => {
+      for (const action of actions) expect(action).toBeEnabled();
+    });
+    expect(writes.map((write) => write.operation)).toEqual(["PATCH /api/v2/admin/sections/{id}"]);
   });
   it("refuses to act on more than 100 selected rows", async () => {
     rows = Array.from({ length: 101 }, (_, index) => ({
@@ -374,7 +402,7 @@ describe("admin section captured snapshots", () => {
     await setup();
     await chooseMoreAction("Select rows");
     fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }));
-    expect(screen.getByRole("toolbar", { name: "101 rows selected" })).toHaveTextContent(
+    expect(screen.getByRole("group", { name: "Selected rows" })).toHaveTextContent(
       "Select up to 100 rows at a time.",
     );
     expect(screen.getByRole("button", { name: "Delete…" })).toBeDisabled();

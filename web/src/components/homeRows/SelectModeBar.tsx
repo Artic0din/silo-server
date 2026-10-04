@@ -9,6 +9,11 @@ export const MAX_SELECTED_ROWS = 100;
 /**
  * The floating bar of select mode: how many rows are picked and what can be
  * done to them. Actions refuse more than 100 rows at a time.
+ *
+ * The bar is fixed to the viewport over the content column rather than
+ * sticky: AdminLayout clips horizontal overflow, which would hold a sticky bar
+ * at the end of the list. The page reserves room at its foot so the last row
+ * is never under the bar.
  */
 export function SelectModeBar({
   count,
@@ -26,38 +31,40 @@ export function SelectModeBar({
   const tooMany = count > MAX_SELECTED_ROWS;
   const disabled = busy || count === 0 || tooMany;
   return (
-    <div
-      role="toolbar"
-      aria-label={`${count} ${count === 1 ? "row" : "rows"} selected`}
-      className="bg-popover/95 border-border sticky bottom-4 z-20 flex max-w-full flex-wrap items-center justify-center gap-1 justify-self-center rounded-2xl border py-[7px] pr-[7px] pl-4 shadow-[0_24px_60px_-20px_rgb(0_0_0/0.9)] backdrop-blur"
-    >
-      <span role="status" className="mr-2 text-sm font-semibold whitespace-nowrap">
-        {count} selected
-        {tooMany ? (
-          <span className="text-warning ml-2 font-normal">
-            Select up to {MAX_SELECTED_ROWS} rows at a time.
-          </span>
-        ) : null}
-      </span>
-      <Button variant="ghost" size="sm" disabled={disabled} onClick={onTurnOn}>
-        <Eye />
-        <span className="max-sm:sr-only">Turn on</span>
-      </Button>
-      <Button variant="ghost" size="sm" disabled={disabled} onClick={onTurnOff}>
-        <EyeOff />
-        <span className="max-sm:sr-only">Turn off</span>
-      </Button>
-      <span aria-hidden className="bg-border mx-1 h-[22px] w-px" />
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={disabled}
-        onClick={onDelete}
-        className="text-destructive hover:text-destructive [&_svg]:text-destructive"
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:left-[240px]">
+      <div
+        role="group"
+        aria-label="Selected rows"
+        className="bg-popover/95 border-border pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-2xl border py-[7px] pr-[7px] pl-4 shadow-[0_24px_60px_-20px_rgb(0_0_0/0.9)] backdrop-blur"
       >
-        <Trash2 />
-        <span className="max-sm:sr-only">Delete…</span>
-      </Button>
+        <span role="status" className="mr-2 text-sm font-semibold whitespace-nowrap">
+          {count} selected
+          {tooMany ? (
+            <span className="text-warning ml-2 font-normal">
+              Select up to {MAX_SELECTED_ROWS} rows at a time.
+            </span>
+          ) : null}
+        </span>
+        <Button variant="ghost" size="sm" disabled={disabled} onClick={onTurnOn}>
+          <Eye />
+          <span className="max-sm:sr-only">Turn on</span>
+        </Button>
+        <Button variant="ghost" size="sm" disabled={disabled} onClick={onTurnOff}>
+          <EyeOff />
+          <span className="max-sm:sr-only">Turn off</span>
+        </Button>
+        <span aria-hidden className="bg-border mx-1 h-[22px] w-px" />
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          onClick={onDelete}
+          className="text-destructive hover:text-destructive [&_svg]:text-destructive"
+        >
+          <Trash2 />
+          <span className="max-sm:sr-only">Delete…</span>
+        </Button>
+      </div>
     </div>
   );
 }
