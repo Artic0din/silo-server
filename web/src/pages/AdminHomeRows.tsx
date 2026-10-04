@@ -1,21 +1,15 @@
-import { useMemo, useRef, useState } from "react";
-import type { Library, LibraryCollection, PageSectionConfig } from "@/api/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PageSectionConfig } from "@/api/types";
 import {
-  useBulkCreateSections,
   useCreateSection,
   useUpdateSection,
   useDeleteSection,
   useDeleteSections,
   useRestoreDefaultSections,
 } from "@/hooks/queries/sections";
-import RecipeGalleryModal from "@/components/RecipeGallery/RecipeGalleryModal";
-import RecipeConfigDrawer from "@/components/RecipeGallery/RecipeConfigDrawer";
-import type { AddPayload } from "@/components/RecipeGallery/RecipeConfigDrawer";
-import { buildGalleryBulkCreateRequest, buildGalleryCreateRequest } from "@/lib/homeRows/payloads";
-import type { RecipeDefinition, GalleryPreset } from "@/lib/recipes";
 import { fetchRecipeCatalog } from "@/lib/recipes";
 import { useQuery } from "@tanstack/react-query";
-import { useAdminCollections, useImportTraktCollection } from "@/hooks/queries/admin/collections";
+import { useAdminCollections } from "@/hooks/queries/admin/collections";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { useAdminHomeRows } from "@/hooks/queries/homeRows/useAdminHomeRows";
 import { Button } from "@/components/ui/button";
@@ -35,68 +29,21 @@ import { V2ProblemError } from "@/api/v2/request";
 import SectionEditorDrawer from "@/components/sections/SectionEditorDrawer";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
 import { DeleteRowDialog } from "@/components/homeRows/DeleteRowDialog";
+import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
+import { BRIDGED_ROW_KINDS } from "@/lib/homeRows/catalog";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
 import { pageLabel, pageParam } from "@/lib/homeRows/pages";
-import type { HomeRow } from "@/lib/homeRows/types";
-import {
-  createAdminSectionCreation,
-  runAdminSectionCreation,
-  type AdminSectionCreation,
-} from "@/lib/adminSectionCreation";
+import { nextAppendPosition } from "@/lib/homeRows/payloads";
+import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 
-interface TraktPublicRecipeConfig {
-  preset: "trending" | "popular";
-  mediaType: "movie" | "tv";
-}
-
-function getTraktRecipeConfig(config: Record<string, unknown>): TraktPublicRecipeConfig | null {
-  if (config.source_provider !== "trakt") return null;
-  const preset = config.source_preset;
-  const mediaType = config.media_type;
-  if (
-    (preset !== "trending" && preset !== "popular") ||
-    (mediaType !== "movie" && mediaType !== "tv")
-  ) {
-    return null;
-  }
-  return { preset, mediaType };
-}
-
-function isMatchingTraktCollection(
-  collection: LibraryCollection,
-  preset: string,
-  mediaType: string,
-  libraryID: number,
-) {
-  return (
-    collection.management_mode === "section" &&
-    collection.management_key ===
-      buildTraktSectionManagedCollectionKey(preset, mediaType, libraryID) &&
-    collection.collection_type === "trakt" &&
-    collection.library_id === libraryID &&
-    collection.source_config?.preset === preset &&
-    collection.source_config?.media_type === mediaType
-  );
-}
-
-function buildTraktSectionManagedCollectionKey(
-  preset: string,
-  mediaType: string,
-  libraryID: number,
-) {
-  return `trakt:${preset}:${mediaType}:library:${libraryID}`;
-}
-
-function findDefaultTraktLibrary(libraries: Library[], mediaType: string): number | null {
-  const wantedType = mediaType === "tv" ? "series" : "movies";
-  return libraries.find((library) => library.type === wantedType)?.id ?? libraries[0]?.id ?? null;
-}
+/** How long a newly added row stays highlighted. */
+const NEW_ROW_HIGHLIGHT_MS = 2500;
 
 export default function AdminHomeRows() {
   const adapter = useAdminHomeRows();
-  const { scope, capabilities } = adapter;
+  const { scope, serverCapabilities: capabilities } = adapter;
   const activeLibraryId = adapter.libraryId ?? null;
   const currentPageKey = pageParam(adapter.page);
   const currentPageLabel = pageLabel(adapter.page, adapter.pages);
@@ -118,7 +65,7 @@ export default function AdminHomeRows() {
   > | null>(null);
   const [restoreConflict, setRestoreConflict] = useState(false);
   const { data: collectionsData = [] } = useAdminCollections();
-  const { data: recipeCatalog } = useQuery({
+  const { data: recipeCatalog, isError: recipeCatalogFailed } = useQuery({
     queryKey: ["recipe-catalog"],
     queryFn: fetchRecipeCatalog,
     staleTime: 5 * 60 * 1000,
@@ -147,25 +94,19 @@ export default function AdminHomeRows() {
   const restoreDefaultsMutation = useRestoreDefaultSections();
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
   const [resetProfiles, setResetProfiles] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [pickedRecipe, setPickedRecipe] = useState<{
-    def: RecipeDefinition;
-    preset: GalleryPreset;
-  } | null>(null);
-  const createFromGalleryMutation = useCreateSection();
-  const importTraktMutation = useImportTraktCollection();
   const createMutation = useCreateSection();
-  const bulkCreateMutation = useBulkCreateSections();
   const updateMutation = useUpdateSection();
-  const [creation, setCreation] = useState<{ state: AdminSectionCreation; scope: string } | null>(
-    null,
-  );
-  const [creationRunning, setCreationRunning] = useState(false);
-  const creationRunningRef = useRef(false);
+  // The Add row / Edit row dialog: open with no session to add a row.
+  const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
+  // The kind a collection or rule card picked, for the older editor it opens.
+  const [drawerType, setDrawerType] = useState<string | undefined>();
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
-  const creationUnresolved = Boolean(
-    creation?.state.targets.some((target) => target.status !== "complete"),
-  );
+  useEffect(() => {
+    if (!highlightId) return;
+    const timer = setTimeout(() => setHighlightId(null), NEW_ROW_HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
 
   const rowIds = useMemo(() => adapter.rows.map((row) => row.id), [adapter.rows]);
   const selectedSections = useMemo(
@@ -223,7 +164,7 @@ export default function AdminHomeRows() {
     });
   }
 
-  function handleEdit(section: PageSectionConfig) {
+  function handleEdit(section: PageSectionConfig, initialType?: string) {
     const request = ++snapshotRequest.current;
     void prepareSnapshot(async () => {
       const snapshot = await fetchAdminSectionSnapshot(section.id);
@@ -231,8 +172,45 @@ export default function AdminHomeRows() {
       setEditingSection(snapshot.section);
       setEditingETag(snapshot.etag);
       setEditConflict(false);
+      setDrawerType(initialType);
       setDialogOpen(true);
     });
+  }
+
+  /** Edit row…: ready-made rows open the row dialog, the rest the older editor. */
+  function openRow(row: HomeRow) {
+    const section = sectionFor(row);
+    if (!section || !canManageCurrentScope || snapshotLoading) return;
+    if (BRIDGED_ROW_KINDS.has(row.sectionType)) {
+      handleEdit(section);
+      return;
+    }
+    const request = ++snapshotRequest.current;
+    void prepareSnapshot(async () => {
+      const session = await adapter.openEdit(row.id);
+      if (request !== snapshotRequest.current) return;
+      setRowDialog({ session });
+    });
+  }
+
+  function openAddRow() {
+    snapshotRequest.current++;
+    setRowDialog({ session: null });
+  }
+
+  /** A collection or rule card: until the dialog edits those rows, the older editor does. */
+  function bridgeToEditor(type: string, session: EditSession | null) {
+    setRowDialog(null);
+    if (session) {
+      const section = sectionFor(session.row);
+      if (section) handleEdit(section, type);
+      return;
+    }
+    setEditingSection(null);
+    setEditingETag(null);
+    setEditConflict(false);
+    setDrawerType(type);
+    setDialogOpen(true);
   }
 
   function confirmDeleteRow() {
@@ -290,7 +268,7 @@ export default function AdminHomeRows() {
         label: "Edit row…",
         icon: Pencil,
         disabled: busy,
-        onSelect: () => section && handleEdit(section),
+        onSelect: () => openRow(row),
       },
       {
         key: "hero",
@@ -327,133 +305,6 @@ export default function AdminHomeRows() {
     });
   }
 
-  function normalizeLibraryIDs(ids: number[] | undefined): number[] {
-    if (!ids || ids.length === 0) return [];
-    return Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0)));
-  }
-
-  async function ensureTraktSectionCollection(
-    payload: AddPayload,
-    traktRecipe: TraktPublicRecipeConfig,
-    libraryID: number,
-  ): Promise<LibraryCollection> {
-    const existing = collectionsData.find((collection) =>
-      isMatchingTraktCollection(collection, traktRecipe.preset, traktRecipe.mediaType, libraryID),
-    );
-    if (existing) return existing;
-
-    const managementKey = buildTraktSectionManagedCollectionKey(
-      traktRecipe.preset,
-      traktRecipe.mediaType,
-      libraryID,
-    );
-    const imported = await importTraktMutation.mutateAsync({
-      body: {
-        library_id: libraryID,
-        title: payload.title,
-        description: "",
-        preset: traktRecipe.preset,
-        media_type: traktRecipe.mediaType,
-        limit: payload.item_limit,
-        featured: payload.featured,
-        management_mode: "section",
-        management_source: "recipe_gallery",
-        management_key: managementKey,
-      },
-    });
-    return imported.collection;
-  }
-
-  async function runTraktCreation(state: AdminSectionCreation, targetScope: string) {
-    if (creationRunningRef.current) return;
-    creationRunningRef.current = true;
-    setCreationRunning(true);
-    setCreation({ state, scope: targetScope });
-    try {
-      const result = await runAdminSectionCreation(state, {
-        resolveCollection: async (payload, libraryID) => {
-          const recipe = getTraktRecipeConfig(payload.config);
-          if (!recipe) throw new Error("This recipe no longer identifies a Trakt list");
-          return (await ensureTraktSectionCollection(payload, recipe, libraryID)).id;
-        },
-        createSection: async (payload, libraryID, collectionID) => {
-          const created = await createMutation.mutateAsync({
-            scope: targetScope,
-            ...(targetScope === "library" ? { library_id: libraryID } : {}),
-            section_type: payload.section_type,
-            title: payload.title,
-            item_limit: payload.item_limit,
-            featured: payload.featured,
-            enabled: payload.enabled,
-            config: { ...payload.config, library_collection_id: collectionID },
-          });
-          return created.id;
-        },
-        onProgress: (next) => setCreation({ state: next, scope: targetScope }),
-      });
-      const completed = result.targets.filter((target) => target.status === "complete").length;
-      if (completed === result.targets.length)
-        toast.success(`Created ${completed} section${completed === 1 ? "" : "s"}`);
-      else
-        toast.warning(
-          `Created ${completed} of ${result.targets.length} sections. Review the remaining targets below.`,
-        );
-      setCreation({ state: result, scope: targetScope });
-    } finally {
-      creationRunningRef.current = false;
-      setCreationRunning(false);
-    }
-  }
-
-  async function createBulkSectionsFromGallery(
-    payload: AddPayload,
-    libraryIDs: number[],
-  ): Promise<void> {
-    if (libraryIDs.length === 0) {
-      throw new Error("Choose at least one library before applying this section");
-    }
-
-    const config = payload.config;
-    const traktRecipe = getTraktRecipeConfig(config);
-    const selectedCollectionID =
-      typeof config.library_collection_id === "string" ? config.library_collection_id.trim() : "";
-    if (traktRecipe && selectedCollectionID === "") {
-      await runTraktCreation(createAdminSectionCreation(payload, libraryIDs), "library");
-      return;
-    }
-
-    const result = await bulkCreateMutation.mutateAsync(
-      buildGalleryBulkCreateRequest(payload, libraryIDs),
-    );
-    toast.success(`Created ${result.created} section${result.created === 1 ? "" : "s"}`);
-  }
-
-  async function createSectionFromGallery(payload: AddPayload) {
-    const bulkLibraryIDs = normalizeLibraryIDs(payload.library_ids);
-    if (payload.apply_to_all_libraries || bulkLibraryIDs.length > 0) {
-      await createBulkSectionsFromGallery(payload, bulkLibraryIDs);
-      return;
-    }
-
-    const config = payload.config;
-    const traktRecipe = getTraktRecipeConfig(config);
-    const selectedCollectionID =
-      typeof config.library_collection_id === "string" ? config.library_collection_id.trim() : "";
-    if (traktRecipe && selectedCollectionID === "") {
-      const targetLibraryID =
-        activeLibraryId ?? findDefaultTraktLibrary(librariesList, traktRecipe.mediaType);
-      if (!targetLibraryID) {
-        throw new Error("Choose a library before adding this Trakt section");
-      }
-      await runTraktCreation(createAdminSectionCreation(payload, [targetLibraryID]), scope);
-      return;
-    }
-
-    await createFromGalleryMutation.mutateAsync(
-      buildGalleryCreateRequest(payload, scope, activeLibraryId),
-    );
-  }
-
   return (
     <div
       aria-busy={deleteSectionsMutation.isPending}
@@ -465,10 +316,8 @@ export default function AdminHomeRows() {
         subtitle="The rows everyone sees on Home and on library pages. Profiles can still hide, rename or reorder them."
         focus={focus}
         collectionTitle={(id) => collectionTitles.get(id)}
-        onOpenRow={(row) => {
-          const section = sectionFor(row);
-          if (section && canManageCurrentScope && !snapshotLoading) handleEdit(section);
-        }}
+        onOpenRow={openRow}
+        highlightRowId={highlightId}
         rowMenuItems={rowMenuItems}
         selection={{
           selectedIds: selectedSectionIds,
@@ -488,29 +337,12 @@ export default function AdminHomeRows() {
               <RotateCcw className="mr-1 h-4 w-4" /> Restore Defaults
             </Button>
             <Button
-              size="sm"
-              variant="outline"
-              disabled={
-                !canManageCurrentScope || snapshotLoading || creationRunning || creationUnresolved
-              }
-              onClick={() => setGalleryOpen(true)}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Add from Gallery
-            </Button>
-            <Button
               ref={focus.attachAddButton}
               size="sm"
-              disabled={
-                !canManageCurrentScope || snapshotLoading || creationRunning || creationUnresolved
-              }
-              onClick={() => {
-                setEditingSection(null);
-                setEditingETag(null);
-                setEditConflict(false);
-                setDialogOpen(true);
-              }}
+              disabled={!canManageCurrentScope || snapshotLoading}
+              onClick={openAddRow}
             >
-              <Plus className="mr-1 h-4 w-4" /> Add Section
+              <Plus className="mr-1 h-4 w-4" /> Add row
             </Button>
             {selectedSections.length > 0 ? (
               <>
@@ -558,55 +390,6 @@ export default function AdminHomeRows() {
         }
         notices={
           <>
-            {creation && (
-              <div className="surface-panel space-y-2 rounded-xl p-4" role="status">
-                <p>
-                  {creation.state.targets.filter((target) => target.status === "complete").length}{" "}
-                  of {creation.state.targets.length} sections created for "
-                  {creation.state.payload.title}".
-                </p>
-                {creation.state.targets.map((target) => (
-                  <p key={target.libraryID}>
-                    {librariesList.find((library) => library.id === target.libraryID)?.name ??
-                      `Library ${target.libraryID}`}
-                    : {target.status === "complete" ? "Created" : target.status.replace(/_/g, " ")}
-                    {target.collectionID ? ` · Collection ${target.collectionID}` : ""}
-                    {target.error ? ` · ${target.error}` : ""}
-                  </p>
-                ))}
-                {creation.state.targets.some(
-                  (target) =>
-                    target.status === "import_unknown" || target.status === "section_unknown",
-                ) && (
-                  <p role="alert">
-                    A creation response was not confirmed. Review Collections and Sections before
-                    creating that target again; it will not be retried automatically.
-                  </p>
-                )}
-                {creation.state.targets.some(
-                  (target) => target.status === "section_failed" || target.status === "pending",
-                ) && (
-                  <Button
-                    disabled={creationRunning}
-                    onClick={() => void runTraktCreation(creation.state, creation.scope)}
-                  >
-                    Retry remaining sections
-                  </Button>
-                )}
-                {!creationRunning && creationUnresolved && (
-                  <Button variant="outline" onClick={() => setCreation(null)}>
-                    Finish review and clear tracking
-                  </Button>
-                )}
-                {!creationRunning &&
-                  creation.state.targets.every((target) => target.status === "complete") && (
-                    <Button variant="ghost" onClick={() => setCreation(null)}>
-                      Dismiss
-                    </Button>
-                  )}
-              </div>
-            )}
-
             {(adapter.rows.length > 100 || selectedSections.length > 100) && (
               <p role="status">Select up to 100 sections per deletion. </p>
             )}
@@ -781,9 +564,11 @@ export default function AdminHomeRows() {
             if (!open) {
               snapshotRequest.current++;
               setEditingSection(null);
+              setDrawerType(undefined);
             }
           }}
           section={editingSection}
+          initialType={drawerType}
           conflict={editConflict}
           onReload={() => {
             if (editingSection) handleEdit(editingSection);
@@ -792,9 +577,7 @@ export default function AdminHomeRows() {
           currentLibraryId={editingSection ? editingSection.library_id : activeLibraryId}
           libraries={librariesList}
           recipeCatalog={recipeCatalog}
-          isSubmitting={
-            createMutation.isPending || updateMutation.isPending || bulkCreateMutation.isPending
-          }
+          isSubmitting={createMutation.isPending || updateMutation.isPending}
           onSave={(section) => {
             if (section.id) {
               updateMutation.mutate(
@@ -813,54 +596,44 @@ export default function AdminHomeRows() {
                 },
               );
             } else {
-              createMutation.mutate(section, {
-                onSuccess: () => {
-                  setDialogOpen(false);
-                  setEditingSection(null);
+              // New rows go to the bottom: the server stores the position sent.
+              const position = nextAppendPosition(adapter.sections.map((row) => row.position));
+              createMutation.mutate(
+                { ...section, position },
+                {
+                  onSuccess: (created) => {
+                    setDialogOpen(false);
+                    setEditingSection(null);
+                    setHighlightId(created.id);
+                  },
+                  onError: (error) => {
+                    toast.error(
+                      error instanceof Error ? error.message : "Failed to create section",
+                    );
+                  },
                 },
-                onError: (error) => {
-                  toast.error(error instanceof Error ? error.message : "Failed to create section");
-                },
-              });
+              );
             }
           }}
         />
 
-        <RecipeGalleryModal
-          open={galleryOpen}
-          onClose={() => setGalleryOpen(false)}
-          onPick={(def, preset) => {
-            setGalleryOpen(false);
-            setPickedRecipe({ def, preset });
-          }}
-        />
-
-        {pickedRecipe && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <RecipeConfigDrawer
-              libraryCollectionsOnly
-              libraryScoped={scope === "library"}
-              showBulkApply={scope === "library"}
-              libraries={librariesList}
-              def={pickedRecipe.def}
-              preset={pickedRecipe.preset}
-              onCancel={() => setPickedRecipe(null)}
-              onBackToGallery={() => {
-                setPickedRecipe(null);
-                setGalleryOpen(true);
-              }}
-              onAdd={async (payload) => {
-                try {
-                  await createSectionFromGallery(payload);
-                  setPickedRecipe(null);
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "Failed to create section");
-                  throw error;
-                }
-              }}
-            />
-          </div>
-        )}
+        {rowDialog ? (
+          <AddRowDialog
+            adapter={adapter}
+            catalog={recipeCatalog}
+            catalogFailed={recipeCatalogFailed}
+            libraries={librariesList}
+            session={rowDialog.session}
+            onClose={() => setRowDialog(null)}
+            onSaved={(newIds) => setHighlightId(newIds[0] ?? null)}
+            onBridge={bridgeToEditor}
+            onDelete={(session) => {
+              setRowDialog(null);
+              const section = sectionFor(session.row);
+              if (section) handleDelete(section);
+            }}
+          />
+        ) : null}
       </HomeRowsPage>
     </div>
   );

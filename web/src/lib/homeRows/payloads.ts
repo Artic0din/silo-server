@@ -1,4 +1,5 @@
 import {
+  queryDefinitionFromSectionConfig,
   queryDefinitionToSectionConfig,
   type PageSectionConfig,
   type QueryDefinition,
@@ -12,6 +13,8 @@ import {
 } from "@/lib/sectionLibraryFilter";
 import { FILTER_SECTION_TYPES, sectionTypeLabel } from "@/lib/sectionTypes";
 import { randomUUID } from "@/lib/uuid";
+import type { RowDraft } from "./rowDraft";
+import type { PageRef } from "./types";
 
 /** What the recipe gallery's config drawer hands its owner when the user adds a row. */
 export interface AddPayload {
@@ -251,4 +254,65 @@ export function buildAdminSectionPayload({
     enabled,
     config,
   };
+}
+
+/** Where a new single row goes: after every row on the page (0 on an empty page). */
+export function nextAppendPosition(positions: readonly number[]): number {
+  return positions.length === 0 ? 0 : Math.max(...positions) + 1;
+}
+
+/**
+ * The create request for a row added from the Add row dialog. The body is
+ * the recipe gallery's, byte for byte, plus `position`: the server stores the
+ * position a single create sends, so without it a new row would land near
+ * the top of the page.
+ */
+export function buildRowCreateRequest(
+  draft: RowDraft,
+  title: string,
+  page: PageRef,
+  position: number,
+): Partial<PageSectionConfig> {
+  const payload = buildGalleryAddPayload({
+    sectionType: draft.sectionType,
+    title,
+    itemLimit: draft.itemLimit,
+    featured: draft.hero,
+    enabled: true,
+    config: draft.config,
+  });
+  return {
+    ...buildGalleryCreateRequest(
+      payload,
+      page.kind,
+      page.kind === "library" ? page.libraryId : null,
+    ),
+    position,
+  };
+}
+
+/**
+ * The update request for a row saved from Edit row: the row editor's bytes.
+ * The draft's config already starts from the stored config, so the builder
+ * gets no base to merge back: a key the user's variant change removed stays
+ * removed. `enabled` comes from the version being saved over.
+ */
+export function buildRowUpdateRequest(
+  section: PageSectionConfig,
+  draft: RowDraft,
+  title: string,
+): Partial<PageSectionConfig> & { id?: string } {
+  return buildAdminSectionPayload({
+    section: { ...section, config: {} },
+    scope: section.scope,
+    currentLibraryId: section.library_id,
+    sectionType: draft.sectionType,
+    title,
+    itemLimit: draft.itemLimit,
+    featured: draft.hero,
+    enabled: section.enabled,
+    queryDefinition: queryDefinitionFromSectionConfig(draft.config),
+    selectedCollectionId: "",
+    recipeParams: draft.config,
+  });
 }

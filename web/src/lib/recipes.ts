@@ -73,7 +73,13 @@ export interface PreviewRequest {
 }
 
 export interface PreviewResponse {
-  items: Array<{ content_id: string; title?: string; poster_path?: string }>;
+  items: Array<{
+    content_id: string;
+    title?: string;
+    /** Empty today: the admin preview sends no poster URLs, only thumbhashes. */
+    poster_path?: string;
+    poster_thumbhash?: string;
+  }>;
   total_count: number;
 }
 
@@ -130,6 +136,7 @@ export async function previewSection(req: PreviewRequest): Promise<PreviewRespon
       content_id: item.content_id,
       title: item.title,
       poster_path: item.poster_url,
+      poster_thumbhash: item.poster_thumbhash,
     })),
     total_count: result.total_count,
   };

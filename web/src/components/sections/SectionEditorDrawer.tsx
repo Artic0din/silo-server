@@ -115,6 +115,11 @@ type AdminDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   section: PageSectionConfig | null;
+  /**
+   * The kind picked in the Home rows dialog (a collection or rule row). It
+   * replaces a row's own kind when editing, which starts its settings fresh.
+   */
+  initialType?: string;
   scope: string;
   currentLibraryId: number | null;
   libraries: Array<{ id: number; name: string }>;
@@ -175,19 +180,24 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
   const showLegacyFilter = isLegacyFilterType(sectionType);
   const showRecipeParams = !showCollectionPicker && !showLegacyFilter && isKnownRecipe;
 
+  const initialType = props.mode === "admin" ? props.initialType : undefined;
   useEffect(() => {
     if (!props.open) return;
     if (props.section) {
-      setSectionType(props.section.section_type);
+      // A different kind starts from empty settings, as picking it in the
+      // type select does.
+      const config =
+        initialType && initialType !== props.section.section_type ? {} : props.section.config;
+      setSectionType(initialType ?? props.section.section_type);
       setTitle(props.section.title);
       setItemLimit(props.section.item_limit);
       setFeatured(props.section.featured);
       setEnabled("enabled" in props.section ? Boolean(props.section.enabled) : true);
-      setQueryDefinition(queryDefinitionFromSectionConfig(props.section.config));
-      setSelectedCollectionId(getCollectionId(props.section.config));
-      setRecipeParams(parseRecipeParams(props.section.config));
+      setQueryDefinition(queryDefinitionFromSectionConfig(config));
+      setSelectedCollectionId(getCollectionId(config));
+      setRecipeParams(parseRecipeParams(config));
     } else {
-      setSectionType("recently_added");
+      setSectionType(initialType ?? "recently_added");
       setTitle("");
       setItemLimit(20);
       setFeatured(false);
@@ -196,7 +206,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setSelectedCollectionId("");
       setRecipeParams({});
     }
-  }, [props.open, props.section]);
+  }, [props.open, props.section, initialType]);
 
   useEffect(() => {
     if (!props.open || showCollectionPicker || showLegacyFilter) return;

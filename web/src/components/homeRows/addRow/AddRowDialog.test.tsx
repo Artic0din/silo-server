@@ -1,0 +1,287 @@
+import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
+import type { RowDraft } from "@/lib/homeRows/rowDraft";
+import type { EditSession, HomeRow, HomeRowsAdapter } from "@/lib/homeRows/types";
+import { VARIANT_FAMILIES } from "@/lib/homeRows/variants";
+import { AddRowDialog } from "./AddRowDialog";
+import { paramFieldKeys } from "@/lib/homeRows/paramFields";
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+
+function row(overrides: Partial<HomeRow> = {}): HomeRow {
+  return {
+    id: "r1",
+    title: "Spotlight",
+    sectionType: "editorial_spotlight",
+    config: { subject_type: "era", subject: "1990s" },
+    itemLimit: 20,
+    hero: false,
+    shown: true,
+    own: false,
+    legacyTrakt: false,
+    ...overrides,
+  };
+}
+
+let create: ReturnType<typeof vi.fn<(draft: RowDraft) => Promise<{ newIds: string[] }>>>;
+let save: ReturnType<typeof vi.fn<(session: EditSession, draft: RowDraft) => Promise<void>>>;
+let ruleRows: boolean;
+
+function adapter(): HomeRowsAdapter {
+  return {
+    surface: "admin",
+    page: { kind: "home" },
+    pages: [{ ref: { kind: "home" }, label: "Home" }],
+    setPage: () => {},
+    status: "ready",
+    error: null,
+    canEdit: true,
+    rows: [row({ id: "t", sectionType: "trending_on_server", config: { window: "7d" } })],
+    pending: false,
+    conflict: null,
+    reload: async () => {},
+    canReorder: true,
+    orderToken: null,
+    reorder: async () => {},
+    setShown: async () => {},
+    setHero: async () => {},
+    capabilities: { draftPreview: false, ruleRows },
+    create,
+    openEdit: async () => {
+      throw new Error("unused");
+    },
+    reloadEdit: async () => {
+      throw new Error("unused");
+    },
+    save,
+  };
+}
+
+function Harness({ session = null }: { session?: EditSession | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <QueryClientProvider client={new QueryClient()}>
+      <button onClick={() => setOpen(true)}>Open</button>
+      {open ? (
+        <AddRowDialog
+          adapter={adapter()}
+          catalog={recipeCatalogFixture}
+          libraries={[{ id: 7, name: "Movies" }]}
+          session={session}
+          onClose={() => setOpen(false)}
+          onSaved={() => {}}
+          onBridge={() => {}}
+        />
+      ) : null}
+    </QueryClientProvider>
+  );
+}
+
+async function open(session: EditSession | null = null) {
+  render(<Harness session={session} />);
+  const trigger = screen.getByRole("button", { name: "Open" });
+  trigger.focus();
+  await userEvent.click(trigger);
+  return { trigger, dialog: await screen.findByRole("dialog") };
+}
+
+beforeEach(() => {
+  create = vi.fn(async () => ({ newIds: ["n"] }));
+  save = vi.fn(async () => {});
+  ruleRows = true;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("Add row picker", () => {
+  it("lists the groups as vertical tabs with their counts and moves between them with arrows", async () => {
+    const { dialog } = await open();
+    const tablist = within(dialog).getByRole("tablist", { name: "Kinds of rows" });
+    expect(tablist).toHaveAttribute("aria-orientation", "vertical");
+    const tabs = within(tablist).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Keep watching5 kinds",
+      "What's new4 kinds",
+      "Popular4 kinds",
+      "Picked for you4 kinds",
+      "Moods & themes11 kinds",
+      "Collections & rules2 kinds",
+    ]);
+    expect(within(dialog).getByRole("searchbox", { name: "Search rows" })).toHaveFocus();
+    tabs[0]!.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(tabs[1]).toHaveFocus();
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{End}");
+    expect(tabs[5]).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(tabs[0]).toHaveFocus();
+  });
+
+  it("marks kinds already on the page and names variant chips with their kind", async () => {
+    const { dialog } = await open();
+    expect(
+      within(dialog).getByRole("button", { name: "Trending on this server" }),
+    ).toHaveAccessibleDescription("What's been played most here lately. Already on Home.");
+    expect(
+      within(dialog).getByRole("button", { name: "Trending on this server, 7 days" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the rule card without rule rows", async () => {
+    ruleRows = false;
+    const { dialog } = await open();
+    expect(within(dialog).queryByRole("button", { name: "Titles matching rules" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "A collection" })).toBeInTheDocument();
+  });
+
+  it("offers a way back from a search that finds nothing", async () => {
+    const { dialog } = await open();
+    await userEvent.type(within(dialog).getByRole("searchbox"), "zzz");
+    expect(within(dialog).getByText("No rows match “zzz”.")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Clear search" }));
+    expect(within(dialog).getAllByRole("tab")).toHaveLength(6);
+  });
+
+  it("closes on Escape from step 2 and puts focus back on the button that opened it", async () => {
+    const { trigger, dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Hidden gems" }));
+    expect(await screen.findByRole("heading", { name: "Hidden gems" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("shows variants as text on phones and lays the groups out as a row of chips", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      (query: string) =>
+        ({
+          matches: query === "(max-width: 1023px)",
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    const { dialog } = await open();
+    expect(within(dialog).getByRole("tablist")).toHaveAttribute("aria-orientation", "horizontal");
+    expect(within(dialog).getByText("24 hours, 7 days or 30 days")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "Trending on this server, 7 days" }),
+    ).toBeNull();
+  });
+});
+
+describe("Add row form", () => {
+  it("adds with the preset name when the name is left blank, never a raw type", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Short & sweet" }));
+    const form = await screen.findByRole("dialog", { name: "Short & sweet" });
+    fireEvent.change(within(form).getByLabelText("Row name"), { target: { value: " " } });
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      sectionType: "short_watches",
+      title: "Short & Sweet",
+      config: { max_minutes: 95 },
+    });
+  });
+
+  it("keeps rarely changed settings under More options with a summary", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Short & sweet" }));
+    const form = await screen.findByRole("dialog", { name: "Short & sweet" });
+    const more = within(form).getByRole("button", { name: /More options/ });
+    expect(more).toHaveTextContent("20 titles·not the hero banner");
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(more);
+    await userEvent.click(within(form).getByRole("switch", { name: "Hero banner" }));
+    expect(more).toHaveTextContent("the hero banner");
+    expect(
+      within(form).getByText(
+        "The web shows this row as a banner. The apps show it as a regular row.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(form).getByLabelText("Longest runtime (minutes)")).toHaveValue(95);
+  });
+});
+
+describe("Edit row form", () => {
+  const session = (overrides: Partial<HomeRow> = {}): EditSession => ({
+    row: row(overrides),
+    token: null,
+  });
+
+  it("shows no variant for a config no preset matches and saves it unchanged", async () => {
+    const { dialog } = await open(session({ title: "Decades" }));
+    expect(within(dialog).getByText("Spotlight")).toBeInTheDocument();
+    expect(
+      within(dialog)
+        .getAllByRole("radio")
+        .map((radio) => radio.getAttribute("aria-checked")),
+    ).toEqual(["false", "false", "false", "false"]);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1].config).toEqual({ subject_type: "era", subject: "1990s" });
+  });
+
+  it("keeps a monthly rotation when a director spotlight becomes an actor spotlight", async () => {
+    const { dialog } = await open(
+      session({
+        title: "Directors",
+        config: { subject_type: "director", auto_rotate: true, rotation_cadence: "monthly" },
+      }),
+    );
+    expect(within(dialog).getByRole("radio", { name: /Director/ })).toBeChecked();
+    await userEvent.click(within(dialog).getByRole("radio", { name: /Actor/ }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1]).toMatchObject({
+      title: "Directors",
+      config: { subject_type: "actor", auto_rotate: true, rotation_cadence: "monthly" },
+    });
+  });
+
+  it("reads a legacy family movie night row as that variant", async () => {
+    const { dialog } = await open(
+      session({ sectionType: "seasonal_themed", config: { theme: "family_movie_night" } }),
+    );
+    expect(within(dialog).getByRole("radio", { name: /Family movie night/ })).toBeChecked();
+  });
+});
+
+describe("param fields", () => {
+  // The holiday checklist refines the Holidays variant, and a spotlight's
+  // free-text subject sits under More options; both are deliberate.
+  const ALLOWED: Record<string, string[]> = {
+    seasonal_themed: ["enabled_themes", "theme"],
+    editorial_spotlight: ["subject"],
+  };
+
+  it("never offers a control for a key a variant owns", () => {
+    for (const [type, family] of Object.entries(VARIANT_FAMILIES)) {
+      const overlap = paramFieldKeys(type).filter(
+        (key) => family.keys.includes(key) && !(ALLOWED[type] ?? []).includes(key),
+      );
+      expect(overlap, type).toEqual([]);
+    }
+  });
+
+  it("has no Anchor item field for Because you watched", () => {
+    expect(paramFieldKeys("because_you_watched")).toEqual([]);
+  });
+});

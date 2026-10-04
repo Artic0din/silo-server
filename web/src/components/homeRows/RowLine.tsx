@@ -34,6 +34,8 @@ export interface RowLineProps {
   ref?: Ref<HTMLLIElement>;
   style?: CSSProperties;
   dragging?: boolean;
+  /** Just added: a short highlight so the eye finds it. */
+  highlighted?: boolean;
 }
 
 function Dot() {
@@ -77,6 +79,7 @@ export function RowLine({
   ref,
   style,
   dragging,
+  highlighted,
 }: RowLineProps) {
   const collapsed = !row.shown;
   const { ref: handleRef, className: handleClassName, ...handleRest } = handleProps;
@@ -85,6 +88,7 @@ export function RowLine({
       ref={ref}
       style={style}
       data-row-id={row.id}
+      data-highlighted={highlighted || undefined}
       className={cn(
         "hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
         "before:bg-border/75 before:absolute before:top-0 before:right-4 before:left-[124px] before:h-px first:before:hidden hover:before:hidden [&:hover+li]:before:hidden",
@@ -95,6 +99,7 @@ export function RowLine({
           "border-muted-foreground/30 bg-background/40 my-1.5 border border-dashed py-[5px] before:hidden [&+li]:before:hidden",
         selection?.selected && "bg-accent/75",
         dragging && "bg-surface-raised z-10 shadow-lg",
+        highlighted && "bg-accent ring-ring/60 ring-2 transition-[box-shadow,background-color]",
       )}
     >
       {selection ? (

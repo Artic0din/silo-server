@@ -1,14 +1,5 @@
-import { Flame, Heart, Layers, Palette, Play, Sparkles, type LucideIcon } from "lucide-react";
-import { rowKindGroup, type RowGroup } from "@/lib/homeRows/catalog";
-
-const GROUP_ICONS: Record<RowGroup, LucideIcon> = {
-  keep: Play,
-  new: Sparkles,
-  popular: Flame,
-  picked: Heart,
-  moods: Palette,
-  collections: Layers,
-};
+import { rowKindGroup } from "@/lib/homeRows/catalog";
+import { GROUP_ICONS } from "./rowIcons";
 
 /**
  * The art at the start of a row. Until poster peeks load, every row shows the
