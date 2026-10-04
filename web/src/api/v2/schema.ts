@@ -19637,6 +19637,11 @@ export interface components {
        * @example true
        */
       mdblist_search: boolean;
+      /**
+       * @description previewCollection items carry poster_url when the title has a poster
+       * @example true
+       */
+      preview_posters: boolean;
       /** @description Opaque revision of this document */
       revision: string;
       schedule_time_zone: components["schemas"]["CollectionScheduleTimeZone"];
