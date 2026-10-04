@@ -718,6 +718,48 @@ describe("GroupsBoard", () => {
       ).toBeInTheDocument();
     });
 
+    it("lets a pinned card from a shelf that sorts itself land inside another shelf's band", async () => {
+      const sorted = {
+        ...franchises,
+        default_sort_mode: "name_asc",
+        collections: [collection("f1", "Alien", "visible", true)],
+      } as Group;
+      await renderBoard([sorted, mine], pinnedLoose);
+      // Franchises sorts itself, so Alien has no band there, but it is pinned.
+      expect(band(screen.getByRole("region", { name: "Shelf Franchises" }))).toBeNull();
+      await grabWithKeyboard("Move Alien");
+      // Each arrow moves 25px: from Alien's middle (2220) to the pinned card's (120).
+      await press("ArrowUp", 84);
+      await press("Space");
+
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+      expect(v2Recorder.writes()[0]).toMatchObject({
+        path: "/api/v2/admin/collection-groups/ungrouped/collections/order",
+        body: { ordered_ids: ["f1", "b", "a", "c"] },
+      });
+      expect(
+        await screen.findByText("Alien dropped at position 1 of 4 on No heading."),
+      ).toBeInTheDocument();
+    });
+
+    it("says Pin reaches every library a collection is in", async () => {
+      const shared = {
+        ...franchises,
+        collections: [{ ...collection("f1", "Alien", "visible", true), library_ids: [1, 2] }],
+      } as Group;
+      await renderBoard([shared, mine]);
+      const user = await openMenu("More for Alien");
+      expect(await screen.findByRole("menuitem", { name: "Unpin" })).toHaveAccessibleDescription(
+        "Stops showing first on this shelf and in Server collections on the Collections page. This applies in every library it's in.",
+      );
+      await user.keyboard("{Escape}");
+      await openMenu("More for Staff picks");
+      // Staff picks is in Movies only.
+      expect(await screen.findByRole("menuitem", { name: PIN_LABEL })).toHaveAccessibleDescription(
+        "Shows first on this shelf and in Server collections on the Collections page.",
+      );
+    });
+
     it("stays on for a shelf sorted by name, and says it still leads Server collections", async () => {
       await renderBoard([{ ...franchises, default_sort_mode: "name_asc" }, mine]);
       await openMenu("More for Alien");
@@ -735,7 +777,7 @@ describe("GroupsBoard", () => {
       await user.click(screen.getByRole("button", { name: "More for Staff picks" }));
       const sheet = await screen.findByRole("dialog", { name: "Move Staff picks" });
       const pin = within(sheet).getByRole("switch", {
-        name: "Pin Staff picks to the start of No heading",
+        name: "Pin Staff picks to the start of the collections with no heading",
       });
       expect(pin).not.toBeChecked();
       expect(pin).toHaveAccessibleDescription(

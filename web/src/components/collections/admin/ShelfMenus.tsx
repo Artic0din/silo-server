@@ -87,6 +87,7 @@ export function ArrangeCardMenu({
   visible,
   pinned,
   canPin,
+  inSeveralLibraries,
   onEdit,
   onMove,
   onPinChange,
@@ -99,6 +100,8 @@ export function ArrangeCardMenu({
   visible: boolean;
   pinned: boolean;
   canPin: boolean;
+  /** In more than one library, where Pin applies too. */
+  inSeveralLibraries: boolean;
   onEdit: () => void;
   onMove: (shelfId: string) => void;
   onPinChange: (pinned: boolean) => void;
@@ -125,7 +128,7 @@ export function ArrangeCardMenu({
       key: "pin",
       label: pinned ? UNPIN_LABEL : PIN_LABEL,
       icon: pinned ? PinOff : Pin,
-      help: pinned ? unpinHelp(by) : pinHelp(by),
+      help: pinned ? unpinHelp(by, inSeveralLibraries) : pinHelp(by, inSeveralLibraries),
       disabled: !canPin,
       onSelect: () => onPinChange(!pinned),
     },

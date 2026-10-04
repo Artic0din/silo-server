@@ -91,8 +91,11 @@ export function MoveCollectionSheet({
         <div className="border-border/70 mx-4 mt-4 border-t pt-4">
           <ToggleRow
             label={PIN_LABEL}
-            switchLabel={pinSwitchLabel(collection.title, currentShelf.name)}
-            help={pinHelp(sortedBy(currentShelf.sortMode))}
+            switchLabel={pinSwitchLabel(
+              collection.title,
+              currentShelf.kind === "ungrouped" ? null : currentShelf.name,
+            )}
+            help={pinHelp(sortedBy(currentShelf.sortMode), collection.library_ids.length > 1)}
             checked={collection.featured}
             disabled={!canPin}
             onCheckedChange={onPinChange}

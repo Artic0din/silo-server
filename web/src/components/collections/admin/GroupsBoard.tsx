@@ -123,7 +123,7 @@ function collectionDrop(target: ArrangeDragData): { shelfId: string; overId: str
 const collision: CollisionDetection = (args) => {
   const active = args.active.data.current as ArrangeDragData | undefined;
   const shelfDrag = active?.kind === "shelf";
-  const pinnedDrag = active?.kind === "collection" && active.banded;
+  const pinnedDrag = active?.kind === "collection" && active.pinned;
   return closestCenter({
     ...args,
     droppableContainers: args.droppableContainers.filter((container) => {
@@ -492,6 +492,7 @@ export function GroupsBoard({
         visible={visible}
         pinned={collection.featured}
         canPin={!changing}
+        inSeveralLibraries={collection.library_ids.length > 1}
         onEdit={() => onEditCollection(collection)}
         onMove={(shelfId) => moveToShelf(collection, shelfId)}
         onPinChange={(pinned) => changePin(collection, pinned)}

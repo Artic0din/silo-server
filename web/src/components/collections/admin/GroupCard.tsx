@@ -33,8 +33,12 @@ export interface SortableCardProps {
 /** Drag data, read by the board to tell what moved and where it landed. */
 export type ArrangeDragData =
   | { kind: "shelf"; id: string }
-  /** `banded`: in its shelf's pinned band, which only pinned collections may join. */
-  | { kind: "collection"; id: string; shelfId: string; banded: boolean }
+  /**
+   * `banded`: in its shelf's pinned band, which only pinned collections may
+   * join. `pinned`: the collection is pinned, so it may join a band even when
+   * its own shelf sorts itself and has none.
+   */
+  | { kind: "collection"; id: string; shelfId: string; banded: boolean; pinned: boolean }
   | { kind: "body"; shelfId: string };
 
 const SORT_MODES = Object.keys(SHELF_ORDER_LABEL) as GroupSortMode[];
@@ -63,7 +67,13 @@ function SortableCard({
   } = useSortable({
     id: `col:${collection.id}`,
     disabled,
-    data: { kind: "collection", id: collection.id, shelfId, banded } satisfies ArrangeDragData,
+    data: {
+      kind: "collection",
+      id: collection.id,
+      shelfId,
+      banded,
+      pinned: collection.featured,
+    } satisfies ArrangeDragData,
   });
   return children({
     ref: setNodeRef,

@@ -52,6 +52,10 @@ then position). That order reaches viewers in two places:
   it, whatever their shelf's order. This is why Pin stays available on a shelf that sorts itself,
   and why its help line names that list.
 
+`featured` is a column on the collection, so a Pin set from one library's Arrange applies in every
+library the collection is in, while its shelf and position stay per library. Pin's help line says so
+when the collection is in more than one library.
+
 Arrange sends a Pin as a PATCH of only `collection_type` and `featured`, with `If-Match` from a fresh
 read of the collection.
 
