@@ -582,12 +582,12 @@ func (s *Service) applyResult(
 		return nil, nil, err
 	}
 
-	updated := *collection
-	updated.LastSyncAt = &completedAt
-	updated.LastSyncStatus = status
-	updated.LastSyncMessage = message
-	updated.ItemCount = len(matched)
-	updated.NextSyncAt = nextSyncAt
+	// Read the row back: a schedule edited while the sync ran, on any node,
+	// kept its own next run, and the caller renders what was stored.
+	updated, err := store.GetCollection(ctx, collection.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the synced collection: %w", err)
+	}
 
 	s.logger.InfoContext(ctx, "user collection synced",
 		"collection_id", collection.ID,
@@ -606,5 +606,5 @@ func (s *Service) applyResult(
 		ItemsUnmatched: unmatched,
 		StartedAt:      startedAt,
 		CompletedAt:    completedAt,
-	}, &updated, nil
+	}, updated, nil
 }
