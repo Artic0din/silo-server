@@ -5,9 +5,7 @@ import { V2ProblemError } from "@/api/v2/request";
 import {
   fetchAdminSections,
   fetchAdminSectionCapabilities,
-  createAdminSection,
   bulkCreateAdminSections,
-  updateAdminSection,
   deleteAdminSection,
   restoreAdminSections,
   type AdminSectionDeleteTarget,
@@ -162,18 +160,6 @@ export function useAdminSectionCapabilities() {
   });
 }
 
-export function useCreateSection() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationKey: sectionKeys.adminWrite(),
-    mutationFn: createAdminSection,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
-  });
-}
-
 export interface BulkCreateSectionsRequest {
   scope: "home" | "library";
   library_ids?: number[];
@@ -195,18 +181,6 @@ export function useBulkCreateSections() {
     retry: false,
     mutationKey: sectionKeys.adminWrite(),
     mutationFn: bulkCreateAdminSections,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
-  });
-}
-
-export function useUpdateSection() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationKey: sectionKeys.adminWrite(),
-    mutationFn: updateAdminSection,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
     },
