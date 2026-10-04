@@ -21,6 +21,7 @@ import {
   type EditorSnapshot,
   type ScopeKind,
 } from "@/lib/collections/scope";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 
 // The earlier editors load on their own, so each scope downloads only its own.
 const AdminCollectionEditor = lazy(() => import("./AdminCollectionEditor"));
@@ -103,7 +104,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
   const carriedOn = Boolean(id) && id === created.id;
   const editor = useScopeEditor(scope, carriedOn ? undefined : id);
   const { profile, isLoading: profileLoading } = useCurrentProfile();
-  const listPath = scope.paths.list({ libraryId });
+  const listPath = useListReturnPath(scope.paths.list({ libraryId }));
 
   if ((!id && type && EDITOR_KINDS.has(type)) || carriedOn) {
     const kind = carriedOn ? created.kind : createKind;

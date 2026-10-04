@@ -89,7 +89,7 @@ describe("LibraryCollections", () => {
     );
     expect(screen.getByRole("link", { name: "Arrange shelves" })).toHaveAttribute(
       "href",
-      "/admin/collections?libraryId=7",
+      "/admin/collections?libraryId=7&view=arrange",
     );
   });
 

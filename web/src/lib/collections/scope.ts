@@ -326,7 +326,10 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
   allowPersonalizedRules: false,
 
   paths: {
-    list: ({ libraryId, view } = {}) => withQuery("/admin/collections", { libraryId, view }),
+    // A bare `?libraryId=N` opens that library's Arrange (older links), so a
+    // library's List names its view.
+    list: ({ libraryId, view = libraryId ? "list" : undefined } = {}) =>
+      withQuery("/admin/collections", { libraryId, view }),
     create: ({ type, source, libraryId } = {}) =>
       withQuery("/admin/collections/new", { type, source, libraryId }),
     edit: (id, { libraryId, view, focus } = {}) =>
