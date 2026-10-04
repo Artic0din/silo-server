@@ -110,6 +110,39 @@ from (`mdblist`, `tmdb`, `tmdb_list`); it is empty when `imports` is false. Chec
 which follows a public TMDB list. The administrator capability document
 (`getAdminCollectionCapabilities`) carries the same field for `importAdminTMDBList`.
 
+## Personal collection imports
+
+A personal collection imported with `importMDBListCollection`, `importTMDBCollection`,
+`importTMDBListCollection`, or `importTraktCollection` holds only titles its owner profile
+can access: titles in the owner's allowed libraries that pass its rating limits. Those are
+the `max_content_rating` ceiling, with the server's `access.unrated_content` setting for
+unrated titles, and the `max_advisory_age` limit, with `require_advisory_age` (see
+[Advisory-age limit](#advisory-age-limit)). The owner's hidden-library preference does not count;
+it changes what the owner browses, not what the owner may access. Every sync applies this,
+whether it runs on import, through `syncCollection`, or on the collection's schedule.
+
+- The item limit fills with titles the owner can access. The sync checks every source entry
+  it reads before it applies the limit, so titles outside the owner's access never take a
+  slot. With an item limit set, the sync reads at most four times the limit from the source
+  (100 to 500 entries), so an owner with tight limits can get fewer titles than the limit
+  even when the full source list holds enough the owner can access.
+- `library_ids` keeps only titles in one of the listed libraries, and each title must still
+  be one the owner can access. Omit it to match against everything the owner can access.
+- The sync summary counts only titles the owner can access. `items_matched` counts the
+  titles kept, and so does the `item_count` the sync stores, which the import response
+  returns. An entry the owner cannot access, or one outside `library_ids`, counts in
+  `items_unmatched`, like an entry the catalog lacks, so the summary never reveals titles
+  outside the owner's access. Collection reads such as `getCollection` and `listCollections`
+  report `item_count` as the members the reading profile can see, so the owner's count there
+  leaves out titles in libraries the owner hides.
+- When the server cannot resolve the owner's access, the sync fails and the collection keeps
+  its existing members. The collection records `last_sync_status` `failed` and a
+  `last_sync_message` saying it was not updated, so a failed scheduled sync is visible too;
+  `syncCollection` answers with an error. An import in this state still creates the
+  collection, empty and with a failed first sync the caller can retry.
+
+Each viewer of a shared collection still sees only the titles that viewer can access.
+
 ## Library-scoped version lists
 
 `library_id` on `getCatalogItem`, `listCatalogItemVersions`, `listCatalogItemEpisodes`,

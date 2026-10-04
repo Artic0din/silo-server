@@ -30556,7 +30556,7 @@
             "type": "boolean"
           },
           "library_ids": {
-            "description": "Libraries the sync matches against; every library when omitted",
+            "description": "Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted",
             "examples": [
               [
                 "1"
@@ -43148,7 +43148,7 @@
             "type": "boolean"
           },
           "library_ids": {
-            "description": "Libraries the sync matches against; every library when omitted",
+            "description": "Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted",
             "examples": [
               [
                 "1"
@@ -43324,7 +43324,7 @@
             "type": "boolean"
           },
           "library_ids": {
-            "description": "Libraries the sync matches against; every library when omitted",
+            "description": "Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted",
             "examples": [
               [
                 "1"
@@ -43926,7 +43926,7 @@
             "type": "boolean"
           },
           "library_ids": {
-            "description": "Libraries the sync matches against; every library when omitted",
+            "description": "Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted",
             "examples": [
               [
                 "1"
