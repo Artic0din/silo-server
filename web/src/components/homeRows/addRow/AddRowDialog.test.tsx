@@ -5,9 +5,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import type { RowDraft } from "@/lib/homeRows/rowDraft";
-import type { EditSession, HomeRow, HomeRowsAdapter } from "@/lib/homeRows/types";
+import {
+  RowChangedError,
+  type EditSession,
+  type HomeRow,
+  type HomeRowsAdapter,
+} from "@/lib/homeRows/types";
 import { VARIANT_FAMILIES } from "@/lib/homeRows/variants";
-import { AddRowDialog } from "./AddRowDialog";
+import { AddRowDialog, type AddRowDialogProps } from "./AddRowDialog";
 import { paramFieldKeys } from "@/lib/homeRows/paramFields";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -29,6 +34,8 @@ function row(overrides: Partial<HomeRow> = {}): HomeRow {
 
 let create: ReturnType<typeof vi.fn<(draft: RowDraft) => Promise<{ newIds: string[] }>>>;
 let save: ReturnType<typeof vi.fn<(session: EditSession, draft: RowDraft) => Promise<void>>>;
+let reloadEdit: ReturnType<typeof vi.fn<(session: EditSession) => Promise<EditSession>>>;
+let onBridge: ReturnType<typeof vi.fn<AddRowDialogProps["onBridge"]>>;
 let ruleRows: boolean;
 
 function adapter(): HomeRowsAdapter {
@@ -54,14 +61,18 @@ function adapter(): HomeRowsAdapter {
     openEdit: async () => {
       throw new Error("unused");
     },
-    reloadEdit: async () => {
-      throw new Error("unused");
-    },
+    reloadEdit,
     save,
   };
 }
 
-function Harness({ session = null }: { session?: EditSession | null }) {
+function Harness({
+  session = null,
+  catalogLoaded = true,
+}: {
+  session?: EditSession | null;
+  catalogLoaded?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <QueryClientProvider client={new QueryClient()}>
@@ -69,12 +80,12 @@ function Harness({ session = null }: { session?: EditSession | null }) {
       {open ? (
         <AddRowDialog
           adapter={adapter()}
-          catalog={recipeCatalogFixture}
+          catalog={catalogLoaded ? recipeCatalogFixture : undefined}
           libraries={[{ id: 7, name: "Movies" }]}
           session={session}
           onClose={() => setOpen(false)}
           onSaved={() => {}}
-          onBridge={() => {}}
+          onBridge={onBridge}
         />
       ) : null}
     </QueryClientProvider>
@@ -92,6 +103,10 @@ async function open(session: EditSession | null = null) {
 beforeEach(() => {
   create = vi.fn(async () => ({ newIds: ["n"] }));
   save = vi.fn(async () => {});
+  reloadEdit = vi.fn(async () => {
+    throw new Error("unused");
+  });
+  onBridge = vi.fn();
   ruleRows = true;
   vi.stubGlobal(
     "ResizeObserver",
@@ -308,6 +323,60 @@ describe("Edit row form", () => {
       title: "Directors",
       config: { subject_type: "actor", auto_rotate: true, rotation_cadence: "monthly" },
     });
+  });
+
+  it("renames a row that kept its preset name when the kinds of rows load after it opened", async () => {
+    const view = render(
+      <Harness
+        catalogLoaded={false}
+        session={session({
+          title: "Director Spotlight",
+          config: { subject_type: "director", auto_rotate: true, rotation_cadence: "weekly" },
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = await screen.findByRole("dialog");
+    view.rerender(
+      <Harness
+        session={session({
+          title: "Director Spotlight",
+          config: { subject_type: "director", auto_rotate: true, rotation_cadence: "weekly" },
+        })}
+      />,
+    );
+    await userEvent.click(within(dialog).getByRole("radio", { name: /Actor/ }));
+    expect(within(dialog).getByLabelText("Row name")).toHaveValue("Actor Spotlight");
+  });
+
+  it("hands a row reloaded as a collection to the older editor instead of saving it here", async () => {
+    const start = session({
+      title: "Trending This Week",
+      sectionType: "trending_on_server",
+      config: { window: "7d" },
+    });
+    const reloaded: EditSession = {
+      row: row({
+        title: "Trending This Week",
+        sectionType: "collection",
+        config: { collection_id: "c9" },
+      }),
+      token: "v2",
+    };
+    save.mockRejectedValueOnce(new RowChangedError());
+    reloadEdit.mockResolvedValueOnce(reloaded);
+    const { dialog } = await open(start);
+    fireEvent.change(within(dialog).getByLabelText("Row name"), { target: { value: "Picks" } });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Reload row" }));
+    await waitFor(() =>
+      expect(onBridge).toHaveBeenCalledWith("collection", reloaded, {
+        title: "Picks",
+        itemLimit: 20,
+        hero: false,
+      }),
+    );
+    expect(save).toHaveBeenCalledTimes(1);
   });
 
   it("reads a legacy family movie night row as that variant", async () => {
