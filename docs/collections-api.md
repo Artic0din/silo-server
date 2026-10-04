@@ -23,8 +23,8 @@ alike.
 
 Only the creator changes a collection: its definition, members, artwork, sharing, sync, order
 and deletion. Another profile's shared collection answers `403 permission_denied` to every
-mutation, including `syncCollection`. The web client and the native clients show no management
-actions on collections the profile does not own.
+mutation, including `syncCollection`. The web client shows no management actions on collections
+the profile does not own.
 
 ## Sharing
 

@@ -2034,6 +2034,17 @@ PostgreSQL table; only rows with `native = TRUE` are personal collections, and t
 to false so another writer can never leak into native listings. See
 [the personal collections API](../collections-api.md).
 
+Migration `20261003235347_personal_collection_login_sharing` converts existing rows. A shared
+collection stays shared only when its allow list covered every profile on its login; any other
+shared collection becomes private. Release notes for a build containing this migration must say
+so and must carry a maintenance requirement: stop every API replica before a new replica runs
+migrations, and do not restart an old replica against the migrated database. An old replica
+creates collections without `native`, so they never appear in native listings, and it can still
+store an `is_shared` meant for a subset allow list, which the new rule reads as shared with the
+whole login. The later migration that drops `user_personal_collection_profiles` first repeats the
+`native` backfill and the sharing rule, so rows an old replica wrote are recovered without
+widening access.
+
 `listCollections` returns the profile's own collections in its order, then other profiles' shared
 collections grouped by owner, each in its owner's order. Each profile has one flat order of its own
 collections (`sort_order` numbered per creator). `reorderCollections` accepts only a permutation of
