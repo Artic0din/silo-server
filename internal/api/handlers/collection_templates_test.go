@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -106,5 +107,37 @@ func TestLibraryCollectionHandlerListsTemplateBundles(t *testing.T) {
 	}
 	if len(body.Bundles) != 1 || body.Bundles[0].ID != "test_bundle" {
 		t.Fatalf("unexpected bundle catalog: %+v", body)
+	}
+}
+
+// TestV1TemplateBundleListKeepsFrozenShape pins the /api/v1 bundle list to the
+// four bundle fields it has always carried. Template summaries are a /api/v2
+// addition and must not reach the frozen body.
+func TestV1TemplateBundleListKeepsFrozenShape(t *testing.T) {
+	type v1Bundle struct {
+		ID          string   `json:"id"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		TemplateIDs []string `json:"template_ids"`
+	}
+	bundles := templates.ListBundles()
+	frozen := struct {
+		Bundles []v1Bundle `json:"bundles"`
+	}{Bundles: make([]v1Bundle, 0, len(bundles))}
+	for _, b := range bundles {
+		frozen.Bundles = append(frozen.Bundles, v1Bundle{ID: b.ID, Title: b.Title, Description: b.Description, TemplateIDs: b.TemplateIDs})
+	}
+	var want bytes.Buffer
+	if err := json.NewEncoder(&want).Encode(frozen); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	(&LibraryCollectionHandler{}).HandleListTemplateBundles(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), want.Bytes()) {
+		t.Fatalf("v1 bundle list changed:\n got %.300s\nwant %.300s", rec.Body.String(), want.String())
 	}
 }
