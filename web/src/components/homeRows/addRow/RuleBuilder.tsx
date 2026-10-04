@@ -19,9 +19,9 @@ import { normalizeQuerySortForScope, querySortScopeForMediaScope } from "@/lib/q
 
 type MediaScope = NonNullable<QueryDefinition["media_scope"]> | "all";
 
-// No "Movies & shows" (video): a row's config reads that scope back as all titles.
 const SCOPES: ReadonlyArray<[MediaScope, string]> = [
   ["all", "All titles"],
+  ["video", "Movies & shows"],
   ["movie", "Movies"],
   ["series", "Shows"],
   ["episode", "Episodes"],
