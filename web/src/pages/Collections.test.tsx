@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Collection, QueryDefinition } from "@/api/types";
 
 import {
   buildUserCollectionCatalogHref,
@@ -49,6 +50,32 @@ describe("Collections helpers", () => {
     expect(toCreateCollectionBody(builder)).not.toHaveProperty("allowed_profile_ids");
     expect(toUpdateCollectionBody(builder)).toMatchObject({ is_shared: true });
     expect(toUpdateCollectionBody(builder)).not.toHaveProperty("allowed_profile_ids");
+  });
+
+  it.each([
+    ["no limit", undefined, undefined],
+    ["the server's no-limit sentinel", 10_000_000, undefined],
+    ["an explicit limit", 250, 250],
+  ])("saves a smart collection with %s without changing it", (_label, stored, sent) => {
+    const queryDefinition: QueryDefinition = {
+      library_ids: [],
+      match: "all",
+      groups: [],
+      sort: { field: "added_at", order: "desc" },
+      limit: stored,
+    };
+    const draft = toUserCollectionBuilderValue({
+      id: "col-1",
+      name: "Big Picks",
+      collection_type: "smart",
+      query_definition: queryDefinition,
+    } as Collection);
+    const sentLimit = (body: unknown) =>
+      JSON.parse(JSON.stringify(body)).query_definition.limit as number | undefined;
+
+    expect(draft.query_definition.limit).toBe(sent);
+    expect(sentLimit(toUpdateCollectionBody(draft))).toBe(sent);
+    expect(sentLimit(toCreateCollectionBody(draft))).toBe(sent);
   });
 
   it("sends a canonical display_query_definition fragment for manual collections", () => {
