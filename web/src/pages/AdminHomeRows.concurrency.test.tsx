@@ -172,6 +172,10 @@ async function chooseRowAction(title: string, action: string) {
   await userEvent.click(screen.getByRole("button", { name: `More for ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: action }));
 }
+async function chooseMoreAction(action: string) {
+  await userEvent.click(screen.getByRole("button", { name: "More" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: action }));
+}
 const rowOrder = () => screen.getAllByRole("listitem").map((item) => item.dataset.rowId);
 async function refresh(client: QueryClient) {
   await act(async () => {
@@ -217,14 +221,15 @@ describe("admin section captured snapshots", () => {
   });
   it("captures bulk targets before confirmation and retains failed selection", async () => {
     const client = await setup();
+    await chooseMoreAction("Select rows");
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Original A" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Original B" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete selected sections" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete 2 rows?" });
     rows.push(initial("c"));
     failID = "b";
     await refresh(client);
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete 2 sections" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete 2 rows" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(writes.map((write) => write.args.path?.id)).toEqual(["a", "b"]);
     expect(screen.getByRole("checkbox", { name: "Select Original B" })).toBeChecked();
@@ -245,17 +250,76 @@ describe("admin section captured snapshots", () => {
   });
   it("disables unsupported profile reset and keeps restore confirmation after stale save", async () => {
     await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Restore Defaults" }));
-    const dialog = await screen.findByRole("dialog", { name: "Restore Default Sections" });
+    await chooseMoreAction("Restore defaults…");
+    const dialog = await screen.findByRole("dialog", { name: "Restore Home to the default rows?" });
     expect(within(dialog).getByRole("switch")).toBeDisabled();
+    expect(
+      within(dialog).getByText("Resetting profiles isn't available on this server."),
+    ).toBeVisible();
     revision = 2;
-    fireEvent.click(within(dialog).getByRole("button", { name: "Restore Defaults" }));
-    await screen.findByText(/Reload the current scope/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore defaults" }));
+    await within(dialog).findByText(/Home rows changed since you opened this/);
     expect(writes[0]!.args.headers?.["If-Match"]).toBe('"rev-1"');
     expect(writes[0]!.args.body?.reset_profiles).toBe(false);
     expect(dialog).toBeInTheDocument();
+    // Reload reads the page again and takes a new version to restore over.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reload rows" }));
+    const restore = await within(dialog).findByRole("button", { name: "Restore defaults" });
+    fireEvent.click(restore);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]!.args.headers?.["If-Match"]).toBe('"rev-2"');
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
-  it("keeps Restore Defaults off until a row write and its refetch land", async () => {
+  it("restores with every profile reset when the server supports it, and names the collection rows", async () => {
+    resetSupported = true;
+    rows[1] = { ...rows[1]!, title: "Studio Ghibli", section_type: "collection" };
+    await setup();
+    await chooseMoreAction("Restore defaults…");
+    const dialog = await screen.findByRole("dialog", { name: "Restore Home to the default rows?" });
+    expect(dialog).toHaveTextContent("The 2 rows on Home are replaced by Silo's default rows.");
+    expect(dialog).toHaveTextContent(
+      "Studio Ghibli shows a collection and is removed. The collection itself stays in Collections.",
+    );
+    expect(dialog).toHaveTextContent("Library pages (Movies) don't change.");
+    fireEvent.click(
+      within(dialog).getByRole("switch", { name: "Also reset every profile's Home" }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore defaults" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(writes).toEqual([
+      expect.objectContaining({ operation: "PUT /api/v2/admin/sections/defaults" }),
+    ]);
+    expect(writes[0]!.args.body?.reset_profiles).toBe(true);
+  });
+  it("names the other library pages when restoring a library page", async () => {
+    libraries.push({ id: 8, name: "TV Shows", type: "tv" });
+    const implementation = mocks.request.getMockImplementation()!;
+    mocks.request.mockImplementation((operation: string, args: Args = {}) => {
+      if (args.query?.scope === "library") {
+        args.onResponse?.(new Response(null, { headers: { ETag: '"library-1"' } }));
+        if (operation === "GET /api/v2/admin/sections/order")
+          return Promise.resolve({ scope: "library", library_id: "7", ordered_ids: ["lib"] });
+        if (operation === "GET /api/v2/admin/sections")
+          return Promise.resolve({
+            items: [{ ...initial("lib"), scope: "library", library_id: "7", title: "Movie row" }],
+          });
+      }
+      return implementation(operation, args);
+    });
+    try {
+      await setup(false, "/admin/home-rows?page=7");
+      await screen.findByRole("button", { name: "More for Movie row" });
+      await chooseMoreAction("Restore defaults…");
+      const dialog = await screen.findByRole("dialog", {
+        name: "Restore the Movies page to the default rows?",
+      });
+      expect(dialog).toHaveTextContent("The 1 row on the Movies page is replaced");
+      expect(dialog).toHaveTextContent("Home and the other library pages (TV Shows) don't change.");
+    } finally {
+      libraries.pop();
+    }
+  });
+  it("keeps Restore defaults off until a row write and its refetch land", async () => {
     await setup();
     const implementation = mocks.request.getMockImplementation()!;
     let releasePatch!: () => void;
@@ -266,14 +330,90 @@ describe("admin section captured snapshots", () => {
         });
       return implementation(operation, args);
     });
-    const restore = screen.getByRole("button", { name: "Restore Defaults" });
-    expect(restore).toBeEnabled();
+    const restoreItem = async () => {
+      await userEvent.click(screen.getByRole("button", { name: "More" }));
+      return screen.findByRole("menuitem", { name: "Restore defaults…" });
+    };
+    expect(await restoreItem()).not.toHaveAttribute("data-disabled");
+    await userEvent.keyboard("{Escape}");
     fireEvent.click(screen.getByRole("switch", { name: "Original A is on for everyone" }));
     await waitFor(() => expect(releasePatch).toBeTypeOf("function"));
-    expect(restore).toBeDisabled();
+    expect(await restoreItem()).toHaveAttribute("data-disabled");
+    await userEvent.keyboard("{Escape}");
     releasePatch();
-    await waitFor(() => expect(restore).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Home" })).toBeEnabled());
+    expect(await restoreItem()).not.toHaveAttribute("data-disabled");
     expect(writes.map((write) => write.operation)).toEqual(["PATCH /api/v2/admin/sections/{id}"]);
+  });
+  it("turns selected rows off, reports the one that changed elsewhere, and keeps them selected", async () => {
+    rows.push(initial("c"));
+    await setup();
+    await chooseMoreAction("Select rows");
+    for (const title of ["Original A", "Original B", "Original C"])
+      fireEvent.click(screen.getByRole("checkbox", { name: `Select ${title}` }));
+    rows = rows.map((row) => (row.id === "b" ? { ...row, item_limit: 40 } : row));
+    fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
+    await waitFor(() => expect(mocks.warning).toHaveBeenCalled());
+    expect(mocks.warning).toHaveBeenCalledWith("Turned off 2 of 3 rows.", {
+      description: "Original B changed since you opened this page.",
+    });
+    expect(writes.map((write) => [write.args.path?.id, write.args.body])).toEqual([
+      ["a", { enabled: false }],
+      ["c", { enabled: false }],
+    ]);
+    await screen.findByRole("switch", { name: "Original A is off for everyone" });
+    expect(screen.getByRole("switch", { name: "Original B is on for everyone" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Original B" })).toBeChecked();
+    expect(screen.getByRole("group", { name: "Selected rows" })).toHaveTextContent("3 selected");
+  });
+  it("keeps the selection bar's actions off until a row write and its refetch land", async () => {
+    await setup();
+    await chooseMoreAction("Select rows");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Original A" }));
+    const actions = ["Turn on", "Turn off", "Delete…"].map((name) =>
+      screen.getByRole("button", { name }),
+    );
+    for (const action of actions) expect(action).toBeEnabled();
+    const implementation = mocks.request.getMockImplementation()!;
+    let releaseList: (() => void) | null = null;
+    let patched = false;
+    mocks.request.mockImplementation((operation: string, args: Args) => {
+      if (operation === "PATCH /api/v2/admin/sections/{id}") patched = true;
+      if (patched && operation === "GET /api/v2/admin/sections")
+        return new Promise((resolve) => {
+          releaseList = () => resolve(implementation(operation, args));
+        });
+      return implementation(operation, args);
+    });
+    fireEvent.click(screen.getByRole("switch", { name: "Original B is on for everyone" }));
+    await waitFor(() => expect(releaseList).toBeTypeOf("function"));
+    for (const action of actions) expect(action).toBeDisabled();
+    await act(async () => releaseList!());
+    await waitFor(() => {
+      for (const action of actions) expect(action).toBeEnabled();
+    });
+    expect(writes.map((write) => write.operation)).toEqual(["PATCH /api/v2/admin/sections/{id}"]);
+  });
+  it("refuses to act on more than 100 selected rows", async () => {
+    rows = Array.from({ length: 101 }, (_, index) => ({
+      ...initial(index === 0 ? "a" : `r${index}`),
+      position: index,
+    }));
+    await setup();
+    await chooseMoreAction("Select rows");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }));
+    expect(screen.getByRole("group", { name: "Selected rows" })).toHaveTextContent(
+      "Select up to 100 rows at a time.",
+    );
+    expect(screen.getByRole("button", { name: "Delete…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Turn off" })).toBeDisabled();
+    expect(writes).toEqual([]);
+  });
+  it("drops the old header buttons", async () => {
+    await setup();
+    for (const name of ["Restore Defaults", "Delete All", "Delete Selected"])
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
   it("restricts the admin editor collection picker to library collections", async () => {
     rows[0]!.section_type = "collection";
@@ -500,7 +640,7 @@ describe("admin Home rows list", () => {
   it.each([
     ["Delete row…", "GET /api/v2/admin/sections/{id}"],
     ["Edit row…", "GET /api/v2/admin/sections/{id}"],
-    ["Restore Defaults", "GET /api/v2/admin/sections/order"],
+    ["Restore defaults…", "GET /api/v2/admin/sections/order"],
   ])("drops a %s read that finishes after switching pages", async (action, snapshotOperation) => {
     await setup();
     const implementation = mocks.request.getMockImplementation()!;
@@ -521,8 +661,7 @@ describe("admin Home rows list", () => {
         });
       return implementation(operation, args);
     });
-    if (action === "Restore Defaults")
-      fireEvent.click(screen.getByRole("button", { name: "Restore Defaults" }));
+    if (action === "Restore defaults…") await chooseMoreAction(action);
     else await chooseRowAction("Original A", action);
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     fireEvent.click(screen.getByRole("button", { name: "Movies" }));

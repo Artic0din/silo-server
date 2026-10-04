@@ -38,7 +38,7 @@ export function RowMenu({
           type="button"
           variant="ghost"
           size="icon"
-          className="text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground size-9 rounded-[10px]"
+          className="text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground size-9 rounded-[10px] max-lg:size-11"
           aria-label={`More for ${rowTitle}`}
         >
           <Ellipsis className="size-4" />

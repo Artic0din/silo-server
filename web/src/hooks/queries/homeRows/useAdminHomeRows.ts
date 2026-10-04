@@ -39,6 +39,23 @@ type QuickField = "shown" | "hero";
 /** Lists stay under 10,000 rows; past that a full-order PUT is refused anyway. */
 const MAX_REORDER_ROWS = 10000;
 
+/** Rows a select-mode batch reads and writes at once. */
+const BATCH_PARALLEL = 4;
+
+/** Why a row in a select-mode batch was left as it was. */
+export interface BatchFailure {
+  id: string;
+  title: string;
+  /** changed: it no longer matches the page; legacy: a Trakt row can't be turned back on. */
+  reason: "changed" | "legacy" | "failed";
+  message?: string;
+}
+
+export interface ShownBatchResult {
+  changedIds: string[];
+  failures: BatchFailure[];
+}
+
 function toHomeRow(section: PageSectionConfig): HomeRow {
   return {
     id: section.id,
@@ -94,6 +111,12 @@ export interface AdminHomeRows extends HomeRowsAdapter {
   /** The page's rows as the server sent them, for the edit and delete flows. */
   sections: PageSectionConfig[];
   serverCapabilities: ReturnType<typeof useAdminSectionCapabilities>["data"];
+  /**
+   * Turns several rows on or off: each row is read and checked against the
+   * page like a single switch, four at a time, then the list refetches once.
+   * Rows already in that state are still read, then skipped.
+   */
+  setShownMany(ids: string[], shown: boolean): Promise<ShownBatchResult>;
 }
 
 /**
@@ -249,6 +272,54 @@ export function useAdminHomeRows(): AdminHomeRows {
     [currentList, enqueue, refresh],
   );
 
+  const setShownMany = useCallback(
+    (ids: string[], shown: boolean) =>
+      enqueue(async (): Promise<ShownBatchResult> => {
+        const onScreen = new Map(currentList().map((section) => [section.id, section]));
+        const changedIds: string[] = [];
+        const failures: BatchFailure[] = [];
+        // Returns why the row was left as it was, or null when it changed or needed no change.
+        const writeOne = async (id: string): Promise<BatchFailure["reason"] | null> => {
+          const section = onScreen.get(id);
+          if (!section) return "changed";
+          if (shown && !section.enabled && isTraktConfig(section.config)) return "legacy";
+          // Read even a row that already looks right: another admin may have
+          // flipped it since this page loaded.
+          const snapshot = await fetchAdminSectionSnapshot(id);
+          if (!sameRow(snapshot.section, section)) return "changed";
+          if (section.enabled === shown) return null;
+          await updateAdminSection({ id, etag: snapshot.etag, enabled: shown });
+          changedIds.push(id);
+          return null;
+        };
+        const settle = async (id: string) => {
+          const title = onScreen.get(id)?.title ?? id;
+          try {
+            const reason = await writeOne(id);
+            if (reason) failures.push({ id, title, reason });
+          } catch (error) {
+            failures.push(
+              isStale(error)
+                ? { id, title, reason: "changed" }
+                : {
+                    id,
+                    title,
+                    reason: "failed",
+                    message: adminSectionMutationMessage(error, "Could not save this row"),
+                  },
+            );
+          }
+        };
+        for (let start = 0; start < ids.length; start += BATCH_PARALLEL) {
+          await Promise.all(ids.slice(start, start + BATCH_PARALLEL).map(settle));
+        }
+        // One refetch for the whole batch: until it lands the page version is stale.
+        await refresh();
+        return { changedIds, failures };
+      }),
+    [currentList, enqueue, refresh],
+  );
+
   const reorder = useCallback(
     (orderedIds: string[], orderToken?: unknown) => {
       const etag = typeof orderToken === "string" ? orderToken : (list.data?.etag ?? "");
@@ -375,5 +446,6 @@ export function useAdminHomeRows(): AdminHomeRows {
     libraryId,
     sections,
     serverCapabilities: capabilities,
+    setShownMany,
   };
 }

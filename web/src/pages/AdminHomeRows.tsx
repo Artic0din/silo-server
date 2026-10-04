@@ -11,16 +11,16 @@ import { fetchRecipeCatalog } from "@/lib/recipes";
 import { useQuery } from "@tanstack/react-query";
 import { useAdminCollections } from "@/hooks/queries/admin/collections";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
-import { useAdminHomeRows } from "@/hooks/queries/homeRows/useAdminHomeRows";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, Pencil, Plus, RotateCcw, Star, StarOff, Trash2 } from "lucide-react";
+import {
+  useAdminHomeRows,
+  type BatchFailure,
+  type ShownBatchResult,
+} from "@/hooks/queries/homeRows/useAdminHomeRows";
+import { Pencil, RotateCcw, SquareCheckBig, Star, StarOff, Trash2 } from "lucide-react";
 
 import { toast } from "sonner";
 import {
+  adminSectionMutationMessage,
   fetchAdminSectionSnapshot,
   fetchAdminSectionDeleteTargets,
   fetchAdminSectionOrderSnapshot,
@@ -28,12 +28,15 @@ import {
 import { V2ProblemError } from "@/api/v2/request";
 import SectionEditorDrawer from "@/components/sections/SectionEditorDrawer";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
-import { DeleteRowDialog } from "@/components/homeRows/DeleteRowDialog";
+import { DeleteRowDialog, DeleteRowsDialog } from "@/components/homeRows/DeleteRowDialog";
+import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
+import { RestoreDialog } from "@/components/homeRows/RestoreDialog";
+import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
 import { AddRowDialog, type BridgeCarry } from "@/components/homeRows/addRow/AddRowDialog";
 import { BRIDGED_ROW_KINDS } from "@/lib/homeRows/catalog";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
-import { pageLabel, pageParam } from "@/lib/homeRows/pages";
+import { pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
 import { nextAppendPosition } from "@/lib/homeRows/payloads";
 import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
@@ -43,6 +46,29 @@ type DrawerBridge = { type: string; carry: BridgeCarry | null };
 
 /** How long a newly added row stays highlighted. */
 const NEW_ROW_HIGHLIGHT_MS = 2500;
+
+function rowCount(count: number) {
+  return count === 1 ? "1 row" : `${count} rows`;
+}
+
+function batchFailureText({ title, reason, message }: BatchFailure) {
+  if (reason === "changed") return `${title} changed since you opened this page.`;
+  if (reason === "legacy") return `${title} is a Trakt row, which can't be turned back on.`;
+  return `${title}: ${message}`;
+}
+
+/** Reports a select-mode Turn on / Turn off, naming every row left as it was. */
+function reportShownBatch({ changedIds, failures }: ShownBatchResult, shown: boolean) {
+  const verb = shown ? "Turned on" : "Turned off";
+  const attempted = changedIds.length + failures.length;
+  const description = failures.map(batchFailureText).join(" ");
+  if (attempted === 0) toast.success(`The selected rows are already ${shown ? "on" : "off"}.`);
+  else if (failures.length === 0) toast.success(`${verb} ${rowCount(changedIds.length)}.`);
+  else if (changedIds.length > 0)
+    toast.warning(`${verb} ${changedIds.length} of ${rowCount(attempted)}.`, { description });
+  else
+    toast.error(`Could not turn ${shown ? "on" : "off"} ${rowCount(attempted)}.`, { description });
+}
 
 export default function AdminHomeRows() {
   const adapter = useAdminHomeRows();
@@ -86,7 +112,7 @@ export default function AdminHomeRows() {
   const [editingSection, setEditingSection] = useState<PageSectionConfig | null>(null);
   const [confirmDeleteSection, setConfirmDeleteSection] = useState<PageSectionConfig | null>(null);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
   // Selection belongs to one page; switching pages starts with nothing selected.
   const [selection, setSelection] = useState<{ page: string; ids: Set<string> }>({
     page: currentPageKey,
@@ -134,6 +160,26 @@ export default function AdminHomeRows() {
   function clearSectionSelection() {
     setSelectedSectionIds(() => new Set());
     selectionAnchorRef.current = null;
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    clearSectionSelection();
+  }
+
+  function selectAllRows(checked: boolean) {
+    setSelectedSectionIds(() => new Set(checked ? rowIds : []));
+    selectionAnchorRef.current = null;
+  }
+
+  async function setSelectedShown(shown: boolean) {
+    const ids = selectedSections.map((section) => section.id);
+    if (ids.length === 0 || ids.length > MAX_SELECTED_ROWS) return;
+    try {
+      reportShownBatch(await adapter.setShownMany(ids, shown), shown);
+    } catch (error) {
+      toast.error(adminSectionMutationMessage(error, "Could not change these rows"));
+    }
   }
 
   function updateSectionSelection(sectionId: string, checked: boolean, extendRange: boolean) {
@@ -241,19 +287,15 @@ export default function AdminHomeRows() {
     );
   }
 
-  function prepareBulkDelete(all: boolean) {
-    const ids = all ? rowIds : selectedSections.map((section) => section.id);
-    if (ids.length > 100) {
-      toast.error("Select at most 100 sections per deletion.");
-      return;
-    }
+  function prepareBulkDelete() {
+    const ids = selectedSections.map((section) => section.id);
+    if (ids.length === 0 || ids.length > MAX_SELECTED_ROWS) return;
     const request = ++snapshotRequest.current;
     void prepareSnapshot(async () => {
       const targets = await fetchAdminSectionDeleteTargets(ids);
       if (request !== snapshotRequest.current) return;
       setDeleteTargets(targets);
-      setConfirmDeleteAll(all);
-      setConfirmDeleteSelected(!all);
+      setConfirmDeleteSelected(true);
     });
   }
 
@@ -267,6 +309,67 @@ export default function AdminHomeRows() {
       setConfirmRestoreOpen(true);
     });
   }
+
+  function closeRestore() {
+    snapshotRequest.current++;
+    setConfirmRestoreOpen(false);
+    setResetProfiles(false);
+  }
+
+  function confirmRestore() {
+    if (!restoreSnapshot) return;
+    restoreDefaultsMutation.mutate(
+      {
+        scope: restoreSnapshot.scope,
+        ...(restoreSnapshot.library_id != null
+          ? { library_id: Number(restoreSnapshot.library_id) }
+          : {}),
+        etag: restoreSnapshot.etag,
+        reset_profiles: Boolean(capabilities?.reset_profiles && resetProfiles),
+      },
+      {
+        onSuccess: () => {
+          toast.success(`Restored the default rows on ${currentPageLabel}.`);
+          setConfirmRestoreOpen(false);
+          setResetProfiles(false);
+        },
+        onError: (error) => {
+          const stale = error instanceof V2ProblemError && error.status === 412;
+          setRestoreConflict(stale);
+          if (!stale)
+            toast.error(adminSectionMutationMessage(error, "Could not restore the default rows"));
+        },
+      },
+    );
+  }
+
+  // What Restore replaces, as of the version the dialog read.
+  const restoreRowIds = new Set(restoreSnapshot?.ordered_ids ?? []);
+  const restoreCollectionTitles = adapter.sections
+    .filter((section) => restoreRowIds.has(section.id) && section.section_type === "collection")
+    .map((section) => section.title);
+
+  const moreItems: PageMoreMenuItem[] = [
+    {
+      key: "select",
+      label: "Select rows",
+      help: "Turn several rows on or off, or delete them together.",
+      icon: SquareCheckBig,
+      // Focus moves to Select all once select mode opens.
+      returnFocus: false,
+      disabled: !canManageCurrentScope || selectMode || adapter.rows.length === 0,
+      onSelect: () => setSelectMode(true),
+    },
+    {
+      key: "restore",
+      label: "Restore defaults…",
+      help: "Put back the rows Silo starts with on this page.",
+      icon: RotateCcw,
+      // The restore itself is an admin row write, so `pending` covers it.
+      disabled: !canManageCurrentScope || snapshotLoading || adapter.pending,
+      onSelect: openRestore,
+    },
+  ];
 
   function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): RowMenuItem[] {
     const section = sectionFor(row);
@@ -300,15 +403,17 @@ export default function AdminHomeRows() {
     ];
   }
 
-  const sectionDeletionNotice =
-    "Silo will also try to remove section-managed collections that are no longer referenced. This action cannot be undone.";
-  const deleteProgressLabel = `Deleting ${deleteSectionsMutation.progress?.completed ?? 0} of ${deleteSectionsMutation.progress?.total ?? deleteTargets.length} sections`;
+  const deleteProgressLabel = `Deleting ${deleteSectionsMutation.progress?.completed ?? 0} of ${deleteSectionsMutation.progress?.total ?? deleteTargets.length}…`;
+  const bulkBusy =
+    !canManageCurrentScope ||
+    adapter.pending ||
+    snapshotLoading ||
+    deleteSectionsMutation.isPending;
 
   function handleDeleteCapturedSections() {
     deleteSectionsMutation.mutate(deleteTargets, {
       onSuccess: (result) => {
         setSelectedSectionIds(() => new Set(result.failedIds));
-        setConfirmDeleteAll(false);
         setConfirmDeleteSelected(false);
       },
     });
@@ -328,82 +433,34 @@ export default function AdminHomeRows() {
         onOpenRow={openRow}
         highlightRowId={highlightId}
         rowMenuItems={rowMenuItems}
-        selection={{
-          selectedIds: selectedSectionIds,
-          onChange: updateSectionSelection,
-          onClear: clearSectionSelection,
-          label: (row) => `Select ${row.title}`,
-        }}
-        actions={
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              // The restore itself is an admin row write, so `pending` covers it.
-              disabled={!canManageCurrentScope || snapshotLoading || adapter.pending}
-              onClick={openRestore}
-            >
-              <RotateCcw className="mr-1 h-4 w-4" /> Restore Defaults
-            </Button>
-            <Button
-              ref={focus.attachAddButton}
-              size="sm"
-              disabled={!canManageCurrentScope || snapshotLoading}
-              onClick={openAddRow}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Add row
-            </Button>
-            {selectedSections.length > 0 ? (
-              <>
-                <Badge variant="secondary">{selectedSections.length} selected</Badge>
-                <Button size="sm" variant="ghost" onClick={clearSectionSelection}>
-                  Clear
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={
-                    snapshotLoading ||
-                    selectedSections.length > 100 ||
-                    deleteSectionsMutation.isPending ||
-                    !canManageCurrentScope
-                  }
-                  onClick={() => prepareBulkDelete(false)}
-                >
-                  <Trash2 data-icon="inline-start" /> Delete Selected
-                </Button>
-              </>
-            ) : null}
-            {adapter.rows.length > 0 ? (
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={
-                  snapshotLoading ||
-                  adapter.rows.length > 100 ||
-                  deleteSectionsMutation.isPending ||
-                  restoreDefaultsMutation.isPending ||
-                  !canManageCurrentScope
-                }
-                onClick={() => prepareBulkDelete(true)}
-              >
-                {deleteSectionsMutation.isPending ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="mr-1 h-4 w-4" />
-                )}
-                {deleteSectionsMutation.isPending ? `${deleteProgressLabel}…` : "Delete All"}
-              </Button>
-            ) : null}
-          </>
+        moreItems={moreItems}
+        addRow={{ onClick: openAddRow, disabled: !canManageCurrentScope || snapshotLoading }}
+        selection={
+          selectMode
+            ? {
+                selectedIds: selectedSectionIds,
+                onChange: updateSectionSelection,
+                onSelectAll: selectAllRows,
+                onExit: exitSelectMode,
+                label: (row) => `Select ${row.title}`,
+                bar: (
+                  <SelectModeBar
+                    count={selectedSections.length}
+                    busy={bulkBusy}
+                    onTurnOn={() => void setSelectedShown(true)}
+                    onTurnOff={() => void setSelectedShown(false)}
+                    onDelete={prepareBulkDelete}
+                  />
+                ),
+              }
+            : undefined
         }
         notices={
-          <>
-            {(adapter.rows.length > 100 || selectedSections.length > 100) && (
-              <p role="status">Select up to 100 sections per deletion. </p>
-            )}
-            {snapshotLoading && <p role="status">Loading current section details…</p>}
-          </>
+          snapshotLoading ? (
+            <p role="status" className="text-muted-foreground text-sm">
+              Loading the current rows…
+            </p>
+          ) : null
         }
       >
         <DeleteRowDialog
@@ -429,141 +486,40 @@ export default function AdminHomeRows() {
             if (deletedRow.current) event.preventDefault();
           }}
         />
-        <Dialog
-          open={confirmDeleteSelected || confirmDeleteAll}
+        <DeleteRowsDialog
+          count={deleteTargets.length}
+          pageLabel={currentPageLabel}
+          open={confirmDeleteSelected}
+          busy={deleteSectionsMutation.isPending}
+          progress={deleteProgressLabel}
+          onConfirm={handleDeleteCapturedSections}
           onOpenChange={(open) => {
-            if (!open && !deleteSectionsMutation.isPending) {
-              setConfirmDeleteSelected(false);
-              setConfirmDeleteAll(false);
-            }
+            if (!open) setConfirmDeleteSelected(false);
           }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {confirmDeleteAll ? "Delete all sections" : "Delete selected sections"}
-              </DialogTitle>
-            </DialogHeader>
-            <p>
-              Delete {deleteTargets.length} captured sections? {sectionDeletionNotice}
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                disabled={deleteSectionsMutation.isPending}
-                onClick={() => {
-                  setConfirmDeleteSelected(false);
-                  setConfirmDeleteAll(false);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={deleteSectionsMutation.isPending}
-                onClick={handleDeleteCapturedSections}
-              >
-                Delete {deleteTargets.length} sections
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-        <Dialog
+        />
+        <RestoreDialog
           open={confirmRestoreOpen}
+          page={adapter.page}
+          pageLabel={currentPageLabel}
+          otherLibraryLabels={adapter.pages
+            .filter(
+              (option) => option.ref.kind === "library" && !samePage(option.ref, adapter.page),
+            )
+            .map((option) => option.label)}
+          rowCount={restoreRowIds.size}
+          collectionRowTitles={restoreCollectionTitles}
+          resetSupported={Boolean(capabilities?.reset_profiles)}
+          resetProfiles={resetProfiles}
+          onResetProfilesChange={setResetProfiles}
+          conflict={restoreConflict}
+          busy={restoreDefaultsMutation.isPending || snapshotLoading}
+          canConfirm={restoreSnapshot !== null}
+          onConfirm={confirmRestore}
+          onReload={() => void adapter.reload().finally(openRestore)}
           onOpenChange={(open) => {
-            if (restoreDefaultsMutation.isPending) return;
-            setConfirmRestoreOpen(open);
-            if (!open) {
-              snapshotRequest.current++;
-              setResetProfiles(false);
-            }
+            if (!open) closeRestore();
           }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Restore Default Sections</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <p className="text-muted-foreground text-sm">
-                This will replace all {restoreSnapshot?.scope === "home" ? "home" : "library"}{" "}
-                sections with the defaults. Any custom sections will be removed.
-              </p>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="resetProfiles"
-                  size="sm"
-                  disabled={!capabilities?.reset_profiles || restoreDefaultsMutation.isPending}
-                  checked={resetProfiles}
-                  onCheckedChange={(checked) => setResetProfiles(checked === true)}
-                />
-                <Label htmlFor="resetProfiles" className="text-sm font-normal">
-                  Also reset all user customizations for this scope
-                </Label>
-              </div>
-              {restoreConflict && (
-                <p role="alert">
-                  Sections changed. Reload the current scope before restoring defaults.
-                </p>
-              )}
-              {!capabilities?.reset_profiles && (
-                <p className="text-muted-foreground text-sm">
-                  Resetting user customizations is unavailable on this server.
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                {restoreConflict && (
-                  <Button disabled={snapshotLoading} onClick={openRestore}>
-                    Reload sections
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  disabled={restoreDefaultsMutation.isPending}
-                  onClick={() => {
-                    snapshotRequest.current++;
-                    setConfirmRestoreOpen(false);
-                    setResetProfiles(false);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  disabled={
-                    restoreDefaultsMutation.isPending || restoreConflict || !restoreSnapshot
-                  }
-                  onClick={() => {
-                    restoreDefaultsMutation.mutate(
-                      {
-                        scope: restoreSnapshot!.scope,
-                        ...(restoreSnapshot!.library_id != null
-                          ? { library_id: Number(restoreSnapshot!.library_id) }
-                          : {}),
-                        etag: restoreSnapshot!.etag,
-                        reset_profiles: Boolean(capabilities?.reset_profiles && resetProfiles),
-                      },
-                      {
-                        onSuccess: () => {
-                          toast.success("Sections restored to defaults");
-                          setConfirmRestoreOpen(false);
-                          setResetProfiles(false);
-                        },
-                        onError: (error) => {
-                          setRestoreConflict(
-                            error instanceof V2ProblemError && error.status === 412,
-                          );
-                          toast.error("Failed to restore defaults");
-                        },
-                      },
-                    );
-                  }}
-                >
-                  Restore Defaults
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        />
 
         <SectionEditorDrawer
           mode="admin"

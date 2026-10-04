@@ -1,22 +1,35 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { ArrowDownToLine, ArrowUpToLine } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { describeRow, type DescribeContext } from "@/lib/homeRows/describe";
 import { pageLabel } from "@/lib/homeRows/pages";
 import type { HomeRow, HomeRowsAdapter } from "@/lib/homeRows/types";
+import { cn } from "@/lib/utils";
+import { MobileDockBar } from "./MobileDockBar";
 import { ConflictBanner, LibraryPageNote, ReorderHint } from "./notes";
+import { PageMoreMenu, type PageMoreMenuItem } from "./PageMoreMenu";
 import { PageSwitcher } from "./PageSwitcher";
 import { RowLine } from "./RowLine";
 import { RowList } from "./RowList";
 import { RowMenu, type RowMenuItem } from "./RowMenu";
+import { SelectAllHeader } from "./SelectModeBar";
 import type { RowFocus } from "./useRowFocus";
 
+/** Select mode. While it is on, rows carry checkboxes instead of grips and cannot be dragged. */
 export interface HomeRowsSelection {
   selectedIds: ReadonlySet<string>;
   onChange: (rowId: string, checked: boolean, extendRange: boolean) => void;
-  onClear: () => void;
+  onSelectAll: (checked: boolean) => void;
+  /** Leaves select mode (Done or Escape). */
+  onExit: () => void;
   label: (row: HomeRow) => string;
+  /** The floating bar with what to do to the selected rows. */
+  bar: ReactNode;
 }
+
+/** Under this width the page's buttons move to a bar docked at the bottom. */
+const NARROW_QUERY = "(max-width: 1023px)";
 
 /** Menu items every surface offers; the surface decides where they go. */
 export interface SharedRowMenuItems {
@@ -33,7 +46,8 @@ export function HomeRowsPage({
   adapter,
   title,
   subtitle,
-  actions,
+  moreItems,
+  addRow,
   notices,
   rowMenuItems,
   onOpenRow,
@@ -46,11 +60,14 @@ export function HomeRowsPage({
   adapter: HomeRowsAdapter;
   title: string;
   subtitle: string;
-  actions?: ReactNode;
+  /** The More menu's items. */
+  moreItems: PageMoreMenuItem[];
+  addRow: { onClick: () => void; disabled?: boolean };
   notices?: ReactNode;
   rowMenuItems: (row: HomeRow, shared: SharedRowMenuItems) => RowMenuItem[];
   onOpenRow?: (row: HomeRow) => void;
   collectionTitle?: DescribeContext["collectionTitle"];
+  /** Present while select mode is on. */
   selection?: HomeRowsSelection;
   focus: RowFocus;
   /** A row just added: scrolled into view and briefly highlighted. */
@@ -59,6 +76,19 @@ export function HomeRowsPage({
 }) {
   const dragging = useRef(false);
   const list = useRef<HTMLDivElement>(null);
+  const narrow = useMediaQuery(NARROW_QUERY);
+  const moreTrigger = useRef<HTMLButtonElement>(null);
+  const selectAll = useRef<HTMLButtonElement>(null);
+  const selectMode = selection !== undefined;
+  const wasSelectMode = useRef(selectMode);
+
+  // Entering select mode puts focus on Select all; leaving it, on More, since
+  // the Done button or checkbox that had focus is gone.
+  useEffect(() => {
+    if (wasSelectMode.current === selectMode) return;
+    wasSelectMode.current = selectMode;
+    (selectMode ? selectAll : moreTrigger).current?.focus();
+  }, [selectMode]);
   const highlightShown = Boolean(
     highlightRowId && adapter.rows.some((row) => row.id === highlightRowId),
   );
@@ -104,30 +134,49 @@ export function HomeRowsPage({
     };
   }
 
-  // Escape clears the selection, but only for keys pressed inside the list
-  // itself: menus and dialogs render in portals outside it, and an Escape
-  // that cancels a keyboard drag must not also drop the selection.
+  // Escape leaves select mode, but only for keys pressed inside the list or
+  // its bar: menus and dialogs render in portals outside them, and an Escape
+  // that cancels a keyboard drag must not also leave select mode.
   function handleListKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (
       event.key !== "Escape" ||
       event.defaultPrevented ||
       dragging.current ||
       !selection ||
-      selection.selectedIds.size === 0 ||
       !event.currentTarget.contains(event.target as Node)
     )
       return;
-    selection.onClear();
+    selection.onExit();
   }
 
+  const { attachAddButton } = focus;
+  const selectedCount = rows.filter((row) => selection?.selectedIds.has(row.id)).length;
+  const more = <PageMoreMenu items={moreItems} compact={narrow} triggerRef={moreTrigger} />;
+  const addButton = (
+    <Button
+      ref={attachAddButton}
+      size={narrow ? "lg" : "sm"}
+      disabled={addRow.disabled}
+      onClick={addRow.onClick}
+      className={cn(narrow && "h-12 rounded-[14px] text-[15px]")}
+    >
+      <Plus /> Add row
+    </Button>
+  );
+
   return (
-    <div className="mx-auto grid max-w-[1000px] gap-7">
+    <div className={cn("mx-auto grid max-w-[1000px] gap-7", (narrow || selectMode) && "pb-24")}>
       <header className="page-header gap-5">
         <div className="space-y-3">
           <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{title}</h1>
           <p className="page-subtitle max-w-[76ch] text-sm sm:text-base">{subtitle}</p>
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        {narrow ? null : (
+          <div className="flex flex-wrap items-center gap-2">
+            {more}
+            {addButton}
+          </div>
+        )}
       </header>
 
       {notices}
@@ -156,64 +205,73 @@ export function HomeRowsPage({
           Loading rows…
         </p>
       ) : (
-        <div
-          ref={list}
-          className="surface-panel rounded-[26px] p-1.5"
-          onKeyDown={handleListKeyDown}
-        >
-          {rows.length === 0 ? (
-            <p className="text-muted-foreground px-[18px] py-8 text-center text-sm">
-              No rows on {label} yet.
-            </p>
-          ) : (
-            <>
-              <RowList
-                rows={rows}
-                canReorder={adapter.canReorder}
-                orderToken={adapter.orderToken}
-                label={`Rows on ${label}`}
-                onReorder={(ids, token) => void adapter.reorder(ids, token)}
-                onDragActiveChange={(active) => {
-                  dragging.current = active;
-                }}
-              >
-                {(row, sortable) => (
-                  <RowLine
-                    key={row.id}
-                    {...sortable}
-                    row={row}
-                    highlighted={row.id === highlightRowId}
-                    surface={surface}
-                    pageLabel={label}
-                    description={describeRow(row, describeContext)}
-                    selection={
-                      selection
-                        ? {
-                            selected: selection.selectedIds.has(row.id),
-                            label: selection.label(row),
-                            onChange: (checked, extend) =>
-                              selection.onChange(row.id, checked, extend),
-                          }
-                        : undefined
-                    }
-                    switchDisabled={!adapter.canEdit || (row.legacyTrakt && !row.shown)}
-                    onShownChange={(shown) => void adapter.setShown(row.id, shown)}
-                    onOpen={onOpenRow ? () => onOpenRow(row) : undefined}
-                    menu={
-                      <RowMenu
-                        rowTitle={row.title}
-                        triggerRef={focus.attachMenuTrigger(row.id)}
-                        items={rowMenuItems(row, sharedItems(row, rows.indexOf(row)))}
-                      />
-                    }
-                  />
-                )}
-              </RowList>
-              <ReorderHint />
-            </>
-          )}
+        <div className="grid gap-4" onKeyDown={handleListKeyDown}>
+          <div ref={list} className="surface-panel rounded-[26px] p-1.5">
+            {selection ? (
+              <SelectAllHeader
+                ref={selectAll}
+                rowCount={rows.length}
+                selectedCount={selectedCount}
+                onSelectAll={selection.onSelectAll}
+                onDone={selection.onExit}
+              />
+            ) : null}
+            {rows.length === 0 ? (
+              <p className="text-muted-foreground px-[18px] py-8 text-center text-sm">
+                No rows on {label} yet.
+              </p>
+            ) : (
+              <>
+                <RowList
+                  rows={rows}
+                  canReorder={adapter.canReorder && !selectMode}
+                  orderToken={adapter.orderToken}
+                  label={`Rows on ${label}`}
+                  onReorder={(ids, token) => void adapter.reorder(ids, token)}
+                  onDragActiveChange={(active) => {
+                    dragging.current = active;
+                  }}
+                >
+                  {(row, sortable) => (
+                    <RowLine
+                      key={row.id}
+                      {...sortable}
+                      row={row}
+                      highlighted={row.id === highlightRowId}
+                      surface={surface}
+                      pageLabel={label}
+                      description={describeRow(row, describeContext)}
+                      selection={
+                        selection
+                          ? {
+                              selected: selection.selectedIds.has(row.id),
+                              label: selection.label(row),
+                              onChange: (checked, extend) =>
+                                selection.onChange(row.id, checked, extend),
+                            }
+                          : undefined
+                      }
+                      switchDisabled={!adapter.canEdit || (row.legacyTrakt && !row.shown)}
+                      onShownChange={(shown) => void adapter.setShown(row.id, shown)}
+                      onOpen={onOpenRow ? () => onOpenRow(row) : undefined}
+                      menu={
+                        <RowMenu
+                          rowTitle={row.title}
+                          triggerRef={focus.attachMenuTrigger(row.id)}
+                          items={rowMenuItems(row, sharedItems(row, rows.indexOf(row)))}
+                        />
+                      }
+                    />
+                  )}
+                </RowList>
+                {selectMode ? null : <ReorderHint />}
+              </>
+            )}
+          </div>
+          {selection?.bar}
         </div>
       )}
+      {narrow && !selectMode ? <MobileDockBar more={more} addRow={addButton} /> : null}
       {children}
     </div>
   );

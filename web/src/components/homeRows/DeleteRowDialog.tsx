@@ -71,3 +71,53 @@ export function DeleteRowDialog({
     </Dialog>
   );
 }
+
+/**
+ * Confirms deleting the rows picked in select mode. Their versions were read
+ * before this opened, so rows that change meanwhile fail instead of going.
+ */
+export function DeleteRowsDialog({
+  count,
+  pageLabel,
+  open,
+  busy,
+  progress,
+  onConfirm,
+  onOpenChange,
+}: {
+  count: number;
+  pageLabel: string;
+  open: boolean;
+  busy: boolean;
+  /** "Deleting 1 of 3…" while the deletes run. */
+  progress?: string;
+  onConfirm: () => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const rows = count === 1 ? "1 row" : `${count} rows`;
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete {rows}?</DialogTitle>
+          <DialogDescription>
+            {count === 1 ? "The row goes" : "The rows go"} away from {pageLabel} for everyone. If
+            Silo made a collection just for one of them, it removes that collection too when nothing
+            else uses it.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="items-center sm:justify-between">
+          <p className="text-muted-foreground text-sm">This can&apos;t be undone.</p>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={busy} onClick={onConfirm}>
+              {busy && progress ? progress : `Delete ${rows}`}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
