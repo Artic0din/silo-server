@@ -1,11 +1,10 @@
 import { useAdminTaskJobs } from "@/hooks/queries/admin/taskJobs";
 import { v2, V2ProblemError } from "@/api/v2/request";
 import { adminJobFromV2 } from "@/api/v2/libraries";
-import { requiredETag } from "@/api/personalCollections";
+import { requiredETag } from "@/api/v2/etag";
 import {
   fetchAdminCollections,
   fetchAdminGroups,
-  fetchAdminCollectionSnapshot,
   adminCreateBody,
   adminUpdateBody,
   saveAdminArtwork,
@@ -30,6 +29,7 @@ import type {
   ApplyCollectionTemplateBundleJobRequest,
   ApplyCollectionTemplateBundleRequest,
 } from "@/lib/collectionTemplates";
+import { SERVER_SCOPE } from "@/lib/collections/scope";
 import { adminKeys, sectionKeys } from "../keys";
 import { invalidateAdminCollectionQueries } from "../collectionSurfaceRefresh";
 import { runBulkDelete, type BulkDeleteProgress } from "../bulkDelete";
@@ -52,16 +52,9 @@ function applyTemplateBundleErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Failed to apply defaults";
 }
 
-export function useAdminCollectionSnapshot(id?: string) {
-  return useQuery({
-    queryKey: ["admin", "collections", "edit", id],
-    queryFn: () => fetchAdminCollectionSnapshot(id!),
-    enabled: !!id,
-  });
-}
 export function useAdminCollectionCapabilities(enabled = true) {
   return useQuery({
-    queryKey: ["admin", "collections", "capabilities"],
+    queryKey: SERVER_SCOPE.keys.capabilities,
     queryFn: () => v2("GET /api/v2/admin/collections/capabilities"),
     enabled,
     staleTime: Infinity,
@@ -113,7 +106,7 @@ export function useCreateAdminCollection() {
     onSuccess: (result) => {
       showArtworkErrors(result);
       toast.success("Collection created");
-      void invalidateAdminCollectionQueries(queryClient);
+      void SERVER_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Failed to save");
@@ -258,11 +251,11 @@ export function useUpdateAdminCollection() {
     onSuccess: (result) => {
       showArtworkErrors(result);
       toast.success("Collection saved");
-      void invalidateAdminCollectionQueries(queryClient);
+      void SERVER_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
-      toast.error(adminMutationMessage(error, "Failed to save"));
-      void invalidateAdminCollectionQueries(queryClient);
+      toast.error(SERVER_SCOPE.errorMessage(error, "Failed to save"));
+      void SERVER_SCOPE.invalidate(queryClient);
     },
   });
 }
@@ -273,17 +266,14 @@ export function useDeleteAdminCollection() {
   return useMutation({
     retry: false,
     mutationFn: ({ id, libraryId, etag }: { id: string; libraryId: number; etag: string }) =>
-      v2("DELETE /api/v2/admin/collections/{id}", {
-        path: { id },
-        headers: { "If-Match": requiredETag(etag) },
-      }).then(() => libraryId),
+      SERVER_SCOPE.remove({ id, etag }).then(() => libraryId),
     onSuccess: (_libraryId) => {
       toast.success("Collection deleted");
-      void invalidateAdminCollectionQueries(queryClient);
+      void SERVER_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
-      toast.error(adminMutationMessage(error, "Failed to delete"));
-      void invalidateAdminCollectionQueries(queryClient);
+      toast.error(SERVER_SCOPE.errorMessage(error, "Failed to delete"));
+      void SERVER_SCOPE.invalidate(queryClient);
     },
   });
 }
@@ -357,15 +347,12 @@ export function useSyncAdminCollection() {
   return useMutation({
     retry: false,
     mutationFn: ({ id, libraryId }: { id: string; libraryId: number }) =>
-      v2("POST /api/v2/admin/collections/{id}/sync", { path: { id } }).then((data) => ({
-        data,
-        libraryId,
-      })),
+      SERVER_SCOPE.sync(id).then((data) => ({ data, libraryId })),
     onSuccess: ({ data, libraryId: _libraryId }) => {
       toast.success(
         data.status === "warning" ? "Collection synced with warnings" : "Collection synced",
       );
-      void invalidateAdminCollectionQueries(queryClient);
+      void SERVER_SCOPE.invalidate(queryClient);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Sync failed");

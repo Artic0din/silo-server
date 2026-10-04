@@ -88,10 +88,6 @@ export function buildAdminCollectionEditorPath(id: "new" | string, libraryId?: n
   return libraryId ? `${base}?libraryId=${libraryId}` : base;
 }
 
-export function buildAdminCollectionsReturnPath(libraryId?: number | null) {
-  return libraryId ? `/admin/collections?libraryId=${libraryId}` : "/admin/collections";
-}
-
 interface AdminCollectionsBoardSnapshot {
   groups: Array<{ collections: LibraryCollection[] }>;
   ungrouped: LibraryCollection[];

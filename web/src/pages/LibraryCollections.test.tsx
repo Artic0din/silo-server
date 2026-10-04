@@ -4,6 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import LibraryCollections from "./LibraryCollections";
 
+const auth = vi.hoisted(() => ({
+  user: { id: 1, role: "user" } as { id: number; role: string },
+  profile: { id: "p-me", is_primary: true } as { id: string; is_primary: boolean },
+}));
+
+vi.mock("@/hooks/useAuth", () => ({
+  useOptionalAuth: () => ({ user: auth.user, profile: auth.profile }),
+}));
+
 vi.mock("@/hooks/queries/libraryCollections", () => ({
   useLibraryCollections: () => ({
     isLoading: false,
@@ -46,7 +55,7 @@ vi.mock("@/hooks/queries/profiles", () => ({
   }),
 }));
 vi.mock("@/hooks/useCurrentProfile", () => ({
-  useCurrentProfile: () => ({ profile: { id: "p-me" } }),
+  useCurrentProfile: () => ({ profile: auth.profile, hasSelectedProfile: true }),
 }));
 vi.mock("@/hooks/useUICustomization", () => ({
   useUICustomization: () => ({
@@ -68,5 +77,42 @@ describe("LibraryCollections", () => {
     expect(screen.getByText("by Parent")).toBeTruthy();
     expect(screen.queryByText("by Me")).toBeNull();
     expect(screen.getByText("User collection")).toBeTruthy();
+  });
+
+  it("links the acting admin to Arrange shelves for this library", () => {
+    auth.user = { id: 1, role: "admin" };
+    auth.profile = { id: "p-me", is_primary: true };
+    render(
+      <MemoryRouter>
+        <LibraryCollections libraryId={7} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Arrange shelves" })).toHaveAttribute(
+      "href",
+      "/admin/collections?libraryId=7",
+    );
+  });
+
+  it("offers Arrange shelves to no one acting without admin powers", () => {
+    for (const [user, profile] of [
+      [
+        { id: 1, role: "admin" },
+        { id: "p-kid", is_primary: false },
+      ],
+      [
+        { id: 2, role: "user" },
+        { id: "p-me", is_primary: true },
+      ],
+    ] as const) {
+      auth.user = user;
+      auth.profile = profile;
+      const { unmount } = render(
+        <MemoryRouter>
+          <LibraryCollections libraryId={7} />
+        </MemoryRouter>,
+      );
+      expect(screen.queryByRole("link", { name: "Arrange shelves" })).not.toBeInTheDocument();
+      unmount();
+    }
   });
 });

@@ -35,11 +35,11 @@ import { ReadOnlyCollectionNotice } from "@/components/collections/ReadOnlyColle
 import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
 import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/personalCollectionCopy";
 import { ownerName } from "@/lib/collections/personalOwnership";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { useCatalogWindow } from "@/hooks/queries/catalog";
 import {
   useCreateCollection,
   useCollectionCapabilities,
-  useDeleteUserCollectionImage,
   useUpdateCollection,
 } from "@/hooks/queries/collections";
 import {
@@ -51,7 +51,6 @@ import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import {
-  isCollectionReadOnly,
   toCreateCollectionBody,
   toUpdateCollectionBody,
   toUserCollectionBuilderValue,
@@ -107,10 +106,11 @@ export default function SmartCollectionWizard(wizard: SmartCollectionWizardProps
   // Poster state lives at the wizard level so it survives Step1 ↔ Step2 jumps.
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [posterSourceUrl, setPosterSourceUrl] = useState("");
+  // Artwork removals wait for Save; they live here so they survive step jumps.
+  const [removeArtwork, setRemoveArtwork] = useState<("poster" | "backdrop")[]>([]);
   // Admin-only state still lives here so it survives step jumps too.
   const [backdropFile, setBackdropFile] = useState<File | null>(null);
   const [backdropSourceUrl, setBackdropSourceUrl] = useState("");
-  const [removeArtwork, setRemoveArtwork] = useState<("poster" | "backdrop")[]>([]);
   const [step, setStep] = useState<WizardStep>(1);
 
   useEffect(() => {
@@ -155,6 +155,8 @@ export default function SmartCollectionWizard(wizard: SmartCollectionWizardProps
           onPosterFileChange={setPosterFile}
           posterSourceUrl={posterSourceUrl}
           onPosterSourceUrlChange={setPosterSourceUrl}
+          removeArtwork={removeArtwork}
+          onRemoveArtworkChange={setRemoveArtwork}
           onBack={() => setStep(1)}
         />
       ) : (
@@ -388,6 +390,8 @@ interface Step2BaseProps {
   onPosterFileChange: (file: File | null) => void;
   posterSourceUrl: string;
   onPosterSourceUrlChange: (url: string) => void;
+  removeArtwork: ("poster" | "backdrop")[];
+  onRemoveArtworkChange: (value: ("poster" | "backdrop")[]) => void;
   onBack: () => void;
 }
 
@@ -399,6 +403,8 @@ function Step2UserMetadata({
   onPosterFileChange,
   posterSourceUrl,
   onPosterSourceUrlChange,
+  removeArtwork,
+  onRemoveArtworkChange,
   onBack,
 }: Step2BaseProps & { wizard: UserModeProps }) {
   const { profile } = useCurrentProfile();
@@ -406,10 +412,11 @@ function Step2UserMetadata({
   const { data: capabilities } = useCollectionCapabilities();
   const createMutation = useCreateCollection();
   const updateMutation = useUpdateCollection();
-  const deletePosterMutation = useDeleteUserCollectionImage();
   const isPending = createMutation.isPending || updateMutation.isPending;
-  const readOnly = isCollectionReadOnly(wizard.collection, profile?.id);
   const collection = wizard.collection;
+  const readOnly =
+    collection !== null &&
+    PERSONAL_SCOPE.isReadOnly(PERSONAL_SCOPE.toView(collection), profile?.id);
   const canSave = !readOnly && draft.title.trim().length > 0;
 
   function handleSave() {
@@ -420,7 +427,13 @@ function Step2UserMetadata({
         poster_source_url: trimmedSource || undefined,
       };
       updateMutation.mutate(
-        { id: collection.id, etag: wizard.etag ?? "", body, poster: posterFile },
+        {
+          id: collection.id,
+          etag: wizard.etag ?? "",
+          body,
+          poster: posterFile,
+          removePoster: removeArtwork.includes("poster"),
+        },
         { onSuccess: wizard.onClose },
       );
     } else {
@@ -476,14 +489,24 @@ function Step2UserMetadata({
             <h2 className="text-base font-semibold">Poster</h2>
             <ImageUploadField
               label="Poster"
-              currentUrl={collection?.poster_url}
+              currentUrl={removeArtwork.includes("poster") ? "" : collection?.poster_url}
               file={posterFile}
-              onFileChange={onPosterFileChange}
+              onFileChange={(file) => {
+                onPosterFileChange(file);
+                if (file) onRemoveArtworkChange([]);
+              }}
               sourceUrl={posterSourceUrl}
-              onSourceUrlChange={onPosterSourceUrlChange}
+              onSourceUrlChange={(url) => {
+                onPosterSourceUrlChange(url);
+                if (url.trim()) onRemoveArtworkChange([]);
+              }}
               onDelete={
                 collection?.poster_url
-                  ? () => deletePosterMutation.mutate({ id: collection.id, type: "poster" })
+                  ? () => {
+                      onRemoveArtworkChange(["poster"]);
+                      onPosterFileChange(null);
+                      onPosterSourceUrlChange("");
+                    }
                   : undefined
               }
             />
@@ -502,8 +525,6 @@ function Step2UserMetadata({
 }
 
 interface Step2AdminMetadataProps extends Step2BaseProps {
-  removeArtwork: ("poster" | "backdrop")[];
-  onRemoveArtworkChange: (value: ("poster" | "backdrop")[]) => void;
   wizard: AdminModeProps;
   backdropFile: File | null;
   onBackdropFileChange: (file: File | null) => void;

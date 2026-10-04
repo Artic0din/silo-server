@@ -1,7 +1,9 @@
 import { Link } from "react-router";
+import { SquareKanban } from "lucide-react";
 import type { LibraryTabCollection, LibraryTabGroup, LibraryTabUngrouped } from "@/api/types";
 import { useLibraryCollections } from "@/hooks/queries/libraryCollections";
 import { useIsActingAdmin } from "@/hooks/useIsActingAdmin";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
@@ -9,6 +11,7 @@ import { useUICustomization } from "@/hooks/useUICustomization";
 import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { ownerName } from "@/lib/collections/personalOwnership";
+import { SERVER_SCOPE } from "@/lib/collections/scope";
 import { cardGridClasses } from "@/lib/uiCustomization";
 
 interface LibraryCollectionsProps {
@@ -73,6 +76,14 @@ export default function LibraryCollections({ libraryId }: LibraryCollectionsProp
             Browse hand-picked shelves and smart lists created for this library.
           </p>
         </div>
+        {actingAdmin ? (
+          <Button asChild variant="outline" size="sm">
+            <Link to={SERVER_SCOPE.paths.list({ libraryId })}>
+              <SquareKanban aria-hidden />
+              Arrange shelves
+            </Link>
+          </Button>
+        ) : null}
       </div>
       <div className="space-y-8">
         {buildRenderOrder(groups, ungroupedData).map((item) =>

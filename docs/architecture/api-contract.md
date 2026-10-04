@@ -1318,7 +1318,10 @@ types or an undecodable image is `422` at `body.avatar`, an oversized avatar is 
 server without an upload store answers `503`; section overrides drop the `/reset` suffix
 (`DELETE` on the same resource), take `scope` and `library_id` as query parameters on every
 method, and read back in `snake_case` like the write (the Phase 1 catalogs flagged v1's GET/PUT
-casing mismatch). Every profile mutation in the section is demo-restricted on v2 (v1's demo guard lists none of them), and `createProfile`'s `Location` names the `PATCH`/`DELETE` resource; the created profile is read back through `listProfiles`.
+casing mismatch). `getProfileSectionSettings` also returns `default_title`, the administrator's
+own title for each admin row next to the profile's effective `title`, so a client can show that a
+profile renamed a row and offer the original name back (saving an empty `title` override restores
+it); it is empty for a profile-built row, and v1 does not return it. Every profile mutation in the section is demo-restricted on v2 (v1's demo guard lists none of them), and `createProfile`'s `Location` names the `PATCH`/`DELETE` resource; the created profile is read back through `listProfiles`.
 
 **Settings section (Phase 4).** Operations: `getSettingsContract` (serves both v1
 `/settings/contract` and `/settings/manifest`), `getSettingsContractCapabilities` (also v1
@@ -2321,7 +2324,9 @@ defaults and requires the captured scope ETag. Its response is the refreshed can
 with its ETag; clients refetch definitions after replacement. `reset_profiles` selects the separate all-profile
 reset capability described above; an unsupported reset fails before definition writes. Creation
 and bulk creation use POST, while the retained preview POST samples recipe results using the
-requesting profile's access filter without saving a definition. Creation, bulk creation, preview,
+requesting profile's access filter without saving a definition. Preview items carry the same
+presigned, short-lived `poster_url` a saved row serves at its default size, and omit it when the
+item has no poster; storage keys are never serialized. Creation, bulk creation, preview,
 and a PATCH that changes `section_type` or `config` run the recipe's own config check and answer
 `validation_failed` when it fails, for example an Editor's Picks list with no items; a PATCH that
 leaves both unchanged, including one that echoes their stored values, does not re-check the stored

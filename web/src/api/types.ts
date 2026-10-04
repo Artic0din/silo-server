@@ -4556,7 +4556,9 @@ export function queryDefinitionFromSectionConfig(
               ? "ebook"
               : config.media_scope === "manga" || config.filter_type === "manga"
                 ? "manga"
-                : undefined;
+                : config.media_scope === "video"
+                  ? "video"
+                  : undefined;
 
   const legacySortField = typeof config.sort === "string" ? config.sort : undefined;
   const legacySortOrder = typeof config.order === "string" ? config.order : undefined;
@@ -4604,6 +4606,8 @@ export interface SettingsSectionEntry {
   id: string;
   section_type: string;
   title: string;
+  /** The admin row's own title; empty for a profile-built row. Absent on entries built locally. */
+  default_title?: string;
   featured: boolean;
   item_limit: number;
   hidden: boolean;
