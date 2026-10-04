@@ -237,8 +237,14 @@ describe("Add to these library pages", () => {
     const group = pagesGroup(form);
     const here = within(group).getByRole("checkbox", { name: /Movies/ });
     expect(here).toBeChecked();
-    expect(here).toBeDisabled();
+    expect(here).toHaveAttribute("aria-disabled", "true");
     expect(here).toHaveAccessibleName("Movies (this page)");
+    // Keyboard users still reach it and hear that this page is included.
+    here.focus();
+    expect(here).toHaveFocus();
+    await userEvent.keyboard(" ");
+    await userEvent.click(here);
+    expect(here).toBeChecked();
     expect(
       within(form).getByText(
         "Each page gets its own copy, so you can change or remove it there later.",
@@ -323,8 +329,12 @@ describe("Add to other libraries…", () => {
     const group = within(dialog).getByRole("group", { name: "Add to these library pages" });
     const here = within(group).getByRole("checkbox", { name: "Movies (already here)" });
     expect(here).toBeChecked();
-    expect(here).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: "Add to 0 pages" })).toBeDisabled();
+    expect(here).toHaveAttribute("aria-disabled", "true");
+    here.focus();
+    expect(here).toHaveFocus();
+    await userEvent.keyboard(" ");
+    expect(here).toBeChecked();
+    expect(within(dialog).getByRole("button", { name: "Add to pages" })).toBeDisabled();
 
     await userEvent.click(within(group).getByRole("checkbox", { name: "TV Shows" }));
     await userEvent.click(within(group).getByRole("checkbox", { name: "Kids" }));

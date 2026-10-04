@@ -54,15 +54,19 @@ export function LibraryPageChips({
             >
               <Checkbox
                 checked={checked}
-                disabled={current || disabled}
-                className="size-[18px] rounded-[5px] focus-visible:ring-0"
-                onCheckedChange={(next) =>
+                // The current page stays in the tab order so keyboard users
+                // hear that it is included; it just never toggles.
+                aria-disabled={current || undefined}
+                disabled={!current && disabled}
+                className="size-[18px] rounded-[5px] focus-visible:ring-0 aria-disabled:opacity-50"
+                onCheckedChange={(next) => {
+                  if (current) return;
                   onChange(
                     next === true
                       ? [...selectedIds, page.id]
                       : selectedIds.filter((selected) => selected !== page.id),
-                  )
-                }
+                  );
+                }}
               />
               {page.label}
               {current ? (

@@ -15,8 +15,9 @@ import { LibraryPageChips, type LibraryPage } from "./addRow/LibraryPageChips";
 
 const listFormat = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
 
-function pageCount(count: number) {
-  return count === 1 ? "1 page" : `${count} pages`;
+function confirmLabel(count: number) {
+  if (count === 0) return "Add to pages";
+  return count === 1 ? "Add to 1 page" : `Add to ${count} pages`;
 }
 
 /**
@@ -104,7 +105,7 @@ export function AddToOtherLibrariesDialog({
           </Button>
           <Button disabled={busy || changed || selectedIds.length === 0} onClick={confirm}>
             <Copy aria-hidden className="size-4" />
-            Add to {pageCount(selectedIds.length)}
+            {confirmLabel(selectedIds.length)}
           </Button>
         </DialogFooter>
       </DialogContent>
