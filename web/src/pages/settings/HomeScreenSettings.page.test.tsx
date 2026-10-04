@@ -293,6 +293,43 @@ describe("Settings > Home Screen", () => {
     expect(await screen.findByText(/^Renamed from/)).toBeInTheDocument();
   });
 
+  it("doesn't offer to change a server row's collection, rules or picked titles", async () => {
+    serverRows.home = [
+      entry("c", 0, {
+        section_type: "collection",
+        title: "Ghibli",
+        default_title: "Ghibli",
+        config: { collection_id: "lib-c" },
+      }),
+      entry("f", 1, {
+        section_type: "custom_filter",
+        title: "Short films",
+        default_title: "Short films",
+        config: { query_definition: { groups: [{ match: "all", rules: [] }] } },
+      }),
+      entry("p", 2, {
+        section_type: "admin_curated_list",
+        title: "Staff picks",
+        default_title: "Staff picks",
+        config: { item_ids: [] },
+      }),
+    ];
+    await renderPage();
+    const controls: Array<[string, () => HTMLElement | null]> = [
+      ["Ghibli", () => screen.queryByRole("searchbox", { name: "Search collections" })],
+      ["Short films", () => screen.queryByRole("button", { name: "Add rule" })],
+      ["Staff picks", () => screen.queryByRole("searchbox", { name: "Search titles to add" })],
+    ];
+    for (const [title, control] of controls) {
+      await chooseFromMenu(title, "Edit row…");
+      const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+      expect(within(dialog).getByLabelText("Row name")).toHaveValue(title);
+      expect(control()).not.toBeInTheDocument();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    }
+  });
+
   it("says what a renamed row was called and gives it its name back", async () => {
     saved.home = [{ id: "o-a", section_id: "a", title: "Mine" }];
     await renderPage();

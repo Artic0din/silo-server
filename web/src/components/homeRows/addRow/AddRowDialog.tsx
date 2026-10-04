@@ -490,6 +490,7 @@ export function AddRowDialog({
               onVariant={(presetKey) => setDraft(withVariant(draft, def, presetKey))}
               libraryPages={copyPages}
               ruleRowsNote={adapter.capabilities.profileRuleRowsSwitch}
+              contentLocked={session?.kindLocked}
             />
           </div>
         ) : null}
