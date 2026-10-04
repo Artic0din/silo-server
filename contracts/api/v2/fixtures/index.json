@@ -3921,27 +3921,48 @@
       "body_file": "clear_file_marker_segment_ok.json"
     },
     {
-      "name": "collection_group_stale",
+      "name": "collection_group_unsupported",
       "operation_id": "updateCollectionGroup",
-      "scenario": "A stale group edit leaves the resource unchanged and supplies the current validator.",
+      "scenario": "Personal collection groups are no longer supported; every group operation answers capability_unsupported.",
       "request": {
         "method": "PATCH",
         "path": "/api/v2/collections/groups/g1",
         "headers": {
           "Authorization": "Bearer tok-member",
-          "If-Match": "\"stale\"",
+          "If-Match": "*",
           "X-Profile-Id": "p-owner"
         },
         "body": "{\"name\":\"Winter\"}"
       },
-      "expected_status": 412,
+      "expected_status": 501,
       "response_headers": {
-        "Content-Type": "application/problem+json",
-        "ETag": "\"a398556adb45deecf5779ee6.25gpp42zguq5f\""
+        "Content-Type": "application/problem+json"
       },
       "response_media_type": "application/problem+json",
       "schema": "#/components/schemas/Problem",
-      "body_file": "collection_group_stale.json"
+      "body_file": "collection_group_unsupported.json"
+    },
+    {
+      "name": "collection_order_foreign_id",
+      "operation_id": "reorderCollections",
+      "scenario": "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.",
+      "request": {
+        "method": "PUT",
+        "path": "/api/v2/collections/order",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "If-Match": "*",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"ordered_ids\":[\"c2\",\"c1\"]}"
+      },
+      "expected_status": 422,
+      "response_headers": {
+        "Content-Type": "application/problem+json"
+      },
+      "response_media_type": "application/problem+json",
+      "schema": "#/components/schemas/Problem",
+      "body_file": "collection_order_foreign_id.json"
     },
     {
       "name": "collection_order_precondition_required",
@@ -4228,6 +4249,28 @@
       "response_media_type": "application/json",
       "schema": "#/components/schemas/PersonalCollection",
       "body_file": "create_collection_ok.json"
+    },
+    {
+      "name": "create_collection_with_description_ok",
+      "operation_id": "createCollection",
+      "scenario": "A manual collection created with its description.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"name\":\"Rainy days\",\"description\":\"For wet afternoons\",\"collection_type\":\"manual\"}"
+      },
+      "expected_status": 201,
+      "response_headers": {
+        "Content-Type": "application/json",
+        "Location": "/api/v2/collections/c1"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollection",
+      "body_file": "create_collection_with_description_ok.json"
     },
     {
       "name": "create_library_ok",
@@ -6079,6 +6122,28 @@
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CatalogSearchCapabilities",
       "body_file": "get_catalog_search_capabilities_ok.json"
+    },
+    {
+      "name": "get_collection_capabilities_ok",
+      "operation_id": "getCollectionCapabilities",
+      "scenario": "Personal collection features, including a description on create and preview posters.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/collections/capabilities",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Cache-Control": "private, no-cache",
+        "Content-Type": "application/json",
+        "ETag": "\"f3fb3c3ef1c43868ff93eb6d3797c08ce0db73ee480aa2aad6aff0565a2542f0\""
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/CollectionCapabilities",
+      "body_file": "get_collection_capabilities_ok.json"
     },
     {
       "name": "get_collection_items_ok",
@@ -8749,7 +8814,7 @@
     {
       "name": "list_collections_ok",
       "operation_id": "listCollections",
-      "scenario": "Visible personal collections and account groups.",
+      "scenario": "The acting profile's own collections, then another profile's shared collection; groups is always empty.",
       "request": {
         "method": "GET",
         "path": "/api/v2/collections",
@@ -11844,6 +11909,27 @@
       "response_media_type": "application/problem+json",
       "schema": "#/components/schemas/Problem",
       "body_file": "precondition_required.json"
+    },
+    {
+      "name": "preview_collection_ok",
+      "operation_id": "previewCollection",
+      "scenario": "A smart query's first matches within the acting profile's access, each with its poster when it has one.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections/preview",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"query_definition\":{\"match\":\"all\",\"groups\":[]},\"limit\":2}"
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollectionPreviewOutputBody",
+      "body_file": "preview_collection_ok.json"
     },
     {
       "name": "profile_verification_required",

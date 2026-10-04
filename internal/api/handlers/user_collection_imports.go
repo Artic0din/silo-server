@@ -109,7 +109,11 @@ func (h *UserCollectionImportHandler) HandleImportMDBList(w http.ResponseWriter,
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
 		return
 	}
-	resp, err := h.ImportMDBList(r.Context(), apimw.GetUserID(r.Context()), apimw.GetProfileID(r.Context()), req)
+	userID := apimw.GetUserID(r.Context())
+	resp, err := h.ImportMDBList(r.Context(), userID, apimw.GetProfileID(r.Context()), req)
+	if err == nil {
+		err = v1CollectionAudience(r.Context(), h.storeProvider, userID, &resp.Collection)
+	}
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -123,7 +127,11 @@ func (h *UserCollectionImportHandler) HandleImportTMDB(w http.ResponseWriter, r 
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
 		return
 	}
-	resp, err := h.ImportTMDB(r.Context(), apimw.GetUserID(r.Context()), apimw.GetProfileID(r.Context()), req)
+	userID := apimw.GetUserID(r.Context())
+	resp, err := h.ImportTMDB(r.Context(), userID, apimw.GetProfileID(r.Context()), req)
+	if err == nil {
+		err = v1CollectionAudience(r.Context(), h.storeProvider, userID, &resp.Collection)
+	}
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -137,7 +145,11 @@ func (h *UserCollectionImportHandler) HandleImportTrakt(w http.ResponseWriter, r
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
 		return
 	}
-	resp, err := h.ImportTrakt(r.Context(), apimw.GetUserID(r.Context()), apimw.GetProfileID(r.Context()), req)
+	userID := apimw.GetUserID(r.Context())
+	resp, err := h.ImportTrakt(r.Context(), userID, apimw.GetProfileID(r.Context()), req)
+	if err == nil {
+		err = v1CollectionAudience(r.Context(), h.storeProvider, userID, &resp.Collection)
+	}
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -308,7 +320,7 @@ func (h *UserCollectionImportHandler) createImportedCollection(
 		return none, apiError(http.StatusInternalServerError, "internal_error", "Failed to process template poster")
 	}
 
-	syncResult, updated, syncErr := h.sync.RunSync(ctx, store, collection)
+	syncResult, updated, syncErr := h.sync.RunSync(ctx, userID, store, collection)
 	if syncErr != nil {
 		// Persist failure state inline so the UI shows the error and the user
 		// can retry; the row is intentionally kept around for that retry path.
@@ -507,7 +519,7 @@ func (h *UserCollectionImportHandler) SyncPersonalCollection(ctx context.Context
 		return nil, err
 	}
 	collection, err := store.GetCollection(ctx, collectionID)
-	if err != nil {
+	if err != nil || !collection.VisibleTo(profileID) {
 		return nil, apiError(http.StatusNotFound, "not_found", "Collection not found")
 	}
 	if collection.CreatorProfileID != profileID {
@@ -517,7 +529,7 @@ func (h *UserCollectionImportHandler) SyncPersonalCollection(ctx context.Context
 		return nil, apiError(http.StatusConflict, "sync_in_flight", "A sync is already running for this collection")
 	}
 
-	result, _, err := h.sync.RunSync(ctx, store, collection)
+	result, _, err := h.sync.RunSync(ctx, userID, store, collection)
 	if err != nil {
 		if errors.Is(err, usercollections.ErrSyncUnsupported) {
 			return nil, apiError(http.StatusBadRequest, "bad_request", "This collection does not support sync")

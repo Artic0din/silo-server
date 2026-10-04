@@ -46,7 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
 
 import { MDBListBrowser } from "./MDBListBrowser";
 import { TemplatePosterField, type TemplatePosterMode } from "./TemplatePosterField";
@@ -365,15 +365,7 @@ export function UserCollectionTemplateConfigForm({ template, onCancel, onCreated
         inputId="user-template-default-sort"
       />
 
-      <div className="border-border flex items-center justify-between rounded-md border px-3 py-2">
-        <div className="space-y-0.5">
-          <p className="text-sm font-medium">Share with other profiles</p>
-          <p className="text-muted-foreground text-xs">
-            When on, profiles you choose can browse this collection too.
-          </p>
-        </div>
-        <Switch checked={isShared} onCheckedChange={setIsShared} />
-      </div>
+      <ShowToOtherProfilesField checked={isShared} onCheckedChange={setIsShared} />
 
       <div className="border-border flex justify-end gap-2 border-t pt-4">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={isPending}>
