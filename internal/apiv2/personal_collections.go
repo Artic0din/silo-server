@@ -49,6 +49,7 @@ type PersonalCollection struct {
 	PosterThumbhash            string          `json:"poster_thumbhash" example:""`
 	CreatedAt                  Instant         `json:"created_at" example:"2026-01-02T03:04:05.678Z"`
 	UpdatedAt                  Instant         `json:"updated_at" example:"2026-01-02T03:04:05.678Z"`
+	Contains                   *bool           `json:"contains,omitempty" doc:"Whether the collection holds the listCollections contains_item title. Present only when contains_item is sent, and then only on the acting profile's own manual collections; false for a title the profile cannot access" example:"true"`
 }
 
 // CollectionGroup is an account-wide grouping of personal collections.
@@ -66,6 +67,11 @@ type CollectionGroup struct {
 type PersonalCollectionCollection struct {
 	Collection[PersonalCollection]
 	Groups []CollectionGroup `json:"groups" doc:"Always empty: personal collection groups are no longer supported"`
+}
+
+// PersonalCollectionListInput is the listCollections request.
+type PersonalCollectionListInput struct {
+	ContainsItem string `query:"contains_item" doc:"A title's content id. Each of the acting profile's own manual collections then carries contains. Accepted when getCollectionCapabilities reports contains_item" example:"01J9Z8C3W4R5T6Y7U8I9O0P1Q5"`
 }
 
 // PersonalCollectionCollectionOutput is the listCollections response.
@@ -137,6 +143,7 @@ type CollectionCapabilities struct {
 	MDBListSearch             bool                           `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
 	ScheduleTimeZone          CollectionScheduleTimeZone     `json:"schedule_time_zone"`
 	SyncScheduleEditable      bool                           `json:"sync_schedule_editable" doc:"updateCollection accepts sync_schedule on a synced list; false when imports is false" example:"true"`
+	ContainsItem              bool                           `json:"contains_item" doc:"listCollections accepts contains_item and marks the acting profile's own manual collections with contains" example:"true"`
 	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
@@ -151,6 +158,10 @@ const (
 	importSourceTMDB     = "tmdb"
 	importSourceTMDBList = "tmdb_list"
 )
+
+// collectionTypeManual is the collection_type of a collection whose titles
+// are added by hand.
+const collectionTypeManual = "manual"
 
 // collectionImportSources reports importableCollectionSources when imports
 // are supported and an empty list otherwise.
@@ -354,6 +365,7 @@ type MDBListSearchInput struct {
 // handler writes and an *handlers.APIError on failure.
 type PersonalCollectionService interface {
 	ListPersonalCollections(ctx context.Context, userID int, profileID string) (handlers.PersonalCollectionListView, error)
+	PersonalCollectionsHoldingItem(ctx context.Context, userID int, profileID, itemID string) (map[string]bool, error)
 	Capabilities() handlers.CollectionCapabilitiesView
 	CreatePersonalCollection(ctx context.Context, cmd handlers.PersonalCollectionCreateCommand) (handlers.PersonalCollectionView, error)
 	ReorderPersonalCollections(ctx context.Context, userID int, profileID string, orderedIDs []string) error
@@ -561,7 +573,7 @@ func intsOfIDs(ids []ID, member string) ([]int, *Problem) {
 	return out, nil
 }
 
-func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*PersonalCollectionCollectionOutput, error) {
+func (reg *Registry) listCollections(ctx context.Context, in *PersonalCollectionListInput) (*PersonalCollectionCollectionOutput, error) {
 	svc, p := reg.personalCollections()
 	if p != nil {
 		return nil, p
@@ -570,13 +582,27 @@ func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*Persona
 	if p != nil {
 		return nil, p
 	}
-	view, err := svc.ListPersonalCollections(ctx, userID, profileFrom(ctx))
+	profileID := profileFrom(ctx)
+	view, err := svc.ListPersonalCollections(ctx, userID, profileID)
 	if err != nil {
 		return nil, collectionProblem(err)
 	}
+	marking := in.ContainsItem != ""
+	var holding map[string]bool
+	if marking {
+		if holding, err = svc.PersonalCollectionsHoldingItem(ctx, userID, profileID, in.ContainsItem); err != nil {
+			return nil, collectionProblem(err)
+		}
+	}
 	items := make([]PersonalCollection, 0, len(view.Collections))
 	for _, c := range view.Collections {
-		items = append(items, personalCollectionOf(c))
+		item := personalCollectionOf(c)
+		// Only the profile's own manual collections take a title from Add
+		// to collection; every other collection leaves contains out.
+		if marking && c.CreatorProfileID == profileID && c.CollectionType == collectionTypeManual {
+			item.Contains = new(holding[c.ID])
+		}
+		items = append(items, item)
 	}
 	groups := make([]CollectionGroup, 0, len(view.Groups))
 	for _, g := range view.Groups {
@@ -620,6 +646,7 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		MDBListSearch:             reg.mdblistSearch(),
 		ScheduleTimeZone:          reg.scheduleTimeZone(),
 		SyncScheduleEditable:      features.Imports,
+		ContainsItem:              true,
 		PreviewPosters:            true,
 	}}, nil
 }

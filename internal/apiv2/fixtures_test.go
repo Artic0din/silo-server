@@ -1744,7 +1744,16 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, personalCollectionPreviewFixtureCases()...)
 	cases = append(cases, adminTemplateBundleFixtureCases()...)
 	cases = append(cases, adminCollectionRowFixtureCases()...)
-	return append(cases, adminCollectionCapabilityFixtureCases()...)
+	cases = append(cases, adminCollectionCapabilityFixtureCases()...)
+	return append(cases, personalCollectionContainsFixtureCases()...)
+}
+
+// personalCollectionContainsFixtureCases pin the collection list marked for
+// one title, as Add to collection reads it.
+func personalCollectionContainsFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "list_collections_contains_item_ok", operationID: "listCollections", scenario: "Visible personal collections, each of the profile's own manual collections marked with whether it holds the title.", method: http.MethodGet, path: "/api/v2/collections?contains_item=movie-1", headers: viewerHeaders(), status: 200, assertHeaders: []string{"Content-Type", "Cache-Control"}, schema: "#/components/schemas/PersonalCollectionCollection"},
+	}
 }
 
 // adminCollectionRowFixtureCases pin the rows that show a server collection:
@@ -1868,7 +1877,7 @@ func fixtureDeps() Dependencies {
 	deps.ProgressBootstrap = &fakeBootstrap{}
 	sharedCollection := fixtureCollectionView()
 	sharedCollection.ID, sharedCollection.ProfileID, sharedCollection.CreatorProfileID, sharedCollection.Name, sharedCollection.IsShared = "c2", "p-primary", "p-primary", "Family night", true
-	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, features: userstore.CollectionFeatures{Description: true}}, previewCollections: previewCollections{view: fixturePreviewView()}}
+	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, holding: map[string]bool{"c1": true}, features: userstore.CollectionFeatures{Description: true}}, previewCollections: previewCollections{view: fixturePreviewView()}}
 	deps.CollectionImports = &fakeCollectionImports{configured: true}
 	deps, _ = withLibraryAdmin(deps)
 	deps.LibraryMonitoring = &fakeLibraryMonitoring{snap: librarymonitor.StatusSnapshot{

@@ -23,7 +23,12 @@ type fakePersonalCollections struct {
 	list       handlers.PersonalCollectionListView
 	lastCreate handlers.PersonalCollectionCreateCommand
 	lastOrder  []string
-	features   userstore.CollectionFeatures
+	// holding answers PersonalCollectionsHoldingItem; holdingCalls records
+	// each call's profile and item.
+	holding      map[string]bool
+	holdingErr   error
+	holdingCalls []string
+	features     userstore.CollectionFeatures
 }
 
 func (f *fakePersonalCollections) PersonalCollectionFeatures(context.Context, int) (userstore.CollectionFeatures, error) {
@@ -38,6 +43,14 @@ func (f *fakePersonalCollections) ListPersonalCollections(_ context.Context, _ i
 		return handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{}, Groups: []handlers.CollectionGroupView{}}, nil
 	}
 	return f.list, nil
+}
+
+func (f *fakePersonalCollections) PersonalCollectionsHoldingItem(_ context.Context, _ int, profileID, itemID string) (map[string]bool, error) {
+	f.holdingCalls = append(f.holdingCalls, profileID+"/"+itemID)
+	if f.holdingErr != nil {
+		return nil, f.holdingErr
+	}
+	return f.holding, nil
 }
 
 func (f *fakePersonalCollections) Capabilities() handlers.CollectionCapabilitiesView {
@@ -224,7 +237,7 @@ func TestGetCollectionCapabilities(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"mdblist_search":true,"schedule_time_zone":{"utc_offset":"-05:00","abbreviation":"CDT","name":"America/Chicago"},"sync_schedule_editable":false,"preview_posters":true}` + "\n"
+	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"mdblist_search":true,"schedule_time_zone":{"utc_offset":"-05:00","abbreviation":"CDT","name":"America/Chicago"},"sync_schedule_editable":false,"contains_item":true,"preview_posters":true}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
