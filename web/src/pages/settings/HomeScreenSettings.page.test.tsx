@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { sectionKeys } from "@/hooks/queries/keys";
+import { expectPhoneLayout, stubPhone } from "@/components/homeRows/phoneLayout.test-support";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import HomeScreenSettings from "./HomeScreenSettings";
 
@@ -229,42 +230,6 @@ async function chooseFromMenu(title: string, item: string) {
 async function openMore() {
   await userEvent.click(screen.getByRole("button", { name: "More" }));
   return screen.findByRole("menu");
-}
-
-/** A phone: under 1024px (docked bar, picker sheet) and under 640px. */
-function stubPhone() {
-  vi.stubGlobal(
-    "matchMedia",
-    (query: string) =>
-      ({
-        matches: query === "(max-width: 1023px)" || query === "(max-width: 639px)",
-        media: query,
-        addEventListener() {},
-        removeEventListener() {},
-      }) as unknown as MediaQueryList,
-  );
-}
-
-/**
- * On a phone the page's buttons dock at the bottom, the page pills scroll
- * inside the page's width, and Add row lists one card per line.
- */
-async function expectPhoneLayout(pageName: string) {
-  const dock = screen.getByRole("region", { name: "Page actions" });
-  expect(within(dock).getByRole("button", { name: "More" })).toBeInTheDocument();
-  const pills = screen.getByRole("group", { name: "Page" });
-  expect(pills).toHaveClass("overflow-x-auto", "max-sm:basis-full");
-  // A column that can't shrink below the pills would push the list past the screen's edge.
-  expect(pills.parentElement?.parentElement).toHaveClass("grid-cols-[minmax(0,1fr)]");
-
-  await userEvent.click(within(dock).getByRole("button", { name: "Add row" }));
-  const picker = await screen.findByRole("dialog", { name: `Add a row to ${pageName}` });
-  expect(within(picker).getByRole("tablist")).toHaveAttribute("aria-orientation", "horizontal");
-  const variants = within(picker).getByText("24 hours, 7 days or 30 days");
-  expect(variants.closest("section")?.querySelector(".grid-cols-2")).toBeNull();
-  expect(
-    within(picker).queryByRole("button", { name: "Trending on this server, 7 days" }),
-  ).toBeNull();
 }
 
 describe("Settings > Home Screen", () => {
