@@ -2,10 +2,23 @@ import { useEffect, useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Pencil } from "lucide-react";
+import { TouchSensor } from "@dnd-kit/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HomeRow, HomeRowsAdapter, PageRef, Surface } from "@/lib/homeRows/types";
 import { HomeRowsPage } from "./HomeRowsPage";
 import { useRowFocus } from "./useRowFocus";
+
+const dnd = vi.hoisted(() => ({ sensorOptions: vi.fn() }));
+vi.mock("@dnd-kit/core", async () => {
+  const actual = await vi.importActual<typeof import("@dnd-kit/core")>("@dnd-kit/core");
+  return {
+    ...actual,
+    useSensor: ((sensor, options) => {
+      dnd.sensorOptions(sensor, options);
+      return actual.useSensor(sensor, options);
+    }) as typeof actual.useSensor,
+  };
+});
 
 function makeRow(id: string, overrides: Partial<HomeRow> = {}): HomeRow {
   return {
@@ -30,6 +43,7 @@ function makeHarness() {
     onClear: vi.fn<() => void>(),
     onSelect: vi.fn<(id: string, checked: boolean, extendRange: boolean) => void>(),
     settle: () => {},
+    setOrderToken: (_token: string) => {},
   };
 }
 
@@ -53,8 +67,10 @@ function FakePage({
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState(initialPending);
   const [selected, setSelected] = useState<Set<string>>(new Set(selectable ? ["a"] : []));
+  const [orderToken, setOrderToken] = useState("token-1");
   useEffect(() => {
     harness.settle = () => setPending(false);
+    harness.setOrderToken = (token) => setOrderToken(token);
   });
   const adapter: HomeRowsAdapter = {
     surface,
@@ -72,7 +88,7 @@ function FakePage({
     conflict,
     reload: harness.reload,
     canReorder: !pending,
-    orderToken: "token-1",
+    orderToken,
     reorder: async (ids, token) => {
       harness.reorder(ids, token);
       setPending(true);
@@ -227,9 +243,13 @@ describe("HomeRowsPage", () => {
     const grip = screen.getByRole("button", { name: "Move Row A" });
     expect(grip).toHaveClass("touch-none");
     expect(grip).toHaveAttribute("aria-roledescription", "sortable");
+    // A touch drag starts only after a press and hold, so a swipe still scrolls.
+    expect(dnd.sensorOptions).toHaveBeenCalledWith(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 5 },
+    });
   });
 
-  it("reorders with the keyboard and announces rows by title", async () => {
+  it("reorders with the keyboard against the version it picked up, and announces rows by title", async () => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
       this: Element,
     ) {
@@ -255,6 +275,8 @@ describe("HomeRowsPage", () => {
     grip.focus();
     fireEvent.keyDown(grip, { code: "Space", key: " " });
     await screen.findByText("Picked up Row A, position 1 of 3.");
+    // A refetch while the row is in the air brings a newer version.
+    act(() => harness.setOrderToken("token-2"));
     fireEvent.keyDown(grip, { code: "ArrowDown", key: "ArrowDown" });
     await screen.findByText("Row A is now at position 2 of 3.");
     fireEvent.keyDown(grip, { code: "Space", key: " " });

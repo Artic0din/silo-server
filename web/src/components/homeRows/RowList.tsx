@@ -26,7 +26,7 @@ import type { RowLineProps } from "./RowLine";
 /** What the list hands each row so it can be dragged by its grip only. */
 export type SortableRowProps = Pick<RowLineProps, "handleProps" | "ref" | "style" | "dragging">;
 
-export const TOUCH_DRAG_DELAY_MS = 200;
+const TOUCH_DRAG_DELAY_MS = 200;
 
 const SCREEN_READER_INSTRUCTIONS =
   "To move a row, focus its handle and press Space or Enter. Use the up and down arrow keys to move it, Space or Enter to drop it, or Escape to cancel.";
