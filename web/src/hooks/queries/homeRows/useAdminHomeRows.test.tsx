@@ -5,6 +5,7 @@ import { MemoryRouter, useSearchParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { v2Problem } from "@/api/v2/problems.test-support";
 import { useDeleteSection } from "@/hooks/queries/sections";
+import { RowChangedError } from "@/lib/homeRows/types";
 import { useAdminHomeRows } from "./useAdminHomeRows";
 
 const mocks = vi.hoisted(() => ({
@@ -87,7 +88,10 @@ beforeEach(() => {
       });
     }
     args.onResponse?.(new Response(null, { headers: { ETag: `"rev-${revision}"` } }));
-    const scopeRows = args.query?.scope === "library" ? libraryRows : rows;
+    const scopeRows =
+      args.query?.scope === "library"
+        ? libraryRows.filter((entry) => entry.library_id === args.query?.library_id)
+        : rows;
     if (operation === "GET /api/v2/admin/sections/capabilities")
       return { available: true, reset_profiles: false, preview: true };
     if (operation === "GET /api/v2/admin/sections/order")
@@ -95,7 +99,22 @@ beforeEach(() => {
     if (operation === "GET /api/v2/admin/sections")
       return { items: scopeRows.map((entry) => ({ ...entry })) };
     if (operation === "GET /api/v2/admin/sections/{id}")
-      return { ...rows.find((entry) => entry.id === args.path?.id)! };
+      return { ...[...rows, ...libraryRows].find((entry) => entry.id === args.path?.id)! };
+    if (operation === "POST /api/v2/admin/sections/bulk") {
+      // Unguarded: one new row at the bottom of each library page named.
+      const { library_ids: libraryIds, ...fields } = args.body as Record<string, unknown>;
+      for (const libraryId of libraryIds as string[]) {
+        revision++;
+        libraryRows.push(
+          row(`copy-${revision}`, {
+            ...(fields as Partial<Row>),
+            scope: "library",
+            library_id: libraryId,
+          }),
+        );
+      }
+      return { created: (libraryIds as string[]).length };
+    }
     if (args.headers?.["If-Match"] !== `"rev-${revision}"`)
       throw v2Problem(412, "precondition_failed", "Changed on another client");
     if (operation === "PATCH /api/v2/admin/sections/{id}") {
@@ -472,5 +491,147 @@ describe("useAdminHomeRows", () => {
     expect(result.current.adapter.canEdit).toBe(false);
     await act(async () => result.current.adapter.reload());
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  describe("library page copies", () => {
+    const draft = {
+      sectionType: "trending_on_server",
+      title: "Trending This Week",
+      titleFollowsVariant: true,
+      config: { window: "7d" },
+      itemLimit: 20,
+      hero: false,
+    };
+
+    beforeEach(() => {
+      mocks.libraries.mockReturnValue({
+        data: [
+          { id: 7, name: "Movies", type: "movies" },
+          { id: 8, name: "TV Shows", type: "shows" },
+          { id: 9, name: "Kids", type: "movies" },
+        ],
+      });
+    });
+
+    it("are offered on library pages only", async () => {
+      const home = setup();
+      await ready(home.result);
+      expect(home.result.current.adapter.capabilities.libraryCopies).toBe(false);
+      home.unmount();
+
+      const library = setup("/admin/home-rows?page=7");
+      await ready(library.result);
+      expect(library.result.current.adapter.capabilities.libraryCopies).toBe(true);
+    });
+
+    it("adds a new row to this page and the others in one request, and finds it here", async () => {
+      const { result } = setup("/admin/home-rows?page=7");
+      await ready(result);
+      let created!: { newIds: string[] };
+      await act(async () => {
+        created = await result.current.adapter.create({ ...draft, extraLibraryIds: [8, 9, 7] });
+      });
+      expect(writes()).toEqual([
+        expect.objectContaining({ operation: "POST /api/v2/admin/sections/bulk" }),
+      ]);
+      expect(writes()[0]!.args.body).toEqual({
+        scope: "library",
+        library_ids: ["7", "8", "9"],
+        section_type: "trending_on_server",
+        title: "Trending This Week",
+        item_limit: 20,
+        featured: false,
+        enabled: true,
+        config: { window: "7d" },
+      });
+      const here = libraryRows.filter((entry) => entry.library_id === "7");
+      expect(here.map((entry) => entry.id)).toEqual(["lib", created.newIds[0]]);
+      expect(created.newIds).toHaveLength(1);
+      expect(result.current.adapter.rows.map((entry) => entry.id)).toEqual([
+        "lib",
+        ...created.newIds,
+      ]);
+      expect(result.current.adapter.pending).toBe(false);
+    });
+
+    it("adds a hero row to this page only", async () => {
+      const { result } = setup("/admin/home-rows?page=7");
+      await ready(result);
+      mocks.request.mockImplementationOnce(async (operation: string, args: Args) => {
+        calls.push({ operation, args });
+        return row("hero", { ...(args.body as Partial<Row>), scope: "library" });
+      });
+      await act(async () => {
+        await result.current.adapter.create({ ...draft, hero: true, extraLibraryIds: [8] });
+      });
+      expect(writes().map((call) => call.operation)).toEqual(["POST /api/v2/admin/sections"]);
+      expect(writes()[0]!.args.body).toMatchObject({ library_id: "7", featured: true });
+    });
+
+    it("copies an existing row to the other pages only, never as a hero banner", async () => {
+      libraryRows = [
+        row("lib", {
+          scope: "library",
+          library_id: "7",
+          title: "Trending This Week",
+          section_type: "trending_on_server",
+          featured: true,
+          enabled: false,
+          item_limit: 30,
+          config: { window: "7d" },
+        }),
+      ];
+      const { result } = setup("/admin/home-rows?page=7");
+      await ready(result);
+      let outcome!: { created: number };
+      await act(async () => {
+        outcome = await result.current.adapter.copyToLibraries!("lib", [7, 8, 9]);
+      });
+      expect(outcome).toEqual({ created: 2 });
+      expect(writes()).toHaveLength(1);
+      expect(writes()[0]!.args.body).toEqual({
+        scope: "library",
+        library_ids: ["8", "9"],
+        section_type: "trending_on_server",
+        title: "Trending This Week",
+        item_limit: 30,
+        featured: false,
+        enabled: false,
+        config: { window: "7d" },
+      });
+      expect(result.current.adapter.rows.map((entry) => entry.id)).toEqual(["lib"]);
+      expect(libraryRows.map((entry) => entry.library_id)).toEqual(["7", "8", "9"]);
+    });
+
+    it("refuses to copy a row that changed since the page loaded", async () => {
+      const { result } = setup("/admin/home-rows?page=7");
+      await ready(result);
+      libraryRows = libraryRows.map((entry) => ({ ...entry, title: "Renamed elsewhere" }));
+      await act(async () => {
+        await expect(result.current.adapter.copyToLibraries!("lib", [8])).rejects.toBeInstanceOf(
+          RowChangedError,
+        );
+      });
+      expect(writes()).toEqual([]);
+      expect(result.current.adapter.conflict).toEqual({ scope: "row", rowId: "lib" });
+    });
+
+    it("refuses to copy a row whose settings name a library", async () => {
+      libraryRows = [
+        row("lib", {
+          scope: "library",
+          library_id: "7",
+          config: { filter_library_ids: [7] },
+        }),
+      ];
+      const { result } = setup("/admin/home-rows?page=7");
+      await ready(result);
+      await act(async () => {
+        await expect(result.current.adapter.copyToLibraries!("lib", [8])).rejects.toThrow(
+          "can't be added to other libraries",
+        );
+      });
+      expect(writes()).toEqual([]);
+    });
   });
 });

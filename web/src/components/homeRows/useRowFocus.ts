@@ -12,6 +12,8 @@ export interface RowFocus {
   afterRemoval: (rowId: string) => void;
   /** After a move lands: the moved row's ⋯, wherever the refetch puts it. */
   afterMove: (rowId: string) => void;
+  /** Now: the row's ⋯, for a dialog opened from it that closes with the row still there. */
+  returnToMenu: (rowId: string) => void;
 }
 
 /**
@@ -70,5 +72,9 @@ export function useRowFocus(rows: HomeRow[], pending: boolean): RowFocus {
     addButton.current = element;
   }, []);
 
-  return { attachMenuTrigger, attachAddButton, afterRemoval, afterMove };
+  const returnToMenu = useCallback((rowId: string) => {
+    triggers.current.get(rowId)?.focus();
+  }, []);
+
+  return { attachMenuTrigger, attachAddButton, afterRemoval, afterMove, returnToMenu };
 }

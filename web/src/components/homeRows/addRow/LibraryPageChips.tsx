@@ -1,0 +1,88 @@
+import { useId } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
+
+export interface LibraryPage {
+  id: number;
+  label: string;
+}
+
+/**
+ * "Add to these library pages": one checkbox chip per library page. The page
+ * being edited is always on and can't be turned off; `currentNote` says why
+ * ("this page" while adding a row, "already here" for an existing one).
+ */
+export function LibraryPageChips({
+  pages,
+  currentId,
+  currentNote,
+  selectedIds,
+  onChange,
+  disabled = false,
+  help,
+}: {
+  pages: readonly LibraryPage[];
+  currentId: number;
+  currentNote: string;
+  /** The other pages picked; the current page is never in it. */
+  selectedIds: readonly number[];
+  onChange: (ids: number[]) => void;
+  /** Every chip but the current page's is off and can't be picked. */
+  disabled?: boolean;
+  help: string;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={`${id}-label`} aria-describedby={`${id}-help`}>
+      <span id={`${id}-label`} className="mb-2 block text-sm leading-none font-medium">
+        Add to these library pages
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {pages.map((page) => {
+          const current = page.id === currentId;
+          const checked = current || (!disabled && selectedIds.includes(page.id));
+          return (
+            <label
+              key={page.id}
+              className={cn(
+                "border-border has-focus-visible:ring-ring/50 inline-flex h-10 items-center gap-2.5 rounded-[12px] border pr-3.5 pl-3 text-sm font-medium transition-colors has-focus-visible:ring-[3px]",
+                checked && "bg-accent border-foreground/55",
+                current || disabled
+                  ? "cursor-default opacity-80"
+                  : "hover:bg-accent/60 cursor-pointer",
+              )}
+            >
+              <Checkbox
+                checked={checked}
+                disabled={current || disabled}
+                className="size-[18px] rounded-[5px] focus-visible:ring-0"
+                onCheckedChange={(next) =>
+                  onChange(
+                    next === true
+                      ? [...selectedIds, page.id]
+                      : selectedIds.filter((selected) => selected !== page.id),
+                  )
+                }
+              />
+              {page.label}
+              {current ? (
+                // Screen readers hear "Movies (this page)"; flex drops the space visually.
+                <>
+                  {" "}
+                  <span className="text-muted-foreground text-xs font-normal">
+                    <span className="sr-only">(</span>
+                    {currentNote}
+                    <span className="sr-only">)</span>
+                  </span>
+                </>
+              ) : null}
+            </label>
+          );
+        })}
+      </div>
+      <p id={`${id}-help`} className="text-muted-foreground mt-2 text-[13px]">
+        {help}
+      </p>
+    </div>
+  );
+}

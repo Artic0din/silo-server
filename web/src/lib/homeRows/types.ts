@@ -52,6 +52,8 @@ export interface HomeRowsCapabilities {
   draftPreview: boolean;
   /** "Titles matching rules" may be added. */
   ruleRows: boolean;
+  /** A row may be added to several library pages at once (library pages only). */
+  libraryCopies: boolean;
 }
 
 /** The collections a collection row may show on this surface. */
@@ -103,6 +105,12 @@ export interface HomeRowsAdapter {
   save(session: EditSession, draft: RowDraft): Promise<void>;
   /** Where a shown row's poster peek comes from; null (or absent) keeps the row's icon. */
   peek?(row: HomeRow): PeekRequest | null;
+  /**
+   * Adds a copy of an existing row to each of `libraryIds` other than this
+   * page; present when `capabilities.libraryCopies` can be on. Rejects with
+   * RowChangedError when the row no longer matches the page.
+   */
+  copyToLibraries?(id: string, libraryIds: number[]): Promise<{ created: number }>;
   /** What the collection picker offers; without it the picker has nothing to offer. */
   collections?: RowCollections;
 }

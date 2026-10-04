@@ -16,6 +16,8 @@ export interface RowDraft {
   config: Record<string, unknown>;
   itemLimit: number;
   hero: boolean;
+  /** Add row on a library page: the other library pages that get their own copy. */
+  extraLibraryIds?: number[];
 }
 
 export const DEFAULT_ITEM_LIMIT = 20;

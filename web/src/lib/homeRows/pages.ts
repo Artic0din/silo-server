@@ -25,3 +25,12 @@ export function samePage(a: PageRef, b: PageRef): boolean {
 export function pageLabel(ref: PageRef, pages: readonly HomeRowsPageOption[]): string {
   return pages.find((page) => samePage(page.ref, ref))?.label ?? "Home";
 }
+
+/** The library pages among `pages`, by library id, in the switcher's order. */
+export function libraryPagesOf(
+  pages: readonly HomeRowsPageOption[],
+): Array<{ id: number; label: string }> {
+  return pages.flatMap((page) =>
+    page.ref.kind === "library" ? [{ id: page.ref.libraryId, label: page.label }] : [],
+  );
+}
