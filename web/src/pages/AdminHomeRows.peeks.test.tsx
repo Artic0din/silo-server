@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PEEK_STALE_MS } from "@/lib/homeRows/peek";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import AdminHomeRows from "./AdminHomeRows";
 
@@ -194,24 +195,43 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
-async function setup(entry = "/admin/home-rows") {
-  render(
+const newClient = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+async function setup(entry = "/admin/home-rows", client = newClient()) {
+  const view = render(
     <MemoryRouter initialEntries={[entry]}>
-      <QueryClientProvider
-        client={
-          new QueryClient({
-            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-          })
-        }
-      >
+      <QueryClientProvider client={client}>
         <AdminHomeRows />
       </QueryClientProvider>
     </MemoryRouter>,
   );
   const add = await screen.findByRole("button", { name: "Add row" });
   await waitFor(() => expect(add).toBeEnabled());
+  return { client, unmount: view.unmount };
+}
+
+/** Moves the clock past the time a loaded peek stays fresh. */
+function outlivePeekFreshness() {
+  const later = Date.now() + PEEK_STALE_MS + 1000;
+  vi.spyOn(Date, "now").mockReturnValue(later);
+}
+
+async function turnOffAndOn(title: string) {
+  await userEvent.click(screen.getByRole("switch", { name: `${title} is on for everyone` }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("switch", { name: `${title} is off for everyone` }),
+    ).toBeInTheDocument(),
+  );
+  await userEvent.click(screen.getByRole("switch", { name: `${title} is off for everyone` }));
+  await waitFor(() =>
+    expect(screen.getByRole("switch", { name: `${title} is on for everyone` })).toBeInTheDocument(),
+  );
+  await waitFor(() => expect(screen.getByRole("button", { name: "Add row" })).toBeEnabled());
 }
 
 const posterSources = (title: string) =>
@@ -298,30 +318,57 @@ describe("Home rows poster peeks", () => {
     await waitFor(() => expect(peekRequests()).toHaveLength(7));
   });
 
-  it("does not reload peeks when the list refreshes after a write", async () => {
+  it("does not reload a fresh peek when its row comes back", async () => {
     await setup();
     reveal("Recently Added", "Trending This Week");
     await waitFor(() => expect(posterSources("Recently Added")).toHaveLength(2));
     const before = peekRequests().length;
 
-    await userEvent.click(
-      screen.getByRole("switch", { name: "Recently Added is on for everyone" }),
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("switch", { name: "Recently Added is off for everyone" }),
-      ).toBeInTheDocument(),
-    );
-    await userEvent.click(
-      screen.getByRole("switch", { name: "Recently Added is off for everyone" }),
-    );
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add row" })).toBeEnabled());
+    await turnOffAndOn("Recently Added");
     reveal("Recently Added");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(peekRequests()).toHaveLength(before);
     expect(posterSources("Recently Added")).toHaveLength(2);
+  });
+
+  it("reloads a stale peek once its returning row is on screen", async () => {
+    await setup();
+    reveal("Recently Added");
+    await waitFor(() => expect(posterSources("Recently Added")).toHaveLength(2));
+    expect(peekRequests()).toHaveLength(1);
+
+    await turnOffAndOn("Recently Added");
+    outlivePeekFreshness();
+    // The cached posters show straight away; the reload waits for the screen.
+    expect(posterSources("Recently Added")).toHaveLength(2);
+    expect(peekRequests()).toHaveLength(1);
+
+    reveal("Recently Added");
+    await waitFor(() => expect(peekRequests()).toHaveLength(2));
+  });
+
+  it("reloads stale peeks when the admin comes back to the page", async () => {
+    const { client, unmount } = await setup();
+    reveal("Recently Added");
+    await waitFor(() => expect(posterSources("Recently Added")).toHaveLength(2));
+    unmount();
+
+    await setup("/admin/home-rows", client);
+    reveal("Recently Added");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(peekRequests()).toHaveLength(1);
+    expect(posterSources("Recently Added")).toHaveLength(2);
+    unmount();
+    cleanup();
+
+    outlivePeekFreshness();
+    await setup("/admin/home-rows", client);
+    reveal("Recently Added");
+    await waitFor(() => expect(peekRequests()).toHaveLength(2));
   });
 
   it("reloads a row's peek after an edit changes what it shows", async () => {

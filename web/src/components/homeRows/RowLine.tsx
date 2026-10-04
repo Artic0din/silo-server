@@ -95,8 +95,9 @@ export function RowLine({
       style={style}
       data-row-id={row.id}
       data-highlighted={highlighted || undefined}
+      data-selected={selection?.selected || undefined}
       className={cn(
-        "hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
+        "group/row hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
         "before:bg-border/75 before:absolute before:top-0 before:right-4 before:left-[124px] before:h-px first:before:hidden hover:before:hidden [&:hover+li]:before:hidden",
         // Under 1024px the ⋯ column widens to a 44px touch target.
         "grid-cols-[28px_48px_minmax(0,1fr)_auto_44px] sm:grid-cols-[28px_74px_minmax(0,1fr)_auto_44px] lg:grid-cols-[28px_74px_minmax(0,1fr)_auto_36px]",
