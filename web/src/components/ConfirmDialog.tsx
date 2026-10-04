@@ -27,6 +27,8 @@ interface ConfirmDialogProps {
   irreversible?: boolean;
   /** Where focus goes on close, when the control that opened it is gone (e.g. a menu item). */
   onCloseAutoFocus?: (event: Event) => void;
+  /** Why the action didn't happen, shown in the dialog; the caller keeps it open. */
+  error?: string | null;
 }
 
 export function ConfirmDialog({
@@ -42,6 +44,7 @@ export function ConfirmDialog({
   bullets,
   irreversible = false,
   onCloseAutoFocus,
+  error,
 }: ConfirmDialogProps) {
   const id = useId();
   const items = bullets?.items ?? [];
@@ -91,6 +94,11 @@ export function ConfirmDialog({
               </li>
             ))}
           </ul>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-destructive text-sm font-medium">
+            {error}
+          </p>
         ) : null}
         {irreversible ? (
           <AlertDialogFooter className="items-center sm:justify-between">

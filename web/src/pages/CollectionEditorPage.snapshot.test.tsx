@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { V2ProblemError } from "@/api/v2/request";
+import { listReturnState } from "@/lib/collections/listReturn";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
@@ -34,11 +35,11 @@ const ORIGINAL_ETAG = '"/api/v2/admin/collections/c1#1"';
 const smart = adminSmartCollection({});
 
 let client: QueryClient;
-function show() {
+function show(entry: string | { pathname: string; search?: string; state?: unknown } = "/edit/c1") {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/edit/c1"]}>
+      <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route element={<CollectionEditorPage scope="server" />}>
             <Route path="/edit/:id" />
@@ -124,5 +125,23 @@ describe("the editor page keeps the collection it opened", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "Collection not found" }),
     ).toBeInTheDocument();
+  });
+
+  it("hands the Smart editor the list view it was opened from as its Back", async () => {
+    show({
+      pathname: "/edit/c1",
+      search: "?libraryId=1",
+      state: listReturnState("/admin/collections?view=list&libraryId=1&type=smart"),
+    });
+    await screen.findByText(`Original poster.png ${ORIGINAL_ETAG}`);
+    expect(state.props).toMatchObject({
+      backTo: "/admin/collections?view=list&libraryId=1&type=smart",
+    });
+  });
+
+  it("goes back to the library's List when it wasn't opened from the list", async () => {
+    show({ pathname: "/edit/c1", search: "?libraryId=1" });
+    await screen.findByText(`Original poster.png ${ORIGINAL_ETAG}`);
+    expect(state.props).toMatchObject({ backTo: "/admin/collections?libraryId=1&view=list" });
   });
 });

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Collection, LibraryCollection, QueryDefinition } from "@/api/types";
@@ -100,6 +100,7 @@ function showWizard(mode: Mode, queryDefinition: QueryDefinition) {
         etag={'"v1"'}
         libraries={[]}
         initialLibraryId={7}
+        backTo="/admin/collections?view=list&libraryId=7&type=smart"
         onClose={vi.fn()}
       />
     ) : (
@@ -120,9 +121,19 @@ function showWizard(mode: Mode, queryDefinition: QueryDefinition) {
     );
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter>{wizard}</MemoryRouter>
+      <MemoryRouter initialEntries={["/edit"]}>
+        <Routes>
+          <Route path="/edit" element={wizard} />
+          <Route path="/admin/collections" element={<Where />} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+function Where() {
+  const location = useLocation();
+  return <output aria-label="Location">{`${location.pathname}${location.search}`}</output>;
 }
 
 function save(): QueryDefinition {
@@ -166,5 +177,15 @@ describe.each<Mode>(["admin", "user"])("SmartCollectionWizard (%s)", (mode) => {
     expect(screen.getByText("No titles match these filters yet.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Next: Details" })).toBeEnabled();
     expect(save()).toEqual(ADVANCED_RULES);
+  });
+});
+
+describe("SmartCollectionWizard (admin) Back", () => {
+  it("goes back to the list view it was opened from", async () => {
+    showWizard("admin", ADVANCED_RULES);
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(await screen.findByRole("status", { name: "Location" })).toHaveTextContent(
+      "/admin/collections?view=list&libraryId=7&type=smart",
+    );
   });
 });

@@ -77,6 +77,8 @@ type AdminModeProps = {
   collection: LibraryCollection | null;
   libraries: Library[];
   initialLibraryId: number | null;
+  /** Where Back goes: the list view the editor was opened from. */
+  backTo: string;
   onClose: () => void;
 };
 
@@ -130,7 +132,7 @@ export default function SmartCollectionWizard(wizard: SmartCollectionWizardProps
   }, []);
 
   const headerTitle = isEdit ? draft.title || "Edit Collection" : "New Collection";
-  const backTarget = wizard.mode === "user" ? "/collections" : adminBackHref(wizard);
+  const backTarget = wizard.mode === "user" ? "/collections" : wizard.backTo;
   const adminLibraries = wizard.mode === "admin" ? wizard.libraries : [];
 
   return (
@@ -186,12 +188,6 @@ function smartUserDraft(collection: Collection | null): CollectionBuilderValue {
   return value.collection_type === "smart"
     ? value
     : createCollectionBuilderValue({ ...value, collection_type: "smart" });
-}
-
-function adminBackHref(props: AdminModeProps): string {
-  return props.initialLibraryId
-    ? `/admin/collections?libraryId=${props.initialLibraryId}`
-    : "/admin/collections";
 }
 
 function WizardHeader({

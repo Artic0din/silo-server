@@ -4,6 +4,7 @@ import { adminJobFromV2 } from "@/api/v2/libraries";
 import { requiredETag } from "@/api/v2/etag";
 import {
   fetchAdminCollections,
+  fetchAdminCollectionSnapshot,
   fetchAdminGroups,
   adminCreateBody,
   adminUpdateBody,
@@ -222,21 +223,30 @@ export function useUpdateAdminCollection() {
   });
 }
 
-export function useDeleteAdminCollection() {
+/**
+ * The list's Collections tab switch. It reads the collection fresh for its
+ * ETag and type, then sends only `collection_type` and `visibility`, so
+ * nothing else on the collection can be overwritten by a stale list.
+ */
+export function useSetAdminCollectionVisibility() {
   const queryClient = useQueryClient();
-
   return useMutation({
     retry: false,
-    mutationFn: ({ id, libraryId, etag }: { id: string; libraryId: number; etag: string }) =>
-      SERVER_SCOPE.remove({ id, etag }).then(() => libraryId),
-    onSuccess: (_libraryId) => {
-      toast.success("Collection deleted");
-      void SERVER_SCOPE.invalidate(queryClient);
+    mutationFn: async ({ id, visible }: { id: string; visible: boolean }) => {
+      const { collection, etag } = await fetchAdminCollectionSnapshot(id);
+      await v2("PATCH /api/v2/admin/collections/{id}", {
+        path: { id },
+        headers: { "If-Match": requiredETag(etag) },
+        body: {
+          collection_type: collection.collection_type,
+          visibility: visible ? "visible" : "hidden",
+        },
+      });
     },
     onError: (error) => {
-      toast.error(SERVER_SCOPE.errorMessage(error, "Failed to delete"));
-      void SERVER_SCOPE.invalidate(queryClient);
+      toast.error(SERVER_SCOPE.errorMessage(error, "Couldn't change it"));
     },
+    onSettled: () => SERVER_SCOPE.invalidate(queryClient),
   });
 }
 
@@ -301,25 +311,6 @@ export function useDeleteAdminCollections() {
   });
 
   return { ...mutation, progress };
-}
-
-export function useSyncAdminCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({ id, libraryId }: { id: string; libraryId: number }) =>
-      SERVER_SCOPE.sync(id).then((data) => ({ data, libraryId })),
-    onSuccess: ({ data, libraryId: _libraryId }) => {
-      toast.success(
-        data.status === "warning" ? "Collection synced with warnings" : "Collection synced",
-      );
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Sync failed");
-    },
-  });
 }
 
 export function useImportMDBListCollection() {

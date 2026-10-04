@@ -32,6 +32,7 @@ import {
   serverDeleteDescription,
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 import type { CollectionScope, EditorSnapshot, WireCollection } from "@/lib/collections/scope";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
@@ -132,7 +133,9 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
   const [leaving, setLeaving] = useState<string | null>(null);
   const [openEdit, setOpenEdit] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const listPath = scope.paths.list({ libraryId: isServer ? (draft.libraryIds[0] ?? null) : null });
+  const listPath = useListReturnPath(
+    scope.paths.list({ libraryId: isServer ? (draft.libraryIds[0] ?? null) : null }),
+  );
   const remove = useScopeDelete(scope, { onDeleted: () => setLeaving(listPath) });
 
   const staged = draft.stagedItems ?? NO_TITLES;
