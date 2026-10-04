@@ -2,7 +2,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/useDebounce";
 import { pageParam } from "@/lib/homeRows/pages";
 import { fetchRowPreview, type PreviewItem } from "@/lib/homeRows/peek";
-import { stableJson, type RowDraft } from "@/lib/homeRows/rowDraft";
+import type { RowDraft } from "@/lib/homeRows/rowDraft";
+import { stableJson } from "@/lib/homeRows/stableJson";
 import type { PageRef } from "@/lib/homeRows/types";
 
 /** How many titles the step 2 and Edit row strip shows. */

@@ -11,6 +11,7 @@ import {
   useProfileSectionSettings,
 } from "@/hooks/queries/sections";
 import { HOME_PAGE, samePage } from "@/lib/homeRows/pages";
+import { nextAppendPosition } from "@/lib/homeRows/payloads";
 import {
   applySectionDeletion,
   buildSectionOverrides,
@@ -38,6 +39,12 @@ interface SaveQueue {
   next: QueueEntry | null;
 }
 
+const NO_SECTIONS: SettingsSectionEntry[] = [];
+
+function idList(ids: string | readonly string[]): readonly string[] {
+  return typeof ids === "string" ? [ids] : ids;
+}
+
 function pageQuery(page: PageRef) {
   return {
     scope: page.kind,
@@ -54,8 +61,16 @@ export interface ProfileHomeRows {
   libraryId: number | undefined;
   /** The page's rows in order, including changes not saved yet. */
   sections: SettingsSectionEntry[];
+  /** The page's rows as last read, without changes not saved yet. */
+  savedSections: SettingsSectionEntry[];
   /** Both the rows and the saved overrides have loaded. */
   ready: boolean;
+  /** The rows are still loading for the first time. */
+  loading: boolean;
+  /** Why the rows failed to load, when they did and none are on screen. */
+  loadError: Error | null;
+  /** Reads the rows and the saved overrides again. */
+  reload(): Promise<void>;
   /** Changes save only when the page is ready and no reset is in flight. */
   canEdit: boolean;
   /** The saved overrides failed to load, so editing stays off. */
@@ -67,8 +82,8 @@ export interface ProfileHomeRows {
   move(activeId: string, overId: string): void;
   /** Replaces the row with the same id, or adds it at the bottom. */
   saveSection(section: SettingsSectionEntry): void;
-  /** Removes a server row from this page, or deletes the profile's own row. */
-  remove(id: string): void;
+  /** Removes server rows from this page and deletes the profile's own rows, in one save. */
+  remove(ids: string | readonly string[]): void;
   /** Drops every override this profile saved for the page. */
   reset(): void;
   /** When this tab last saved a change to the row, in ms since the epoch. */
@@ -120,11 +135,16 @@ export function useProfileHomeRows(): ProfileHomeRows {
         await resetProfileSectionOverrides({ scope, libraryId: libraryKey });
         return;
       }
-      // Built when sent, so it keeps the override IDs the save before it stored.
+      // Built when sent, against the page and overrides as last read, so it
+      // keeps the override IDs the save before it stored and stores only what
+      // this profile changed.
       const overrides = buildSectionOverrides(entry.state.sections, entry.state.removed, {
         savedOverrides: queryClient.getQueryData<{ overrides: SectionOverride[] }>(
           sectionKeys.profileOverridesRaw(scope, libraryKey),
         )?.overrides,
+        baseline: queryClient.getQueryData<{ sections: SettingsSectionEntry[] }>(
+          sectionKeys.profileOverrides(scope, libraryKey),
+        )?.sections,
         newId: newOverrideId.current,
         changedSectionIds: entry.changedIds,
       });
@@ -165,7 +185,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
   }, [queryClient, send, setDraft]);
 
   const change = useCallback(
-    (id: string, edit: (state: PageState) => PageState | null) => {
+    (ids: string | readonly string[], edit: (state: PageState) => PageState | null) => {
       if (!canEdit) return;
       const base = draftRef.current ?? {
         sections: serverSections ?? [],
@@ -176,7 +196,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
       setDraft(next);
       const q = queue.current;
       const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
-      changedIds.add(id);
+      for (const id of idList(ids)) changedIds.add(id);
       q.next = { kind: "save", page, state: next, changedIds };
       void drain();
     },
@@ -209,19 +229,26 @@ export function useProfileHomeRows(): ProfileHomeRows {
         ...state,
         sections: state.sections.some((s) => s.id === section.id)
           ? state.sections.map((s) => (s.id === section.id ? section : s))
-          : [...state.sections, { ...section, position: state.sections.length }],
+          : [
+              ...state.sections,
+              { ...section, position: nextAppendPosition(state.sections.map((s) => s.position)) },
+            ],
       })),
     [change],
   );
 
-  // The removed row is not on the page any more, so naming it changes nothing
-  // the save leaves out; it only records the write.
+  // A removed row is not on the page any more, so naming it changes nothing
+  // the save leaves out; it only records the write. Several go in one save:
+  // the server refuses a save that still holds any rule row while rule rows
+  // are off, so deleting them one save at a time would never get through.
   const remove = useCallback(
-    (id: string) =>
-      change(id, (state) => {
-        const next = applySectionDeletion(state.sections, state.removed, id);
-        return { sections: next.sections, removed: next.removedSystemSections };
-      }),
+    (ids: string | readonly string[]) =>
+      change(ids, (state) =>
+        idList(ids).reduce<PageState>((current, id) => {
+          const next = applySectionDeletion(current.sections, current.removed, id);
+          return { sections: next.sections, removed: next.removedSystemSections };
+        }, state),
+      ),
     [change],
   );
 
@@ -248,13 +275,23 @@ export function useProfileHomeRows(): ProfileHomeRows {
 
   const lastWriteAt = useCallback((rowId: string) => writes.current.get(rowId), []);
 
+  const { refetch: refetchSettings } = settingsQuery;
+  const { refetch: refetchOverrides } = rawOverridesQuery;
+  const reload = useCallback(async () => {
+    await Promise.all([refetchSettings(), refetchOverrides()]);
+  }, [refetchOverrides, refetchSettings]);
+
   return {
     page,
     setPage,
     scope,
     libraryId,
     sections,
+    savedSections: serverSections ?? NO_SECTIONS,
     ready,
+    loading: settingsQuery.isLoading,
+    loadError: settingsQuery.data ? null : settingsQuery.error,
+    reload,
     canEdit,
     overridesFailed: rawOverridesQuery.isError,
     pending,

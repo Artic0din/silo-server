@@ -109,11 +109,15 @@ export function HomeRowsPage({
     adapter.status === "ready"
       ? `${rows.length} ${rows.length === 1 ? "row" : "rows"} · ${shownCount} ${surface === "admin" ? "on" : "shown"}`
       : undefined;
-  const describeContext: DescribeContext = { pageKind: page.kind, collection };
+  const describeContext: DescribeContext = { pageKind: page.kind, surface, collection };
 
   function move(row: HomeRow, to: "top" | "bottom") {
     const others = rows.map((entry) => entry.id).filter((id) => id !== row.id);
-    void adapter.reorder(to === "top" ? [row.id, ...others] : [...others, row.id]);
+    void adapter.reorder(
+      to === "top" ? [row.id, ...others] : [...others, row.id],
+      undefined,
+      row.id,
+    );
     focus.afterMove(row.id);
   }
 
@@ -177,12 +181,21 @@ export function HomeRowsPage({
   return (
     <div className={cn("mx-auto grid max-w-[1000px] gap-7", (narrow || selectMode) && "pb-24")}>
       <header className="page-header gap-5">
-        <div className="space-y-3">
-          <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{title}</h1>
-          <p className="page-subtitle max-w-[76ch] text-sm sm:text-base">{subtitle}</p>
-        </div>
+        {surface === "admin" ? (
+          <div className="space-y-3">
+            <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{title}</h1>
+            <p className="page-subtitle max-w-[76ch] text-sm sm:text-base">{subtitle}</p>
+          </div>
+        ) : (
+          // Settings > Home Screen sits under the Settings page's own heading.
+          <div className="space-y-3">
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h2>
+            <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">{subtitle}</p>
+          </div>
+        )}
         {narrow ? null : (
-          <div className="flex flex-wrap items-center gap-2">
+          // Stays at the right when the header wraps, so More's menu opens over the list.
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {more}
             {addButton}
           </div>
@@ -237,7 +250,7 @@ export function HomeRowsPage({
                   canReorder={adapter.canReorder && !selectMode}
                   orderToken={adapter.orderToken}
                   label={`Rows on ${label}`}
-                  onReorder={(ids, token) => void adapter.reorder(ids, token)}
+                  onReorder={(ids, token, movedId) => void adapter.reorder(ids, token, movedId)}
                   onDragActiveChange={(active) => {
                     dragging.current = active;
                   }}

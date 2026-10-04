@@ -1,34 +1,59 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
+import { sectionKeys } from "@/hooks/queries/keys";
+import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import HomeScreenSettings from "./HomeScreenSettings";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn() }));
+const mocks = vi.hoisted(() => ({ request: vi.fn(), role: "user" as string | undefined }));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
   v2: mocks.request,
 }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("@/hooks/useAuth", () => ({ useOptionalAuth: () => null }));
-vi.mock("@/hooks/queries/libraries", () => ({
-  useUserLibraries: () => ({ data: [{ id: 7, name: "Movies" }] }),
+vi.mock("@/api/client", async () => ({
+  ...(await vi.importActual<typeof import("@/api/client")>("@/api/client")),
+  captureProfileRequestContext: () => ({ profileId: "p1" }),
 }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/hooks/useAuth", () => ({
+  useOptionalAuth: () => ({ user: { role: mocks.role } }),
+}));
+vi.mock("@/hooks/queries/libraries", () => {
+  const data = [{ id: 7, name: "Movies", type: "movies" }];
+  return { useUserLibraries: () => ({ data }), useAvailableUserLibraries: () => ({ data }) };
+});
 vi.mock("@/hooks/queries/settingValues", () => ({
   useEffectiveSettings: () => ({ data: {}, isLoading: false }),
   useSetSettingValue: () => ({ mutate: vi.fn(), isPending: false }),
+  invalidateSettingValueQueries: vi.fn(),
 }));
-// Export and import reads other routes and is not part of these saves.
-vi.mock("@/components/sections/HomeLayoutTransfer", () => ({ default: () => null }));
+vi.mock("@/hooks/queries/useAllUserCollections", () => ({
+  useAllUserCollections: () => ({
+    collections: [{ id: "lib-c", title: "Studio Ghibli", source: "library", group: "Movies" }],
+    isLoading: false,
+    isError: false,
+  }),
+}));
+vi.mock("@/lib/recipes", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/recipes")>("@/lib/recipes")),
+  fetchRecipeCatalog: async () => recipeCatalogFixture,
+}));
 
-type Args = { query?: { scope?: string }; body?: { overrides: SectionOverride[] } };
+type Args = {
+  query?: { scope?: string; library_id?: string };
+  path?: { id?: string };
+  body?: { overrides: SectionOverride[] };
+};
 
-function entry(id: string, position: number): SettingsSectionEntry {
+function entry(id: string, position: number, more: Partial<SettingsSectionEntry> = {}) {
   return {
     id,
     section_type: "recently_added",
     title: `Row ${id}`,
+    default_title: `Row ${id}`,
     featured: false,
     item_limit: 20,
     hidden: false,
@@ -36,12 +61,53 @@ function entry(id: string, position: number): SettingsSectionEntry {
     customized: false,
     position,
     config: {},
-  };
+    ...more,
+  } satisfies SettingsSectionEntry;
 }
 
-let saved: SectionOverride[];
-let puts: SectionOverride[][];
+/** The server rows of each page; the profile's saved overrides are applied the way the server does. */
+let serverRows: Record<string, SettingsSectionEntry[]>;
+let saved: Record<string, SectionOverride[]>;
+let puts: Array<{ page: string; overrides: SectionOverride[] }>;
+let calls: Array<{ operation: string; args: Args }>;
+let allowRuleRows: boolean;
 let held: Map<string, Array<() => void>>;
+let observers: Array<{ callback: IntersectionObserverCallback; targets: Set<Element> }>;
+
+function pageKey(args: Args) {
+  return args.query?.scope === "library" ? `library:${args.query.library_id}` : "home";
+}
+
+function resolve(key: string): SettingsSectionEntry[] {
+  const overrides = saved[key] ?? [];
+  const bySection = new Map(overrides.filter((o) => o.section_id).map((o) => [o.section_id, o]));
+  const rows: SettingsSectionEntry[] = [];
+  for (const row of serverRows[key] ?? []) {
+    const o = bySection.get(row.id);
+    if (o?.removed) continue;
+    rows.push({
+      ...row,
+      title: o?.title || row.title,
+      hidden: o?.hidden ?? false,
+      featured: o?.featured ?? row.featured,
+      position: o?.position ?? row.position,
+      customized: Boolean(o),
+    });
+  }
+  for (const own of overrides.filter((o) => !o.section_id)) {
+    rows.push({
+      ...entry(own.id!, own.position ?? 0),
+      section_type: own.section_type!,
+      title: own.title!,
+      default_title: "",
+      hidden: Boolean(own.hidden),
+      is_custom: true,
+      customized: true,
+      config: own.config ?? {},
+    });
+  }
+  return rows.sort((a, b) => a.position - b.position);
+}
 
 function hold(operation: string) {
   held.set(operation, []);
@@ -55,106 +121,455 @@ async function release(operation: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  saved = [];
+  mocks.role = "user";
+  serverRows = {
+    home: [entry("a", 0), entry("b", 1)],
+    "library:7": [entry("m", 0, { title: "New Movies", default_title: "New Movies" })],
+  };
+  saved = {};
   puts = [];
+  calls = [];
+  allowRuleRows = false;
   held = new Map();
+  observers = [];
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      private readonly record: (typeof observers)[number];
+      constructor(callback: IntersectionObserverCallback) {
+        this.record = { callback, targets: new Set() };
+        observers.push(this.record);
+      }
+      observe = (target: Element) => this.record.targets.add(target);
+      unobserve = (target: Element) => this.record.targets.delete(target);
+      disconnect = () => this.record.targets.clear();
+      takeRecords = () => [];
+    },
+  );
   mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
+    calls.push({ operation, args });
     const queue = held.get(operation);
     if (queue) await new Promise<void>((resume) => queue.push(resume));
-    if (args.query?.scope === "library") {
-      if (operation === "GET /api/v2/profile/sections/settings") return { items: [] };
-      if (operation === "GET /api/v2/profile/sections") return { items: [] };
-    }
+    const key = pageKey(args);
     switch (operation) {
-      case "GET /api/v2/sections/recipes":
-        return { categories: [] };
       case "GET /api/v2/profile/sections/flags":
-        return { allow_profile_custom_sections: false };
-      case "GET /api/v2/profile/sections/settings": {
-        const byRow = new Map(saved.map((o) => [o.section_id, o]));
-        return {
-          items: [entry("a", 0), entry("b", 1)]
-            .filter((row) => !byRow.get(row.id)?.removed)
-            .map((row) => ({ ...row, hidden: byRow.get(row.id)?.hidden ?? row.hidden })),
-        };
-      }
+        return { allow_profile_custom_sections: allowRuleRows };
+      case "GET /api/v2/profile/sections/settings":
+        return { items: resolve(key) };
       case "GET /api/v2/profile/sections":
-        return { items: saved };
+        return { items: saved[key] ?? [] };
       case "PUT /api/v2/profile/sections":
-        puts.push(args.body!.overrides);
-        saved = args.body!.overrides;
-        return { items: saved };
+        puts.push({ page: key, overrides: args.body!.overrides });
+        saved[key] = args.body!.overrides;
+        return { items: saved[key] };
       case "DELETE /api/v2/profile/sections":
-        saved = [];
+        saved[key] = [];
         return undefined;
+      case "GET /api/v2/home/sections/{id}/items":
+        return {
+          id: args.path!.id,
+          section_type: "recently_added",
+          title: "Row",
+          featured: false,
+          item_limit: 20,
+          total_count: 1,
+          is_custom: false,
+          customized: false,
+          items: [],
+        };
+      case "GET /api/v2/system/identity":
+        return { server_id: "server-1" };
     }
     throw new Error(`Unexpected ${operation}`);
   });
 });
 
-async function renderPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+async function renderPage(path = "/settings/home-screen", queryClient?: QueryClient) {
+  const client =
+    queryClient ??
+    new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
-    <QueryClientProvider client={queryClient}>
-      <HomeScreenSettings />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[path]}>
+      <QueryClientProvider client={client}>
+        <HomeScreenSettings />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Hide Row a" })).toBeEnabled());
+  const add = await screen.findByRole("button", { name: "Add row" });
+  await waitFor(() => expect(add).toBeEnabled());
+  return client;
 }
 
-const pagePicker = () => screen.getByRole("combobox");
-const loadingNote = () => screen.queryByText(/Loading saved section state/);
+const pageButton = (name: string) => screen.getByRole("button", { name });
+const rowSwitch = (name: string) => screen.getByRole("switch", { name });
 
-describe("HomeScreenSettings page", () => {
-  it("saves a hidden row and keeps the page picker off until the save lands", async () => {
-    const user = userEvent.setup();
+async function rowMenu(title: string) {
+  await userEvent.click(screen.getByRole("button", { name: `More for ${title}` }));
+  return screen.findByRole("menu");
+}
+
+async function chooseFromMenu(title: string, item: string) {
+  const menu = await rowMenu(title);
+  await userEvent.click(within(menu).getByRole("menuitem", { name: item }));
+}
+
+async function openMore() {
+  await userEvent.click(screen.getByRole("button", { name: "More" }));
+  return screen.findByRole("menu");
+}
+
+describe("Settings > Home Screen", () => {
+  it("is titled Home screen and says only this profile changes", async () => {
+    await renderPage();
+    expect(screen.getByRole("heading", { level: 2, name: "Home screen" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Choose the rows you see and their order. Only this profile changes, and it saves as you go.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 rows · 2 shown")).toBeInTheDocument();
+  });
+
+  it("hides a row with its switch, saving only the hide, and keeps the page switcher off until it lands", async () => {
     await renderPage();
     hold("PUT /api/v2/profile/sections");
 
-    await user.click(screen.getByRole("button", { name: "Hide Row a" }));
+    await userEvent.click(rowSwitch("Show Row a on my Home"));
 
-    expect(screen.getByRole("button", { name: "Show Row a" })).toBeInTheDocument();
-    // A page switch made now would be refused, so the picker says so.
-    expect(pagePicker()).toBeDisabled();
+    expect(await screen.findByText(/is hidden on your Home\./)).toBeInTheDocument();
+    expect(pageButton("Movies")).toBeDisabled();
     await release("PUT /api/v2/profile/sections");
-    await waitFor(() => expect(pagePicker()).toBeEnabled());
+    await waitFor(() => expect(pageButton("Movies")).toBeEnabled());
     expect(puts).toHaveLength(1);
-    expect(puts[0]!.find((o) => o.section_id === "a")).toMatchObject({ hidden: true });
+    // Only what the profile changed: no title, size, hero or config, and no
+    // override at all for the row it left alone.
+    expect(puts[0]!.overrides).toEqual([{ section_id: "a", id: expect.any(String), hidden: true }]);
   });
 
-  it("removes a row after the delete confirmation", async () => {
-    const user = userEvent.setup();
-    await renderPage();
+  it("names the page in switch labels and hidden rows on a library page", async () => {
+    saved["library:7"] = [{ id: "o-m", section_id: "m", hidden: true }];
+    await renderPage("/settings/home-screen?page=7");
+    expect(
+      await screen.findByRole("switch", { name: "Show New Movies on my Movies page" }),
+    ).not.toBeChecked();
+    expect(screen.getByText(/is hidden on your Movies page\./)).toBeInTheDocument();
+    expect(pageButton("Movies")).toHaveAttribute("aria-pressed", "true");
+  });
 
-    await user.click(screen.getByRole("button", { name: "Delete Row b" }));
-    const dialog = await screen.findByRole("alertdialog");
-    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+  it("renames a row from Edit row, storing the name alone, and locks what a server row shows", async () => {
+    await renderPage();
+    await chooseFromMenu("Row a", "Edit row…");
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(dialog).getByText("Changes apply only to this profile.")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Change" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Live preview/)).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByText("You'll see your changes on Home after you save."),
+    ).toBeInTheDocument();
+    const name = within(dialog).getByLabelText("Row name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Fresh Movies");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(puts).toHaveLength(1));
-    expect(puts[0]).toContainEqual(expect.objectContaining({ section_id: "b", removed: true }));
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Hide Row b" })).not.toBeInTheDocument(),
-    );
+    expect(puts[0]!.overrides).toEqual([
+      { section_id: "a", id: expect.any(String), hidden: false, title: "Fresh Movies" },
+    ]);
+    expect(await screen.findByText(/^Renamed from/)).toBeInTheDocument();
   });
 
-  it("disables editing during a reset without calling it loading", async () => {
-    const user = userEvent.setup();
+  it("says what a renamed row was called and gives it its name back", async () => {
+    saved.home = [{ id: "o-a", section_id: "a", title: "Mine" }];
+    await renderPage();
+    const line = screen.getByText("Mine").closest("li")!;
+    expect(within(line).getByText(/^Renamed from/)).toBeInTheDocument();
+    expect(within(line).getByText("Row a")).toBeInTheDocument();
+
+    await chooseFromMenu("Mine", "Use the original name");
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides).toEqual([{ section_id: "a", id: "o-a", hidden: false }]);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "More for Mine" })).not.toBeInTheDocument(),
+    );
+    const menu = await rowMenu("Row a");
+    expect(within(menu).queryByRole("menuitem", { name: "Use the original name" })).toBeNull();
+  });
+
+  it("removes a server row after asking", async () => {
+    await renderPage();
+    await chooseFromMenu("Row b", "Remove from my Home…");
+    const dialog = await screen.findByRole("dialog", { name: "Remove Row b from your Home?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove row" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides).toEqual([
+      { section_id: "b", id: expect.any(String), removed: true },
+    ]);
+    await waitFor(() => expect(screen.queryByText("Row b")).not.toBeInTheDocument());
+  });
+
+  it("deletes the profile's own row, tagged Yours, after asking", async () => {
+    saved.home = [
+      {
+        id: "own-1",
+        position: 2,
+        hidden: false,
+        title: "My Gems",
+        section_type: "hidden_gems",
+        config: {},
+      },
+    ];
+    await renderPage();
+    const line = screen.getByText("My Gems").closest("li")!;
+    expect(within(line).getByText("Yours")).toBeInTheDocument();
+
+    await chooseFromMenu("My Gems", "Delete row…");
+    const dialog = await screen.findByRole("dialog", { name: "Delete My Gems?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete row" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides.some((o) => o.id === "own-1")).toBe(false);
+  });
+
+  it("adds a row at the bottom with no draft preview", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Add row" }));
+    const picker = await screen.findByRole("dialog", { name: "Add a row to Home" });
+    await userEvent.click(within(picker).getByRole("button", { name: "Hidden gems" }));
+    const form = await screen.findByRole("dialog", { name: "Hidden gems" });
+    expect(within(form).getByText("You'll see it on Home after you add it.")).toBeInTheDocument();
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides).toEqual([
+      expect.objectContaining({
+        section_id: undefined,
+        position: 2,
+        section_type: "hidden_gems",
+        hidden: false,
+      }),
+    ]);
+    expect(calls.some((call) => call.operation.includes("preview"))).toBe(false);
+  });
+
+  it("keeps a personal collection row's collection when it isn't in the picker list", async () => {
+    saved.home = [
+      {
+        id: "own-c",
+        position: 2,
+        hidden: false,
+        title: "Comfort Shows",
+        section_type: "collection",
+        config: { user_collection_id: "gone-1", extra: true },
+      },
+    ];
+    await renderPage();
+    await chooseFromMenu("Comfort Shows", "Edit row…");
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    const name = within(dialog).getByLabelText("Row name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Cozy");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides.find((o) => o.id === "own-c")).toMatchObject({
+      title: "Cozy",
+      config: { user_collection_id: "gone-1", extra: true },
+    });
+  });
+
+  it("offers export, import and a reset named after the page under More", async () => {
+    const createObjectURL = vi.fn(() => "blob:layout");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    await renderPage();
+    let menu = await openMore();
+    expect(
+      within(menu).getByRole("menuitem", { name: "Reset Home to the server's rows…" }),
+    ).toBeInTheDocument();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Export layout" }));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+
+    menu = await openMore();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Import layout…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Import home layout" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toHaveFocus());
+
+    await userEvent.click(pageButton("Movies"));
+    menu = await openMore();
+    expect(
+      within(menu).getByRole("menuitem", { name: "Reset the Movies page to the server's rows…" }),
+    ).toBeInTheDocument();
+  });
+
+  it("resets the page after asking and keeps editing off until the reset lands", async () => {
+    saved.home = [{ id: "o-a", section_id: "a", hidden: true }];
     await renderPage();
     hold("DELETE /api/v2/profile/sections");
+    const menu = await openMore();
+    await userEvent.click(
+      within(menu).getByRole("menuitem", { name: "Reset Home to the server's rows…" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Reset your Home to the server's rows?",
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset" }));
 
-    await user.click(screen.getByRole("button", { name: "Reset to Default" }));
-    const dialog = await screen.findByRole("alertdialog");
-    await user.click(within(dialog).getByRole("button", { name: "Reset" }));
-
-    await waitFor(() => expect(screen.getByRole("button", { name: "Hide Row a" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Reset to Default" })).toBeDisabled();
-    expect(pagePicker()).toBeDisabled();
-    expect(loadingNote()).not.toBeInTheDocument();
-
+    await waitFor(() => expect(rowSwitch("Show Row b on my Home")).toBeDisabled());
+    expect(pageButton("Movies")).toBeDisabled();
     await release("DELETE /api/v2/profile/sections");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Hide Row a" })).toBeEnabled());
-    expect(pagePicker()).toBeEnabled();
+    await waitFor(() => expect(rowSwitch("Show Row a on my Home")).toBeChecked());
+    expect(rowSwitch("Show Row a on my Home")).toBeEnabled();
+  });
+
+  it("loads peeks from this profile's own Home rows, never the admin preview", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    // Home already has row a cached: its posters show while the peek loads.
+    client.setQueryData(sectionKeys.homeItems("a"), {
+      section: {
+        id: "a",
+        section_type: "recently_added",
+        title: "Row a",
+        featured: false,
+        item_limit: 20,
+        total_count: 1,
+        is_custom: false,
+        customized: false,
+        items: [{ content_id: "m1", title: "Past Lives", poster_url: "/p.jpg" }],
+      },
+    });
+    await renderPage("/settings/home-screen", client);
+    const line = screen.getByText("Row a").closest("li")!;
+    expect(line.querySelector("img")).not.toBeNull();
+
+    act(() => {
+      for (const observer of observers) {
+        for (const target of observer.targets) {
+          observer.callback(
+            [{ isIntersecting: true, target } as IntersectionObserverEntry],
+            {} as IntersectionObserver,
+          );
+        }
+      }
+    });
+    await waitFor(() =>
+      expect(
+        calls
+          .filter((call) => call.operation === "GET /api/v2/home/sections/{id}/items")
+          .map((call) => call.args.path?.id)
+          .sort(),
+      ).toEqual(["a", "b"]),
+    );
+    expect(calls.some((call) => call.operation.includes("admin"))).toBe(false);
+  });
+});
+
+describe("rule rows on Settings > Home Screen", () => {
+  async function pickerCards() {
+    await userEvent.click(screen.getByRole("button", { name: "Add row" }));
+    const picker = await screen.findByRole("dialog", { name: "Add a row to Home" });
+    return within(picker);
+  }
+
+  it("offers rule rows to an admin account with the server setting off", async () => {
+    mocks.role = "admin";
+    await renderPage();
+    expect(
+      (await pickerCards()).getByRole("button", { name: "Titles matching rules" }),
+    ).toBeInTheDocument();
+  });
+
+  it("doesn't offer rule rows to other accounts while the server setting is off", async () => {
+    await renderPage();
+    const picker = await pickerCards();
+    expect(picker.getByRole("button", { name: "Hidden gems" })).toBeInTheDocument();
+    expect(picker.queryByRole("button", { name: "Titles matching rules" })).toBeNull();
+  });
+
+  const ruleRows: SectionOverride[] = [
+    {
+      id: "rule-1",
+      position: 2,
+      hidden: false,
+      title: "90s Crowd-Pleasers",
+      section_type: "custom_filter",
+      config: {},
+    },
+    {
+      id: "rule-2",
+      position: 3,
+      hidden: true,
+      title: "Short Comedies",
+      section_type: "custom_filter",
+      config: {},
+    },
+  ];
+
+  it("locks a page holding the profile's rule rows until they are deleted together", async () => {
+    saved.home = ruleRows;
+    render(
+      <MemoryRouter initialEntries={["/settings/home-screen"]}>
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <HomeScreenSettings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const note = await screen.findByText(/Rule rows are turned off on this server/);
+    expect(note).toHaveTextContent("(90s Crowd-Pleasers, Short Comedies)");
+    expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
+    expect(rowSwitch("Show Row a on my Home")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Move Row a" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    let menu = await rowMenu("Row a");
+    expect(within(menu).getByRole("menuitem", { name: "Edit row…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await userEvent.keyboard("{Escape}");
+    menu = await rowMenu("90s Crowd-Pleasers");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Delete rule rows…"]);
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete rule rows…" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Delete your rule rows?" });
+    expect(
+      within(within(dialog).getByRole("list", { name: "Rows to delete" }))
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["90s Crowd-Pleasers", "Short Comedies"]);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete rule rows" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides.some((o) => o.id === "rule-1" || o.id === "rule-2")).toBe(false);
+    await waitFor(() =>
+      expect(screen.queryByText(/Rule rows are turned off on this server/)).toBeNull(),
+    );
+    await waitFor(() => expect(rowSwitch("Show Row a on my Home")).toBeEnabled());
+  });
+
+  it("never locks an admin account's page", async () => {
+    mocks.role = "admin";
+    saved.home = ruleRows;
+    await renderPage();
+    expect(screen.queryByText(/Rule rows are turned off on this server/)).toBeNull();
+    expect(rowSwitch("Show 90s Crowd-Pleasers on my Home")).toBeEnabled();
   });
 });

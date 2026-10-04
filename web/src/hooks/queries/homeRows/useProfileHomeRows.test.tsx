@@ -201,8 +201,9 @@ describe("useProfileHomeRows", () => {
     await settle("PUT /api/v2/profile/sections");
     await waitFor(() => expect(result.current.pending).toBe(false));
 
-    // The first save leaves the shown Trakt row out; the merged one names it.
-    expect(puts[0]!.overrides.map((o) => o.section_id)).toEqual(["a", "b"]);
+    // The first save stores only the row it changed, so the shown Trakt row
+    // is left out; the merged one names it.
+    expect(puts[0]!.overrides.map((o) => o.section_id)).toEqual(["a"]);
     expect(puts[1]!.overrides).toContainEqual(
       expect.objectContaining({ section_id: "trakt", title: "Trakt" }),
     );

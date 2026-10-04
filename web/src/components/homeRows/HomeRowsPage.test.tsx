@@ -38,7 +38,7 @@ function makeRow(id: string, overrides: Partial<HomeRow> = {}): HomeRow {
 
 function makeHarness() {
   return {
-    reorder: vi.fn<(ids: string[], token: unknown) => void>(),
+    reorder: vi.fn<(ids: string[], token: unknown, movedId?: string) => void>(),
     setPage: vi.fn<(ref: PageRef) => void>(),
     reload: vi.fn<() => Promise<void>>(async () => {}),
     onExit: vi.fn<() => void>(),
@@ -94,8 +94,8 @@ function FakePage({
     reload: harness.reload,
     canReorder: !pending,
     orderToken,
-    reorder: async (ids, token) => {
-      harness.reorder(ids, token);
+    reorder: async (ids, token, movedId) => {
+      harness.reorder(ids, token, movedId);
       setPending(true);
       setRows((current) => ids.map((id) => current.find((row) => row.id === id)!));
     },
@@ -281,7 +281,7 @@ describe("HomeRowsPage", () => {
       "data-disabled",
     );
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Move to bottom" }));
-    expect(harness.reorder).toHaveBeenCalledWith(["b", "c", "a"], undefined);
+    expect(harness.reorder).toHaveBeenCalledWith(["b", "c", "a"], undefined, "a");
     act(() => harness.settle());
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "More for Row A" })),
@@ -330,7 +330,9 @@ describe("HomeRowsPage", () => {
     fireEvent.keyDown(grip, { code: "ArrowDown", key: "ArrowDown" });
     await screen.findByText("Row A is now at position 2 of 3.");
     fireEvent.keyDown(grip, { code: "Space", key: " " });
-    await waitFor(() => expect(harness.reorder).toHaveBeenCalledWith(["b", "a", "c"], "token-1"));
+    await waitFor(() =>
+      expect(harness.reorder).toHaveBeenCalledWith(["b", "a", "c"], "token-1", "a"),
+    );
   });
 
   it("enters select mode from More: checkboxes replace the grips and focus lands on Select all", async () => {

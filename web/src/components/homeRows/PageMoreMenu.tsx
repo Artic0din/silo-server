@@ -29,6 +29,11 @@ export interface PageMoreMenuAction extends PageMoreMenuEntry {
    * closed (a menu holds focus while open), and focus does not go back to More.
    */
   returnFocus?: boolean;
+  /**
+   * True for an action that opens a dialog: it runs once the menu has closed
+   * and focus is back on More, so the dialog returns focus there.
+   */
+  opensDialog?: boolean;
 }
 
 /** A setting turned on or off from the menu, drawn with a switch. */
@@ -86,8 +91,8 @@ function ActionItem({
       aria-labelledby={`${id}-label`}
       aria-describedby={`${id}-help`}
       onSelect={() => {
-        if (item.returnFocus === false) {
-          onChosen({ run: item.onSelect, returnFocus: false });
+        if (item.returnFocus === false || item.opensDialog) {
+          onChosen({ run: item.onSelect, returnFocus: item.returnFocus !== false });
           return;
         }
         onChosen(null);

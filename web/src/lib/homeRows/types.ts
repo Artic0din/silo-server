@@ -30,6 +30,8 @@ export interface HomeRow {
   own: boolean;
   /** A legacy Trakt row: the server refuses config changes and turning it back on. */
   legacyTrakt: boolean;
+  /** Profile: the server's own name for a row this profile renamed. */
+  renamedFrom?: string;
 }
 
 /** An open Edit row: the row as it was read, plus whatever the surface needs to save over it. */
@@ -37,6 +39,8 @@ export interface EditSession {
   row: HomeRow;
   /** Surface-private: the admin keeps the stored row and its version here. */
   token: unknown;
+  /** What the row shows can't change here (a server row on Settings > Home Screen). */
+  kindLocked?: boolean;
 }
 
 /** Thrown by `save` when the row changed since the edit session was read. */
@@ -93,7 +97,8 @@ export interface HomeRowsAdapter {
    * handed back to `reorder`, so a refetch during the drag cannot change it.
    */
   orderToken: unknown;
-  reorder(orderedIds: string[], orderToken?: unknown): Promise<void>;
+  /** `movedId` names the one row the user moved, when it was a single move. */
+  reorder(orderedIds: string[], orderToken?: unknown, movedId?: string): Promise<void>;
   setShown(id: string, shown: boolean): Promise<void>;
   setHero(id: string, hero: boolean): Promise<void>;
   capabilities: HomeRowsCapabilities;

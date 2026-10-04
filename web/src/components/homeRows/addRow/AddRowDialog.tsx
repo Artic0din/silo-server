@@ -61,6 +61,8 @@ export interface AddRowDialogProps {
   /** After a row is added or saved, with the ids of new rows. */
   onSaved: (newIds: string[]) => void;
   onDelete?: (session: EditSession) => void;
+  /** The footer's delete button, when "Delete row…" isn't what it does. */
+  deleteLabel?: string;
 }
 
 const NO_COLLECTIONS: RowCollections = { options: [], loading: false, failed: false, href: "" };
@@ -108,6 +110,7 @@ export function AddRowDialog({
   onClose,
   onSaved,
   onDelete,
+  deleteLabel = "Delete row…",
 }: AddRowDialogProps) {
   const editing = initialSession !== null;
   const narrow = useMediaQuery("(max-width: 1023px)");
@@ -177,7 +180,10 @@ export function AddRowDialog({
   const previewWait = draft ? previewWaitText(draft) : null;
   // Why the strip shows no titles: this surface has no preview, or the draft can't have one yet.
   let previewOffText = "Previews aren't available on this server.";
-  if (adapter.surface === "profile") previewOffText = `You'll see it on ${page} after you add it.`;
+  if (adapter.surface === "profile")
+    previewOffText = editing
+      ? `You'll see your changes on ${page} after you save.`
+      : `You'll see it on ${page} after you add it.`;
   else if (adapter.capabilities.draftPreview && previewWait) previewOffText = previewWait;
   const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
   // A new row on a library page may go to other library pages too, when its
@@ -300,7 +306,12 @@ export function AddRowDialog({
         : "Pick what the row shows. Next you'll see a preview and can name it.";
   } else if (editing) {
     title = "Edit row";
-    description = `Changes apply to everyone on ${page} who hasn't changed this row.`;
+    // A profile save stores only the fields that profile changed, so an
+    // admin's edit reaches every profile except in what it changed itself.
+    description =
+      adapter.surface === "profile"
+        ? "Changes apply only to this profile."
+        : `Changes apply to everyone on ${page}. A profile that changed this row keeps its own changes.`;
   } else {
     const type = draft?.sectionType ?? "";
     title = rowKindLabel(type);
@@ -342,7 +353,7 @@ export function AddRowDialog({
         onClick={() => session && onDelete?.(session)}
       >
         <Trash2 aria-hidden className="size-4" />
-        Delete row…
+        {deleteLabel}
       </Button>
     );
   }
@@ -450,7 +461,10 @@ export function AddRowDialog({
                   ? {
                       label: showsLabel(draft.sectionType, draft.config),
                       sentence: sentenceWithoutStop(rowKindSentence(draft.sectionType)),
-                      onChange: kindLocked(draft.config) ? undefined : () => setStep("pick"),
+                      onChange:
+                        kindLocked(draft.config) || session?.kindLocked
+                          ? undefined
+                          : () => setStep("pick"),
                     }
                   : undefined
               }

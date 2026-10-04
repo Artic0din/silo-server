@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { PageSectionConfig } from "@/api/types";
 import {
   useDeleteSection,
@@ -45,13 +45,11 @@ import { AddToOtherLibrariesDialog } from "@/components/homeRows/AddToOtherLibra
 import { canCopyToLibraries } from "@/lib/homeRows/bulkCopy";
 import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
+import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
 import { libraryPagesOf, pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
 import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
-
-/** How long a newly added row stays highlighted. */
-const NEW_ROW_HIGHLIGHT_MS = 2500;
 
 function rowCount(count: number) {
   return count === 1 ? "1 row" : `${count} rows`;
@@ -134,7 +132,7 @@ export default function AdminHomeRows() {
   const [resetProfiles, setResetProfiles] = useState(false);
   // The Add row / Edit row dialog: open with no session to add a row.
   const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
-  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useNewRowHighlight();
   // ⋯ Add to other libraries…: the row being copied.
   const [copyRow, setCopyRow] = useState<HomeRow | null>(null);
   const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
@@ -143,12 +141,6 @@ export default function AdminHomeRows() {
   const [confirmRuleRowsOff, setConfirmRuleRowsOff] = useState(false);
   const [turningRuleRowsOff, setTurningRuleRowsOff] = useState(false);
   const offerLibraryCopies = adapter.capabilities.libraryCopies && libraryPages.length > 1;
-
-  useEffect(() => {
-    if (!highlightId) return;
-    const timer = setTimeout(() => setHighlightId(null), NEW_ROW_HIGHLIGHT_MS);
-    return () => clearTimeout(timer);
-  }, [highlightId]);
 
   const rowIds = useMemo(() => adapter.rows.map((row) => row.id), [adapter.rows]);
   const selectedSections = useMemo(

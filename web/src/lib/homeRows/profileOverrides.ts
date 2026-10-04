@@ -7,6 +7,7 @@ import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import { isTraktConfig } from "@/lib/sectionTypes";
 import { randomUUID } from "@/lib/uuid";
+import { stableJson } from "./stableJson";
 
 export interface RemovedSystemOverride {
   id: string;
@@ -21,6 +22,47 @@ export interface SectionOverrideIds {
   changedSectionId?: string;
   /** Every section the changes being saved are to, when several are saved at once. */
   changedSectionIds?: ReadonlySet<string>;
+  /**
+   * The page as it was read. With it, a save stores only what the profile
+   * changed (see `buildSectionOverrides`); without it every field of every
+   * row counts as changed.
+   */
+  baseline?: SettingsSectionEntry[];
+}
+
+type ServerRowFields = Pick<SectionOverride, "title" | "featured" | "item_limit" | "config">;
+
+/**
+ * What an override stores for a server row: each field the profile changed
+ * since `base` was read, else what its saved override already stores (an
+ * earlier save may have pinned it), else nothing, so the row keeps following
+ * the server. A name changed back to the server's own clears the rename.
+ */
+function serverRowFields(
+  s: SettingsSectionEntry,
+  base: SettingsSectionEntry | undefined,
+  saved: SectionOverride | undefined,
+): ServerRowFields {
+  const fields: ServerRowFields = {};
+  if (!base || s.title !== base.title) {
+    if (s.title !== s.default_title) fields.title = s.title;
+  } else if (saved?.title) {
+    fields.title = saved.title;
+  }
+  const featured = !base || s.featured !== base.featured ? s.featured : saved?.featured;
+  if (featured !== undefined) fields.featured = featured;
+  const itemLimit = !base || s.item_limit !== base.item_limit ? s.item_limit : saved?.item_limit;
+  if (itemLimit !== undefined) fields.item_limit = itemLimit;
+  const config =
+    !base || stableJson(s.config) !== stableJson(base.config) ? s.config : saved?.config;
+  if (config !== undefined) fields.config = config;
+  return fields;
+}
+
+/** The ids of `a` in order, keeping only the ids `b` also has. */
+function sharedOrder(a: SettingsSectionEntry[], b: SettingsSectionEntry[]): string[] {
+  const ids = new Set(b.map((s) => s.id));
+  return a.filter((s) => ids.has(s.id)).map((s) => s.id);
 }
 
 /**
@@ -33,6 +75,12 @@ export interface SectionOverrideIds {
  * that section; the refusal then reaches the user instead of the change
  * silently not saving. Positions are only as close to the list order as that
  * held position allows.
+ *
+ * With a `baseline`, an admin section's override stores only what the
+ * profile changed: whether it is hidden, the fields it edited (or an earlier
+ * save stored), and positions only once the profile has ordered the page
+ * itself. Admin sections it left alone get no override, so an admin's later
+ * edit still reaches them. Rows the profile added always store every field.
  */
 export function buildSectionOverrides(
   sections: SettingsSectionEntry[],
@@ -42,16 +90,24 @@ export function buildSectionOverrides(
     newId = () => randomUUID(),
     changedSectionId,
     changedSectionIds,
+    baseline,
   }: SectionOverrideIds = {},
 ): SectionOverride[] {
   // The server resolves the last saved override for a section.
-  const savedIds = new Map<string, string>();
+  const saved = new Map<string, SectionOverride>();
   for (const override of savedOverrides) {
-    if (override.section_id && override.id) savedIds.set(override.section_id, override.id);
+    if (override.section_id && override.id) saved.set(override.section_id, override);
   }
+  const baseById = new Map(baseline?.map((s) => [s.id, s]));
   const changed = (id: string) => id === changedSectionId || Boolean(changedSectionIds?.has(id));
   const leftOut = (s: SettingsSectionEntry) =>
-    !s.is_custom && !s.hidden && !savedIds.has(s.id) && !changed(s.id) && isTraktConfig(s.config);
+    !s.is_custom && !s.hidden && !saved.has(s.id) && !changed(s.id) && isTraktConfig(s.config);
+  // Positions follow the list once the profile orders the page; until then
+  // admin sections keep the admin order and only added rows store a position.
+  const ordered =
+    !baseline ||
+    savedOverrides.some((o) => o.section_id && o.position !== undefined) ||
+    stableJson(sharedOrder(sections, baseline)) !== stableJson(sharedOrder(baseline, sections));
   // A section left out keeps its admin position, so the others are numbered
   // in list order around it and never on it: the server orders sections with
   // equal positions arbitrarily.
@@ -64,22 +120,51 @@ export function buildSectionOverrides(
       continue;
     }
     while (heldPositions.has(position)) position += 1;
+    const listPosition = position++;
+    if (s.is_custom) {
+      overrides.push({
+        section_id: undefined,
+        id: s.id,
+        position: ordered ? listPosition : s.position,
+        hidden: s.hidden,
+        title: s.title,
+        featured: s.featured,
+        item_limit: s.item_limit,
+        section_type: s.section_type,
+        config: s.config,
+      });
+      continue;
+    }
+    const savedOverride = saved.get(s.id);
+    const id = savedOverride?.id ?? newId(s.id);
+    if (!baseline) {
+      overrides.push({
+        section_id: s.id,
+        id,
+        position: listPosition,
+        hidden: s.hidden,
+        title: s.title,
+        featured: s.featured,
+        item_limit: s.item_limit,
+        section_type: undefined,
+        config: s.config,
+      });
+      continue;
+    }
+    const fields = serverRowFields(s, baseById.get(s.id), savedOverride);
+    if (!ordered && !savedOverride && !s.hidden && Object.keys(fields).length === 0) continue;
     overrides.push({
-      section_id: s.is_custom ? undefined : s.id,
-      id: s.is_custom ? s.id : (savedIds.get(s.id) ?? newId(s.id)),
-      position: position++,
+      section_id: s.id,
+      id,
+      ...(ordered ? { position: listPosition } : {}),
       hidden: s.hidden,
-      title: s.title,
-      featured: s.featured,
-      item_limit: s.item_limit,
-      section_type: s.is_custom ? s.section_type : undefined,
-      config: s.config,
+      ...fields,
     });
   }
   for (const section of removedSystemSections) {
     overrides.push({
       section_id: section.id,
-      id: savedIds.get(section.id) ?? newId(section.id),
+      id: saved.get(section.id)?.id ?? newId(section.id),
       removed: true,
     });
   }

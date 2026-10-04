@@ -4,6 +4,7 @@ import type { GalleryPreset, RecipeCatalogResponse, RecipeDefinition } from "@/l
 import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { rowKindLabel } from "./catalog";
 import { collectionIdOf, withPickedCollection, withQueryDefinition } from "./payloads";
+import { stableJson } from "./stableJson";
 import type { HomeRow } from "./types";
 import { applyVariant, variantFamily, variantOf } from "./variants";
 
@@ -21,18 +22,6 @@ export interface RowDraft {
 }
 
 export const DEFAULT_ITEM_LIMIT = 20;
-
-/** Sorted-key JSON, so two configs with the same content compare equal. */
-export function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
-  }
-  return JSON.stringify(value ?? null);
-}
 
 export function findRecipe(
   catalog: RecipeCatalogResponse | undefined,

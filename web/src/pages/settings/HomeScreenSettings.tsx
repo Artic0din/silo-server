@@ -1,61 +1,44 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { SettingsGroup } from "@/components/settings/SettingsGroup";
-import { useProfileHomeRows } from "@/hooks/queries/homeRows/useProfileHomeRows";
-import { useUserLibraries } from "@/hooks/queries/libraries";
-import type { SettingsSectionEntry } from "@/api/types";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
+import { useMemo, useRef, useState } from "react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import SectionEditorDrawer from "@/components/sections/SectionEditorDrawer";
-import HomeLayoutTransfer from "@/components/sections/HomeLayoutTransfer";
-import RecipeGalleryModal from "@/components/RecipeGallery/RecipeGalleryModal";
-import RecipeConfigDrawer from "@/components/RecipeGallery/RecipeConfigDrawer";
-import type { AddPayload } from "@/components/RecipeGallery/RecipeConfigDrawer";
-import { buildProfileGallerySection } from "@/lib/homeRows/payloads";
-import type { GalleryPreset, RecipeDefinition } from "@/lib/recipes";
-import { fetchRecipeCatalog } from "@/lib/recipes";
-import { canAddAdminOnlyRecipes } from "@/lib/sectionTypes";
-import type { PageRef } from "@/lib/homeRows/types";
-import { Plus } from "lucide-react";
-import {
-  SectionDragOverlay,
-  SortableSectionCardRow,
-  type EditableSectionViewModel,
-} from "@/components/sections/EditableSectionRows";
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  KeyboardSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import type { DragStartEvent, DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+  CircleMinus,
+  Download,
+  Pencil,
+  RotateCcw,
+  Star,
+  StarOff,
+  Trash2,
+  Undo2,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
-import { v2 } from "@/api/v2/request";
-import { useOptionalAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { DeleteRuleRowsDialog } from "@/components/homeRows/DeleteRuleRowsDialog";
+import { HideWatchedCard } from "@/components/homeRows/HideWatchedCard";
+import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
+import { PageLockNote } from "@/components/homeRows/notes";
+import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
+import { RemoveRowDialog } from "@/components/homeRows/RemoveRowDialog";
+import { ResetProfileDialog } from "@/components/homeRows/ResetProfileDialog";
+import type { RowMenuItem } from "@/components/homeRows/RowMenu";
+import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
+import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
+import { useRowFocus } from "@/components/homeRows/useRowFocus";
+import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer";
+import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
+import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
+import { useUserLibraries } from "@/hooks/queries/libraries";
 import {
   useEffectiveSettings,
   useSetSettingValue,
   type SettingIdentity,
 } from "@/hooks/queries/settingValues";
+import { collectionKind, profilePageName, type CollectionSummary } from "@/lib/homeRows/describe";
+import { pageLabel } from "@/lib/homeRows/pages";
+import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { SETTING_KEYS } from "@/lib/settingsContract";
 
-export { buildProfileGallerySection };
+export { buildProfileGallerySection } from "@/lib/homeRows/payloads";
 export {
   applySectionDeletion,
   buildSectionOverrides,
@@ -70,406 +53,272 @@ export {
 const PROFILE_SCOPE: SettingIdentity = { scope: "profile" };
 const HOME_PREFERENCE_KEYS = [SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS] as const;
 
-function toEditableSection(section: SettingsSectionEntry): EditableSectionViewModel {
-  return {
-    id: section.id,
-    title: section.title,
-    sectionType: section.section_type,
-    itemLimit: section.item_limit,
-    featured: section.featured,
-    hidden: section.hidden,
-    isCustom: section.is_custom,
-    config: section.config,
-  };
-}
-
+/**
+ * Settings > Home Screen: this profile's rows on Home and each library page,
+ * on the same Home rows components as the admin page. Changes save as they
+ * are made and only ever change this profile.
+ */
 export default function HomeScreenSettings() {
+  const adapter = useProfileHomeRowsAdapter();
   const { data: libraries } = useUserLibraries();
-  const { data: recipeCatalog } = useQuery({
-    queryKey: ["recipe-catalog"],
-    queryFn: fetchRecipeCatalog,
-    staleTime: 5 * 60 * 1000,
-  });
-  const role = useOptionalAuth()?.user?.role;
-  const { data: sectionFlags } = useQuery({
-    queryKey: ["profile-section-flags"],
-    queryFn: () => v2("GET /api/v2/profile/sections/flags"),
-    staleTime: 5 * 60 * 1000,
-  });
-  const allowAdminOnlyRecipes = canAddAdminOnlyRecipes(
-    role,
-    sectionFlags?.allow_profile_custom_sections,
-  );
+  const focus = useRowFocus(adapter.rows, adapter.pending);
+  const label = pageLabel(adapter.page, adapter.pages);
+  const pageName = profilePageName(label);
+  const layoutExport = useHomeLayoutExport();
+  const [importOpen, setImportOpen] = useState(false);
+  const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
+  const [highlightId, setHighlightId] = useNewRowHighlight();
+  const [removing, setRemoving] = useState<HomeRow | null>(null);
+  const [deletingRuleRows, setDeletingRuleRows] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  // Set when a confirmed delete takes away the control that opened its dialog.
+  const removedOpener = useRef(false);
 
-  // Page and section data; every section save goes through the hook.
-  const homeRows = useProfileHomeRows();
-  const { scope, sections: orderedSections } = homeRows;
-  const scopeValue = homeRows.page.kind === "home" ? "home" : `library:${homeRows.page.libraryId}`;
-  const canEditSections = homeRows.canEdit;
   const homePreferences = useEffectiveSettings({ keys: HOME_PREFERENCE_KEYS });
   const saveHomePreference = useSetSettingValue();
   const hideWatchedItems =
     homePreferences.data?.[SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS]?.value === true;
 
-  // DnD state
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  // Drawer state
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerSection, setDrawerSection] = useState<SettingsSectionEntry | null>(null);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [pickedRecipe, setPickedRecipe] = useState<{
-    def: RecipeDefinition;
-    preset: GalleryPreset;
-  } | null>(null);
-
-  // Reset confirm state
-  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [pendingDeleteSection, setPendingDeleteSection] = useState<SettingsSectionEntry | null>(
-    null,
+  const collectionOptions = adapter.collections?.options;
+  const collectionSummaries = useMemo(
+    () =>
+      new Map<string, CollectionSummary>(
+        (collectionOptions ?? []).map((option) => [
+          option.id,
+          {
+            title: option.title,
+            kind: collectionKind(option.collection_type),
+            yours: option.source === "user",
+          },
+        ]),
+      ),
+    [collectionOptions],
   );
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const { pageLock } = adapter;
+  const lockedRows = pageLock ? adapter.rows.filter((row) => pageLock.rowIds.includes(row.id)) : [];
 
-  // DnD handlers
-  function handleDragStart(event: DragStartEvent) {
-    if (!canEditSections) {
-      return;
+  function openRow(row: HomeRow) {
+    if (!adapter.canEdit) return;
+    void adapter
+      .openEdit(row.id)
+      .then((session) => setRowDialog({ session }))
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : "Could not open this row"),
+      );
+  }
+
+  function confirmRemove() {
+    if (!removing) return;
+    removedOpener.current = true;
+    focus.afterRemoval(removing.id);
+    adapter.remove([removing.id]);
+    setRemoving(null);
+  }
+
+  function confirmDeleteRuleRows() {
+    if (!pageLock) return;
+    removedOpener.current = true;
+    focus.afterRemoval(pageLock.rowIds[0]!);
+    adapter.remove(pageLock.rowIds);
+    setDeletingRuleRows(false);
+  }
+
+  function skipReturnFocus() {
+    const skip = removedOpener.current;
+    removedOpener.current = false;
+    return skip;
+  }
+
+  function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): RowMenuItem[] {
+    if (pageLock?.rowIds.includes(row.id)) {
+      return [
+        {
+          key: "delete-rule-rows",
+          label: "Delete rule rows…",
+          icon: Trash2,
+          destructive: true,
+          onSelect: () => setDeletingRuleRows(true),
+        },
+      ];
     }
-    setActiveId(event.active.id as string);
+    const busy = !adapter.canEdit;
+    return [
+      {
+        key: "edit",
+        label: "Edit row…",
+        icon: Pencil,
+        disabled: busy,
+        onSelect: () => openRow(row),
+      },
+      ...(row.renamedFrom
+        ? [
+            {
+              key: "original-name",
+              label: "Use the original name",
+              icon: Undo2,
+              disabled: busy,
+              onSelect: () => adapter.restoreOriginalName(row.id),
+            },
+          ]
+        : []),
+      {
+        key: "hero",
+        label: row.hero ? "Stop using as hero banner" : "Use as hero banner",
+        icon: row.hero ? StarOff : Star,
+        disabled: busy,
+        onSelect: () => void adapter.setHero(row.id, !row.hero),
+      },
+      shared.moveToTop,
+      shared.moveToBottom,
+      {
+        key: "remove",
+        label: row.own ? "Delete row…" : `Remove from my ${pageName}…`,
+        icon: row.own ? Trash2 : CircleMinus,
+        destructive: true,
+        group: true,
+        disabled: busy,
+        onSelect: () => setRemoving(row),
+      },
+    ];
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    if (!canEditSections) {
-      setActiveId(null);
-      return;
-    }
-    setActiveId(null);
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    homeRows.move(String(active.id), String(over.id));
-  }
-
-  function handleDragCancel() {
-    setActiveId(null);
-  }
-
-  const activeSection = activeId ? (orderedSections.find((s) => s.id === activeId) ?? null) : null;
-
-  // Toggle visibility
-  function handleToggleHidden(id: string) {
-    if (!canEditSections) {
-      return;
-    }
-    const section = orderedSections.find((s) => s.id === id);
-    if (section) homeRows.setHidden(id, !section.hidden);
-  }
-
-  function handleRequestDelete(section: SettingsSectionEntry) {
-    if (!canEditSections) {
-      return;
-    }
-    setPendingDeleteSection(section);
-    setConfirmDeleteOpen(true);
-  }
-
-  function handleConfirmDelete() {
-    if (!pendingDeleteSection || !canEditSections) {
-      return;
-    }
-
-    homeRows.remove(pendingDeleteSection.id);
-    if (activeId === pendingDeleteSection.id) {
-      setActiveId(null);
-    }
-    setConfirmDeleteOpen(false);
-    setPendingDeleteSection(null);
-  }
-
-  function handleDeleteDialogChange(open: boolean) {
-    setConfirmDeleteOpen(open);
-    if (!open) {
-      setPendingDeleteSection(null);
-    }
-  }
-
-  function handleOpenAdd() {
-    if (!canEditSections) {
-      return;
-    }
-    setDrawerSection(null);
-    setDrawerOpen(true);
-  }
-
-  function handleOpenEdit(section: SettingsSectionEntry) {
-    if (!canEditSections) {
-      return;
-    }
-    setDrawerSection(section);
-    setDrawerOpen(true);
-  }
-
-  function handleDrawerSave(updated: SettingsSectionEntry) {
-    if (!canEditSections) {
-      return;
-    }
-    homeRows.saveSection(updated);
-  }
-
-  // Reset
-  function handleReset() {
-    if (!canEditSections) {
-      return;
-    }
-    setConfirmResetOpen(true);
-  }
-
-  function handleScopeChange(value: string) {
-    const page: PageRef =
-      value === "home"
-        ? { kind: "home" }
-        : { kind: "library", libraryId: Number(value.split(":")[1]) };
-    // Refused while this page still has saves to send.
-    if (!homeRows.setPage(page)) return;
-    setActiveId(null);
-    setConfirmResetOpen(false);
-    setConfirmDeleteOpen(false);
-    setPendingDeleteSection(null);
-    setDrawerOpen(false);
-    setDrawerSection(null);
-    setGalleryOpen(false);
-    setPickedRecipe(null);
-  }
-
-  function handleAddFromGallery(payload: AddPayload) {
-    if (!canEditSections) {
-      return;
-    }
-    homeRows.saveSection(buildProfileGallerySection(payload, orderedSections.length));
-    setPickedRecipe(null);
-  }
+  const resetTarget = adapter.page.kind === "home" ? "Home" : `the ${label} page`;
+  const moreItems: PageMoreMenuItem[] = [
+    {
+      key: "export",
+      label: layoutExport.running ? "Exporting layout…" : "Export layout",
+      help: "Save your rows for every page to a file.",
+      icon: Download,
+      disabled: !layoutExport.ready || layoutExport.running,
+      onSelect: () => void layoutExport.run(),
+    },
+    {
+      key: "import",
+      label: "Import layout…",
+      help: "Load a layout saved here or on another server.",
+      icon: Upload,
+      disabled: !layoutExport.libraries,
+      opensDialog: true,
+      onSelect: () => setImportOpen(true),
+    },
+    {
+      key: "reset",
+      label: `Reset ${resetTarget} to the server's rows…`,
+      help: "Brings back hidden rows and original names, and removes rows you added.",
+      icon: RotateCcw,
+      group: true,
+      disabled: !adapter.canReset,
+      opensDialog: true,
+      onSelect: () => setResetOpen(true),
+    },
+  ];
 
   function handleHideWatchedItemsChange(enabled: boolean) {
     saveHomePreference.mutate(
-      {
-        key: SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS,
-        value: enabled,
-        identity: PROFILE_SCOPE,
-      },
+      { key: SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS, value: enabled, identity: PROFILE_SCOPE },
       { onError: () => toast.error("Failed to save Home preference") },
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Home screen</h2>
-        <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">
-          Choose a scope, then arrange the sections that appear on that screen.
+  let notice = null;
+  if (pageLock) {
+    notice = (
+      <PageLockNote
+        titles={lockedRows.map((row) => row.title)}
+        onDelete={() => setDeletingRuleRows(true)}
+      />
+    );
+  } else if (adapter.overridesFailed) {
+    notice = (
+      <div
+        role="alert"
+        className="border-warning/40 bg-warning/10 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm"
+      >
+        <p className="min-w-0 flex-1">
+          Your saved changes didn&apos;t load, so this page can&apos;t change right now.
         </p>
+        <Button size="sm" variant="outline" onClick={() => void adapter.reload()}>
+          Reload rows
+        </Button>
       </div>
+    );
+  } else if (adapter.overridesLoading) {
+    notice = (
+      <p role="status" className="text-muted-foreground text-sm">
+        Loading your saved changes…
+      </p>
+    );
+  }
 
-      <ConfirmDialog
-        open={confirmResetOpen}
-        onOpenChange={(open) => {
-          if (!open) setConfirmResetOpen(false);
-        }}
-        title="Reset section customizations"
-        description="Reset all section customizations to defaults? This action cannot be undone."
-        confirmLabel="Reset"
-        variant="default"
+  const editingRow = rowDialog?.session?.row;
+  return (
+    <HomeRowsPage
+      adapter={adapter}
+      title="Home screen"
+      subtitle="Choose the rows you see and their order. Only this profile changes, and it saves as you go."
+      focus={focus}
+      collection={(id) => collectionSummaries.get(id)}
+      onOpenRow={adapter.canEdit ? openRow : undefined}
+      highlightRowId={highlightId}
+      rowMenuItems={rowMenuItems}
+      moreItems={moreItems}
+      addRow={{ onClick: () => setRowDialog({ session: null }), disabled: !adapter.canEdit }}
+      notices={notice}
+    >
+      <HideWatchedCard
+        checked={hideWatchedItems}
+        disabled={homePreferences.isLoading || saveHomePreference.isPending}
+        onCheckedChange={handleHideWatchedItemsChange}
+      />
+
+      <RemoveRowDialog
+        row={removing}
+        pageName={pageName}
+        onConfirm={confirmRemove}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        skipReturnFocus={skipReturnFocus}
+      />
+      <DeleteRuleRowsDialog
+        open={deletingRuleRows && pageLock !== null}
+        titles={lockedRows.map((row) => row.title)}
+        pageName={pageName}
+        onConfirm={confirmDeleteRuleRows}
+        onOpenChange={setDeletingRuleRows}
+        skipReturnFocus={skipReturnFocus}
+      />
+      <ResetProfileDialog
+        open={resetOpen}
+        pageName={pageName}
+        ownTitles={adapter.rows.filter((row) => row.own).map((row) => row.title)}
         onConfirm={() => {
-          setConfirmResetOpen(false);
-          homeRows.reset();
+          setResetOpen(false);
+          adapter.reset();
         }}
+        onOpenChange={setResetOpen}
       />
-
-      <ConfirmDialog
-        open={confirmDeleteOpen}
-        onOpenChange={handleDeleteDialogChange}
-        title={pendingDeleteSection?.is_custom ? "Delete custom section?" : "Remove section?"}
-        description={
-          pendingDeleteSection?.is_custom
-            ? "Delete this custom section?"
-            : "Remove this section from your home screen?"
-        }
-        confirmLabel={pendingDeleteSection?.is_custom ? "Delete" : "Remove"}
-        variant="destructive"
-        onConfirm={handleConfirmDelete}
-      />
-
-      <SettingsGroup
-        title="Home preferences"
-        description="Choose how this profile's Home screen handles completed media."
-      >
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="hide-watched-home" className="text-sm font-medium">
-              Hide watched items
-            </Label>
-            <p className="text-muted-foreground text-[13px] leading-relaxed">
-              Remove watched items from ordinary Home sections. Featured and watch-history sections
-              keep them.
-            </p>
-          </div>
-          <Switch
-            id="hide-watched-home"
-            checked={hideWatchedItems}
-            disabled={homePreferences.isLoading || saveHomePreference.isPending}
-            onCheckedChange={handleHideWatchedItemsChange}
-          />
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Scope"
-        description="Pick the home screen or library-specific view you want to customize."
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-0.5">
-            <Label className="text-sm font-medium">Editing scope</Label>
-            <p className="text-muted-foreground text-[13px] leading-relaxed">
-              Changes apply only to the selected home screen.
-            </p>
-          </div>
-          <Select value={scopeValue} onValueChange={handleScopeChange} disabled={homeRows.pending}>
-            <SelectTrigger className="w-full sm:w-56">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="home">Home</SelectItem>
-              {libraries?.map((lib) => (
-                <SelectItem key={lib.id} value={`library:${lib.id}`}>
-                  {lib.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Sections"
-        description="Add, reorder, or hide sections. Drag to change order."
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setGalleryOpen(true)}
-            disabled={!canEditSections}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Add from Gallery
-          </Button>
-          <Button size="sm" onClick={handleOpenAdd} disabled={!canEditSections}>
-            <Plus className="mr-1 h-4 w-4" /> Add Section
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleReset} disabled={!canEditSections}>
-            Reset to Default
-          </Button>
-          <Badge variant="secondary" className="ml-auto">
-            {orderedSections.length} sections
-          </Badge>
-        </div>
-        {!homeRows.ready ? (
-          <p className="text-muted-foreground text-[13px]">
-            {homeRows.overridesFailed
-              ? "Saved section state failed to load. Editing is disabled."
-              : "Loading saved section state before section changes are enabled."}
-          </p>
-        ) : null}
-
-        <DndContext
-          sensors={canEditSections ? sensors : []}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={handleDragCancel}
-        >
-          <SortableContext
-            items={orderedSections.map((s) => s.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-2">
-              {orderedSections.map((section) => (
-                <SortableSectionCardRow
-                  key={section.id}
-                  section={toEditableSection(section)}
-                  catalog={recipeCatalog}
-                  onToggleHidden={() => handleToggleHidden(section.id)}
-                  onEdit={() => handleOpenEdit(section)}
-                  onDelete={() => handleRequestDelete(section)}
-                  disabled={!canEditSections}
-                />
-              ))}
-              {orderedSections.length === 0 && (
-                <div className="surface-panel-subtle text-muted-foreground rounded-[1.2rem] py-8 text-center text-sm">
-                  No sections configured.
-                </div>
-              )}
-            </div>
-          </SortableContext>
-          <DragOverlay>
-            {activeSection ? (
-              <SectionDragOverlay
-                section={toEditableSection(activeSection)}
-                catalog={recipeCatalog}
-              />
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Export and import"
-        description="Save this profile's Home and library layouts to a file, or load one exported from another profile or server."
-      >
-        <HomeLayoutTransfer />
-      </SettingsGroup>
-
-      <SectionEditorDrawer
-        mode="profile"
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        section={drawerSection}
-        libraries={libraries ?? []}
-        recipeCatalog={recipeCatalog}
-        libraryScoped={scope === "library"}
-        allowAdminOnlyRecipes={allowAdminOnlyRecipes}
-        onSave={handleDrawerSave}
-      />
-
-      <RecipeGalleryModal
-        open={galleryOpen}
-        onClose={() => setGalleryOpen(false)}
-        hideAdminOnly
-        onPick={(def, preset) => {
-          setGalleryOpen(false);
-          setPickedRecipe({ def, preset });
-        }}
-      />
-
-      {pickedRecipe ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <RecipeConfigDrawer
-            def={pickedRecipe.def}
-            preset={pickedRecipe.preset}
-            showBulkApply={false}
-            showEnabled={false}
-            libraryScoped={scope === "library"}
-            onCancel={() => setPickedRecipe(null)}
-            onBackToGallery={() => {
-              setPickedRecipe(null);
-              setGalleryOpen(true);
-            }}
-            onAdd={handleAddFromGallery}
-          />
-        </div>
+      {importOpen && layoutExport.libraries ? (
+        <HomeLayoutImportDialog
+          libraries={layoutExport.libraries}
+          onClose={() => setImportOpen(false)}
+        />
       ) : null}
-    </div>
+      {rowDialog ? (
+        <AddRowDialog
+          adapter={adapter}
+          catalog={adapter.catalog}
+          catalogFailed={adapter.catalogFailed}
+          libraries={libraries ?? []}
+          session={rowDialog.session}
+          onClose={() => setRowDialog(null)}
+          onSaved={(newIds) => setHighlightId(newIds[0] ?? null)}
+          deleteLabel={editingRow && !editingRow.own ? `Remove from my ${pageName}…` : undefined}
+          onDelete={(session) => {
+            setRowDialog(null);
+            setRemoving(session.row);
+          }}
+        />
+      ) : null}
+    </HomeRowsPage>
   );
 }

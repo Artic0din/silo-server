@@ -15,9 +15,10 @@ const NOTHING_YET: PreviewItem[] = [];
  * the page's shared budget of requests in flight.
  */
 export function usePeek(request: PeekRequest, enabled: boolean): PreviewItem[] {
-  const query = useQuery({
+  const query = useQuery<PreviewItem[]>({
     queryKey: request.queryKey,
     queryFn: ({ signal }) => runPeek(() => request.fetch(signal), signal),
+    placeholderData: () => request.placeholder?.(),
     enabled,
     staleTime: PEEK_STALE_MS,
     gcTime: PEEK_GC_MS,
