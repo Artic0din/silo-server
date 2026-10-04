@@ -142,11 +142,7 @@ export function HomeRowsPage({
           Loading rows…
         </p>
       ) : (
-        <section
-          aria-label={`Rows on ${label}`}
-          className="surface-panel rounded-[26px] p-1.5"
-          onKeyDown={handleListKeyDown}
-        >
+        <div className="surface-panel rounded-[26px] p-1.5" onKeyDown={handleListKeyDown}>
           {rows.length === 0 ? (
             <p className="text-muted-foreground px-[18px] py-8 text-center text-sm">
               No rows on {label} yet.
@@ -197,7 +193,7 @@ export function HomeRowsPage({
               <ReorderHint />
             </>
           )}
-        </section>
+        </div>
       )}
       {children}
     </div>

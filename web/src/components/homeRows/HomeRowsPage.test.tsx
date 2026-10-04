@@ -164,6 +164,8 @@ describe("HomeRowsPage", () => {
       />,
     );
     const list = screen.getByRole("list", { name: "Rows on Home" });
+    // Only the list carries the name, so a screen reader announces it once.
+    expect(screen.queryByRole("region", { name: "Rows on Home" })).toBeNull();
     const [first, second, third] = within(list).getAllByRole("listitem");
     expect(first).toHaveTextContent("Row AHero banner");
     expect(first).toHaveTextContent("Newest movies and episodes from all libraries·20 titles");
