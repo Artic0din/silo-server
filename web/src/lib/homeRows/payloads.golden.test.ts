@@ -17,7 +17,6 @@ import {
 } from "@/api/adminSections";
 import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import { buildSectionOverrides } from "@/pages/settings/HomeScreenSettings";
-import { filterRecipeCatalog } from "@/lib/sectionTypes";
 
 import {
   buildAdminSectionPayload,
@@ -37,7 +36,9 @@ import {
   recipeCatalogFixture,
 } from "./recipeCatalogFixture.test-support";
 import { canCopyToLibraries } from "./bulkCopy";
+import { pickerGroups } from "./catalog";
 import { draftForPreset } from "./rowDraft";
+import { ruleRowKinds } from "./ruleRows";
 
 const uuid = vi.hoisted(() => ({ next: 0 }));
 vi.mock("@/lib/uuid", () => ({ randomUUID: () => `uuid-${++uuid.next}` }));
@@ -720,15 +721,32 @@ describe("profile entries", () => {
   });
 });
 
-// canAddAdminOnlyRecipes itself is pinned in HomeScreenSettings.test.tsx.
+// canAddAdminOnlyRecipes itself is pinned in HomeScreenSettings.test.tsx; its
+// result is the `ruleRows` capability both pickers and the page lock read.
 describe("rule-row gate (#1118, #989)", () => {
-  it("drops exactly the catalog's admin-only recipes from a restricted profile's picker", () => {
-    const restricted = filterRecipeCatalog(recipeCatalogFixture, false)!;
-    const kept = new Set(everyRecipe(restricted).map((def) => def.type));
-    const dropped = everyRecipe()
-      .map((def) => def.type)
-      .filter((type) => !kept.has(type));
-    expect(dropped).toEqual(["custom_filter", "admin_curated_list"]);
-    expect(filterRecipeCatalog(recipeCatalogFixture, true)).toBe(recipeCatalogFixture);
+  const offered = (ruleRows: boolean) =>
+    pickerGroups(recipeCatalogFixture, { ruleRows }).flatMap((group) =>
+      group.cards.map((card) => card.type),
+    );
+
+  it("drops exactly the catalog's admin-only kinds from a restricted profile's picker", () => {
+    const kept = new Set(offered(false));
+    const dropped = offered(true).filter((type) => !kept.has(type));
+    expect(dropped).toEqual(["custom_filter"]);
+    const adminOnly = new Set(
+      everyRecipe()
+        .filter((def) => def.admin_only)
+        .map((def) => def.type),
+    );
+    expect(dropped.every((type) => adminOnly.has(type))).toBe(true);
+    expect([...kept].some((type) => adminOnly.has(type))).toBe(false);
+  });
+
+  it("locks a restricted profile's page on every kind its picker drops", () => {
+    const kept = new Set(offered(false));
+    const kinds = ruleRowKinds(recipeCatalogFixture);
+    for (const type of offered(true).filter((type) => !kept.has(type))) {
+      expect(kinds.has(type)).toBe(true);
+    }
   });
 });

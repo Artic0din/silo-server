@@ -1,5 +1,3 @@
-import type { Category, RecipeCatalogResponse } from "@/lib/recipes";
-
 export const FILTER_SECTION_TYPES = new Set(["genre", "custom_filter"]);
 
 /**
@@ -22,22 +20,4 @@ export function canAddAdminOnlyRecipes(
  */
 export function isTraktConfig(config: Record<string, unknown> | undefined): boolean {
   return config?.source === "trakt" || config?.source_provider === "trakt";
-}
-
-/**
- * Drops admin-only recipes from the catalog a profile may pick from, so a
- * profile the server would refuse (403 custom_disabled) is not offered them.
- */
-export function filterRecipeCatalog(
-  catalog: RecipeCatalogResponse | undefined,
-  allowAdminOnly: boolean,
-): RecipeCatalogResponse | undefined {
-  if (!catalog || allowAdminOnly) return catalog;
-  const categories: RecipeCatalogResponse["categories"] = {};
-  for (const category of Object.keys(catalog.categories) as Category[]) {
-    categories[category] = (catalog.categories[category] ?? []).filter(
-      (definition) => !definition.admin_only,
-    );
-  }
-  return { categories };
 }
