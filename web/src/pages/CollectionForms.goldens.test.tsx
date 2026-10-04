@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { toast } from "sonner";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import getCollectionOk from "../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import {
@@ -21,10 +21,7 @@ import {
 } from "@/test/fixtures/collectionAnswers";
 import { goldens } from "@/test/fixtures/collectionBodies";
 import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
-import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
 import CollectionEditorPage from "./CollectionEditorPage";
-
-beforeAll(preloadLegacyCollectionEditors);
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 vi.mock("@/hooks/queries/profiles", () => ({
@@ -151,8 +148,7 @@ async function saveOnPage(count: number) {
 
 describe("admin manual collections on the editor page", () => {
   it("creates a manual collection, then uploads its poster and backdrop in that order", async () => {
-    const router = showPage("/admin/collections/new?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: /^Manual/ }));
+    const router = showPage("/admin/collections/new?type=manual&libraryId=1");
     fireEvent.change(await nameField(), { target: { value: "Staff picks" } });
     chooseEditorFile("Poster", "poster.png");
     pasteEditorLink("Backdrop", "https://images.example/backdrop.png");
@@ -260,9 +256,7 @@ function storedQuery(limit: number | undefined) {
 
 describe("personal manual and smart collections", () => {
   it("creates a smart collection on the editor page, then uploads its poster", async () => {
-    const router = showPage("/collections/new");
-    fireEvent.click(await screen.findByRole("link", { name: "Smart" }));
-    await vi.waitFor(() => expect(router.state.location.search).toBe("?type=smart"));
+    const router = showPage("/collections/new?type=smart");
     fireEvent.change(await nameField(), { target: { value: "Comfort" } });
     chooseEditorFile("Poster", "poster.png");
     fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
@@ -270,10 +264,8 @@ describe("personal manual and smart collections", () => {
     expect(writes()).toEqual(goldens.personalSmartCreate);
   });
 
-  it("opens the editor page for Manual and sends a pasted poster URL in the POST body", async () => {
-    const router = showPage("/collections/new");
-    fireEvent.click(await screen.findByRole("link", { name: "Manual" }));
-    await vi.waitFor(() => expect(router.state.location.search).toBe("?type=manual"));
+  it("creates a manual collection and sends a pasted poster URL in the POST body", async () => {
+    const router = showPage("/collections/new?type=manual");
     fireEvent.change(await nameField(), { target: { value: "Rainy days" } });
     pasteEditorLink("Poster", "https://images.example/poster.png");
     fireEvent.click(screen.getByRole("button", { name: "Create collection" }));

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
 
@@ -42,7 +43,9 @@ vi.mock("@/hooks/queries/admin/collectionGroups", () => ({
   useReorderCollectionsInGroup: idle,
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
-  useAdminCollectionCapabilities: () => ({ data: { groups: false, imports: true } }),
+  useAdminCollectionCapabilities: () => ({
+    data: { groups: false, imports: true, import_sources: ["mdblist", "tmdb", "tmdb_list"] },
+  }),
   useAdminCollections: () => ({ data: state.collections, isLoading: false }),
   useDeleteAdminCollection: idle,
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
@@ -69,11 +72,17 @@ function collection(
   } as LibraryCollection;
 }
 
+function Where() {
+  const location = useLocation();
+  return <p data-testid="location">{location.pathname + location.search}</p>;
+}
+
 function renderPage(path: string) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
         <AdminCollections />
+        <Where />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -180,5 +189,56 @@ describe("AdminCollections actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
 
     expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("other libraries");
+  });
+});
+
+describe("AdminCollections New collection", () => {
+  function emptyState() {
+    return screen.getByText("No collections yet").parentElement!.parentElement!;
+  }
+
+  it("has one New collection button in the header and no Browse Templates", () => {
+    state.collections = [collection("Staff Picks", "manual")];
+    renderPage("/admin/collections");
+    expect(screen.getAllByRole("button", { name: "New collection" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /Browse Templates/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Collection/ })).toBeNull();
+  });
+
+  it("opens the type picker on the selected library", async () => {
+    state.collections = [collection("Staff Picks", "manual")];
+    renderPage("/admin/collections?libraryId=1");
+    await userEvent.click(screen.getByRole("button", { name: "New collection" }));
+    const dialog = await screen.findByRole("dialog", { name: "New collection" });
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/admin/collections?libraryId=1&dialog=new",
+    );
+    expect(within(dialog).getByRole("link", { name: "Manual" })).toHaveAttribute(
+      "href",
+      "/admin/collections/new?type=manual&libraryId=1",
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/admin\/collections\?libraryId=1$/);
+  });
+
+  it("opens the type picker from a link", async () => {
+    state.collections = [];
+    renderPage("/admin/collections?dialog=new");
+    expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["every library", "/admin/collections"],
+    ["one library", "/admin/collections?libraryId=1"],
+  ])("gives the empty list for %s one button, which opens the picker", async (_, path) => {
+    state.collections = [];
+    renderPage(path);
+    const empty = emptyState();
+    expect(within(empty).getAllByRole("button")).toHaveLength(1);
+    await userEvent.click(within(empty).getByRole("button", { name: "New collection" }));
+    expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Start from a template/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Create from scratch/ })).toBeNull();
   });
 });

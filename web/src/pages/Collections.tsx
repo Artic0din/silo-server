@@ -51,8 +51,11 @@ import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { partitionPersonalCollections } from "@/lib/collections/personalOwnership";
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
+import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
+import { NEW_COLLECTION_DIALOG } from "@/lib/collections/dialogs";
 import MediaCarousel from "@/components/MediaCarousel";
 import { useSyncUserCollection } from "@/hooks/queries/userCollectionImports";
+import { useDialogSearchParam } from "@/hooks/useDialogSearchParam";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
@@ -89,8 +92,7 @@ function CollectionList() {
     useState<CollectionEditSnapshot | null>(null);
   const dragSnapshot = useRef<Promise<string>>(undefined);
   const navigate = useNavigate();
-  // Templates are ready-made picks in the editor's Synced list step.
-  const openTemplates = () => navigate(PERSONAL_SCOPE.paths.create({ type: "synced" }));
+  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   const deleteMutation = useDeleteCollection();
   const syncMutation = useSyncUserCollection();
   const reorderMutation = useReorderCollections();
@@ -159,17 +161,14 @@ function CollectionList() {
             grouping.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {capabilities?.imports && (
-            <Button size="sm" variant="outline" onClick={openTemplates}>
-              <Sparkles className="mr-1 h-4 w-4" /> Browse Templates
-            </Button>
-          )}
-          <Button size="sm" onClick={() => navigate(PERSONAL_SCOPE.paths.create())}>
-            <Plus className="mr-1 h-4 w-4" /> New Collection
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setPickerOpen(true)}>
+          <Plus className="mr-1 h-4 w-4" /> New collection
+        </Button>
       </div>
+
+      {pickerOpen ? (
+        <NewCollectionPicker scope="personal" onClose={() => setPickerOpen(false)} />
+      ) : null}
 
       <section className="space-y-4" aria-labelledby="your-collections">
         <h2 id="your-collections" className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -184,20 +183,9 @@ function CollectionList() {
                 Build your own collection from scratch.
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {capabilities?.imports && (
-                <Button variant="outline" size="sm" onClick={openTemplates}>
-                  <Sparkles className="mr-1 h-4 w-4" /> Start from a template
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate(PERSONAL_SCOPE.paths.create())}
-              >
-                <Plus className="mr-1 h-4 w-4" /> Create from scratch
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setPickerOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> New collection
+            </Button>
           </div>
         ) : (
           <SortableCollectionGrid

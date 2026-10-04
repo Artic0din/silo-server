@@ -17,7 +17,6 @@ import {
   personalSyncedCollection,
 } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
 import CollectionEditorPage from "./CollectionEditorPage";
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
@@ -124,7 +123,6 @@ const HIT = {
 };
 
 installV2Recorder();
-beforeAll(preloadLegacyCollectionEditors);
 beforeAll(() => {
   Object.defineProperties(Element.prototype, {
     hasPointerCapture: { configurable: true, value: () => false },
@@ -520,23 +518,5 @@ describe("Synced list step, personal", () => {
       is_shared: false,
       poster_url: "/images/collection-templates/mdblist_imdb_top_250_movies.jpg",
     });
-  });
-
-  it("offers Synced list on the New collection chooser, and says when it's off", async () => {
-    showPage("/collections/new");
-    expect(await screen.findByRole("link", { name: "Synced list" })).toHaveAttribute(
-      "href",
-      "/collections/new?type=synced",
-    );
-  });
-
-  it("disables the Synced list choice when the server has no import sources", async () => {
-    v2Recorder.answer("GET /api/v2/collections/capabilities", {
-      ...personalCapabilities,
-      import_sources: [],
-    });
-    showPage("/collections/new");
-    expect(await screen.findByText("Synced lists are off on this server.")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Synced list" })).toBeNull();
   });
 });

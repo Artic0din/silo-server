@@ -31,6 +31,8 @@ import { sectionKeys } from "@/hooks/queries/keys";
 import { useEventChannel } from "@/components/realtimeEventsContext";
 import { GroupsBoard } from "@/components/collections/admin/GroupsBoard";
 import { GroupEditDialog } from "@/components/collections/admin/GroupEditDialog";
+import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
+import { NEW_COLLECTION_DIALOG } from "@/lib/collections/dialogs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,10 +52,10 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
+import { useDialogSearchParam } from "@/hooks/useDialogSearchParam";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 import { collectionsInAdminScope, SERVER_SCOPE } from "@/lib/collections/scope";
 import { isListBackedCollectionType } from "@/lib/collections/types";
@@ -67,9 +69,7 @@ export default function AdminCollections() {
   const initialLibraryId =
     Number.isFinite(requestedLibraryId) && requestedLibraryId > 0 ? requestedLibraryId : null;
   const selectedLibraryId = initialLibraryId;
-  // Templates are ready-made picks in the editor's Synced list step.
-  const openTemplates = (libraryId: number | null) =>
-    navigate(SERVER_SCOPE.paths.create({ type: "synced", libraryId }));
+  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   const [editingGroup, setEditingGroup] = useState<{
     mode: "create" | "edit";
     id?: string;
@@ -319,14 +319,6 @@ export default function AdminCollections() {
               <Plus className="mr-1 h-4 w-4" /> New Group
             </Button>
           ) : null}
-          <Button
-            disabled={!capabilities?.imports}
-            size="sm"
-            variant="outline"
-            onClick={() => openTemplates(selectedLibraryId)}
-          >
-            <Sparkles className="mr-1 h-4 w-4" /> Browse Templates
-          </Button>
           {selectedCollections.length > 0 ? (
             <>
               <Badge variant="secondary">{selectedCollections.length} selected</Badge>
@@ -358,14 +350,19 @@ export default function AdminCollections() {
               {deleteCollections.isPending ? `${deleteProgressLabel}…` : "Delete All"}
             </Button>
           ) : null}
-          <Button
-            size="sm"
-            onClick={() => navigate(SERVER_SCOPE.paths.create({ libraryId: selectedLibraryId }))}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Add Collection
+          <Button size="sm" onClick={() => setPickerOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New collection
           </Button>
         </div>
       </div>
+
+      {pickerOpen ? (
+        <NewCollectionPicker
+          scope="server"
+          libraryId={selectedLibraryId}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
 
       <CollectionApplyJobBanner job={latestApplyJob} />
 
@@ -387,8 +384,7 @@ export default function AdminCollections() {
               libraryId,
             })
           }
-          onCreate={() => navigate(SERVER_SCOPE.paths.create())}
-          onOpenTemplates={capabilities?.imports ? () => openTemplates(null) : undefined}
+          onCreate={() => setPickerOpen(true)}
         />
       ) : null}
 
@@ -431,23 +427,9 @@ export default function AdminCollections() {
               Create collections for this library, or sync them from MDBList or TMDB trending.
             </p>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button
-              disabled={!capabilities?.imports}
-              variant="outline"
-              size="sm"
-              onClick={() => openTemplates(selectedLibraryId)}
-            >
-              <Sparkles className="mr-1 h-4 w-4" /> Start from a template
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(SERVER_SCOPE.paths.create({ libraryId: selectedLibraryId }))}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Create from scratch
-            </Button>
-          </div>
+          <Button size="sm" onClick={() => setPickerOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New collection
+          </Button>
         </div>
       )}
 
@@ -630,7 +612,6 @@ function AllLibraryCollectionsOverview({
   onDelete,
   onSync,
   onCreate,
-  onOpenTemplates,
 }: {
   libraries: Library[];
   collections: LibraryCollection[];
@@ -642,7 +623,6 @@ function AllLibraryCollectionsOverview({
   onDelete: (collection: LibraryCollection) => void;
   onSync: (collection: LibraryCollection, libraryId: number) => void;
   onCreate: () => void;
-  onOpenTemplates?: () => void;
 }) {
   const sections = useMemo(
     () => buildAllLibrarySections(libraries, collections),
@@ -704,14 +684,9 @@ function AllLibraryCollectionsOverview({
             trending.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button disabled={!onOpenTemplates} variant="outline" size="sm" onClick={onOpenTemplates}>
-            <Sparkles className="mr-1 h-4 w-4" /> Start from a template
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onCreate}>
-            <Plus className="mr-1 h-4 w-4" /> Create from scratch
-          </Button>
-        </div>
+        <Button size="sm" onClick={onCreate}>
+          <Plus className="mr-1 h-4 w-4" /> New collection
+        </Button>
       </div>
     );
   }

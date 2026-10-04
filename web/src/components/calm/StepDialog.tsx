@@ -36,7 +36,7 @@ export function StepCount({ step, children }: { step: 1 | 2; children: string })
  * The centered dialog of a two-step flow (pick, then fill in). At 1024px and
  * up it is centered; below, a bottom sheet, and the form step takes the whole
  * screen. `size` sets its shape: "picker" is the tall 1000px step, "form" the
- * 880px one.
+ * 880px one, and "choice" a 1000px step only as tall as its few cards.
  *
  * It opens with no Radix trigger, so it keeps the element that had focus when
  * it mounted and gives focus back to it on close.
@@ -55,7 +55,7 @@ export function StepDialog({
   footerStart = <span />,
   actions,
 }: {
-  size: "picker" | "form";
+  size: "picker" | "form" | "choice";
   onClose: () => void;
   /** Puts focus where the step starts when the dialog opens. */
   onOpenFocus: () => void;
@@ -91,9 +91,12 @@ export function StepDialog({
         className={cn(
           "flex flex-col gap-0 overflow-hidden rounded-[20px] p-0 sm:max-w-none",
           "max-lg:top-auto max-lg:bottom-0 max-lg:left-0 max-lg:w-full max-lg:max-w-none max-lg:translate-x-0 max-lg:translate-y-0 max-lg:rounded-b-none",
-          size === "picker"
-            ? "max-lg:h-[calc(100dvh-2.5rem)] max-lg:max-h-none lg:h-[min(860px,calc(100dvh-4rem))] lg:w-[min(1000px,calc(100vw-3rem))]"
-            : "max-lg:h-dvh max-lg:max-h-none max-lg:rounded-none lg:w-[min(880px,calc(100vw-3rem))]",
+          size === "picker" &&
+            "max-lg:h-[calc(100dvh-2.5rem)] max-lg:max-h-none lg:h-[min(860px,calc(100dvh-4rem))] lg:w-[min(1000px,calc(100vw-3rem))]",
+          size === "form" &&
+            "max-lg:h-dvh max-lg:max-h-none max-lg:rounded-none lg:w-[min(880px,calc(100vw-3rem))]",
+          size === "choice" &&
+            "max-lg:max-h-[calc(100dvh-2.5rem)] lg:w-[min(1000px,calc(100vw-3rem))]",
         )}
       >
         <div

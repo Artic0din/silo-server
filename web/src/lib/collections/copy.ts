@@ -1,5 +1,6 @@
 import type { DraftField } from "./draft";
-import type { ArtworkSlot } from "./scope";
+import type { ArtworkSlot, ScopeKind } from "./scope";
+import type { CollectionKind } from "./types";
 
 /**
  * Words every collections surface shares, so the editor, lists and dialogs
@@ -16,6 +17,46 @@ export function joinNames(names: readonly string[]): string {
 function plural(count: number, word: string) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
+
+// --- New collection ---------------------------------------------------------
+
+export const NEW_COLLECTION = "New collection";
+
+/** The type picker's subtitle: what the type decides, and what the editor asks next. */
+export const NEW_COLLECTION_HELP: Readonly<Record<ScopeKind, string>> = {
+  server: "What decides what's in it? Next you'll name it, fill it and choose where it shows.",
+  personal:
+    "What decides what's in it? Only you can change it. Next you'll name it, fill it and choose who sees it.",
+};
+
+export const NEW_COLLECTION_NEXT = "Next: name it and fill it in, on its own page.";
+export const STARTER_PACK_PROMPT = "Want a whole set at once?";
+export const ADD_A_STARTER_PACK = "Add a starter pack";
+
+/** What each type does, under its name on the type picker. */
+export const KIND_SENTENCE: Readonly<Record<CollectionKind, string>> = {
+  manual: "You pick the titles and put them in order.",
+  smart: "Titles that match your rules. It fills itself and keeps up as titles are added.",
+  synced: "Follows a list from MDBList or TMDB and updates on a schedule.",
+};
+
+/** Examples for each type on the type picker; a profile has no staff. */
+export const KIND_GOOD_FOR: Readonly<Record<ScopeKind, Readonly<Record<CollectionKind, string>>>> =
+  {
+    server: {
+      manual: "staff picks, a director's best, movie night.",
+      smart: "90s comedies, unwatched 4K, Christmas movies.",
+      synced: "IMDb Top 250, Netflix Originals, trending this week.",
+    },
+    personal: {
+      manual: "a director's best, movie night, a watch order.",
+      smart: "90s comedies, unwatched 4K, Christmas movies.",
+      synced: "IMDb Top 250, Netflix Originals, trending this week.",
+    },
+  };
+
+export const SYNCED_CHECKING = "Checking Synced lists…";
+export const SYNCED_CHECK_FAILED = "Couldn't check whether Synced lists are on.";
 
 // --- Where it shows ---------------------------------------------------------
 

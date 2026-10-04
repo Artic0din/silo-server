@@ -38,9 +38,10 @@ export function useCollections() {
   });
 }
 
-export function useCollectionCapabilities() {
+export function useCollectionCapabilities(enabled = true) {
   return useQuery({
     queryKey: PERSONAL_SCOPE.keys.capabilities,
+    enabled,
     queryFn: () =>
       v2("GET /api/v2/collections/capabilities").then((value) => ({
         ...value,

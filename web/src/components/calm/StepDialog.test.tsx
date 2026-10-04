@@ -84,4 +84,22 @@ describe("StepDialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it("sizes a choice step to its cards: 1000px wide, no fixed height, a sheet on phones", async () => {
+    render(
+      <StepDialog
+        size="choice"
+        onClose={vi.fn()}
+        onOpenFocus={vi.fn()}
+        title="New collection"
+        description="Pick a type."
+      >
+        <a href="/manual">Manual</a>
+      </StepDialog>,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "New collection" });
+    expect(dialog).toHaveClass("lg:w-[min(1000px,calc(100vw-3rem))]", "max-lg:bottom-0");
+    expect(dialog).toHaveClass("max-lg:max-h-[calc(100dvh-2.5rem)]");
+    expect(dialog.className).not.toMatch(/(^|\s)(max-)?lg:h-/);
+  });
 });
