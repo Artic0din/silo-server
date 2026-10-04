@@ -54,16 +54,31 @@ export function collectionUpdateToV2(
   return { ...fields, library_ids: body.library_ids?.map(String) };
 }
 
-/** Saving succeeded even when a later poster upload fails. Return the saved
- * resource so the dialog closes and retries cannot create duplicate collections. */
+/** Saving succeeded even when a later poster change fails. Return the saved
+ * resource so the dialog closes and retries cannot create duplicate collections.
+ *
+ * A removal staged in the editor is sent here, after the collection saved. A
+ * new file or URL wins over it: the upload replaces the poster and clears the
+ * old image itself, so a DELETE would only remove the new one. */
 export async function saveCollectionPoster(
   collection: CollectionV2,
   poster?: File | null,
   sourceURL?: string,
+  removePoster = false,
 ) {
-  if (!poster && !sourceURL)
+  if (!poster && !sourceURL && !removePoster)
     return { collection: collectionFromV2(collection), posterError: undefined };
   try {
+    if (!poster && !sourceURL) {
+      await v2("DELETE /api/v2/collections/{id}/image", {
+        path: { id: collection.id },
+        query: { type: "poster" },
+      });
+      return {
+        collection: collectionFromV2({ ...collection, poster_url: "", poster_thumbhash: "" }),
+        posterError: undefined,
+      };
+    }
     const updated = await v2("PUT /api/v2/collections/{id}/poster", {
       path: { id: collection.id },
       form: poster ? { poster } : { source_url: sourceURL! },
@@ -72,7 +87,7 @@ export async function saveCollectionPoster(
   } catch (error) {
     return {
       collection: collectionFromV2(collection),
-      posterError: error instanceof Error ? error.message : "Poster upload failed",
+      posterError: error instanceof Error ? error.message : "Poster update failed",
     };
   }
 }

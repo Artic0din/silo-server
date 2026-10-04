@@ -10,6 +10,15 @@ import type { RecordedCall } from "@/test/v2Recorder";
 type Writes = RecordedCall[];
 type ByLimit = Record<"no limit" | "the server's no-limit sentinel" | "a limit of 250", Writes>;
 
+const personalPosterDelete: RecordedCall = {
+  operation: "DELETE /api/v2/collections/{id}/image",
+  path: "/api/v2/collections/c1/image",
+  headers: {},
+  query: {
+    type: "poster",
+  },
+};
+
 export const goldens = {
   /** Admin manual create from the editor page: the POST, then the poster file, then the backdrop URL. */
   adminManualCreate: [
@@ -434,16 +443,83 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal poster removal is sent the moment it is clicked, before Save. */
-  personalPosterRemoval: [
+  /** Personal manual page, poster removed: nothing is sent until Save, then the DELETE follows the PATCH. */
+  personalStagedPosterRemoval: [
     {
-      operation: "DELETE /api/v2/collections/{id}/image",
-      path: "/api/v2/collections/c1/image",
-      headers: {},
-      query: {
-        type: "poster",
+      operation: "PATCH /api/v2/collections/{id}",
+      path: "/api/v2/collections/c1",
+      headers: {
+        "If-Match": '"/api/v2/collections/c1#1"',
+      },
+      body: {
+        name: "Rainy days",
+        is_shared: false,
+        include_in_server_collections: false,
       },
     },
+    personalPosterDelete,
+  ] satisfies Writes,
+  /** Personal manual page, poster removed and then replaced by a file: the upload replaces it and no DELETE is sent. */
+  personalPosterReplacement: [
+    {
+      operation: "PATCH /api/v2/collections/{id}",
+      path: "/api/v2/collections/c1",
+      headers: {
+        "If-Match": '"/api/v2/collections/c1#1"',
+      },
+      body: {
+        name: "Rainy days",
+        is_shared: false,
+        include_in_server_collections: false,
+      },
+    },
+    {
+      operation: "PUT /api/v2/collections/{id}/poster",
+      path: "/api/v2/collections/c1/poster",
+      headers: {},
+      form: {
+        poster: {
+          file: "poster.png",
+        },
+      },
+    },
+  ] satisfies Writes,
+  /** Personal smart wizard, poster removed: the DELETE follows the PATCH on Save. */
+  personalSmartStagedPosterRemoval: [
+    {
+      operation: "PATCH /api/v2/collections/{id}",
+      path: "/api/v2/collections/c1",
+      headers: {
+        "If-Match": '"/api/v2/collections/c1#1"',
+      },
+      body: {
+        name: "Rainy days",
+        is_shared: false,
+        query_definition: {
+          library_ids: [1],
+          match: "all",
+          groups: [
+            {
+              match: "all",
+              rules: [
+                {
+                  field: "genre",
+                  op: "is",
+                  value: "Comedy",
+                },
+              ],
+            },
+          ],
+          sort: {
+            field: "added_at",
+            order: "desc",
+          },
+        },
+        sort_config: {},
+        include_in_server_collections: false,
+      },
+    },
+    personalPosterDelete,
   ] satisfies Writes,
   /** Personal manual page: adding a title moves the collection's ETag, and the rename's PATCH still sends the one the page loaded with, so the server answers 412. */
   personalAddThenRename: [
@@ -696,6 +772,23 @@ export const goldens = {
         include_in_server_collections: false,
       },
     },
+  ] satisfies Writes,
+  /** Personal synced-list editor, poster removed: the DELETE follows the PATCH on Save. */
+  personalSyncedStagedPosterRemoval: [
+    {
+      operation: "PATCH /api/v2/collections/{id}",
+      path: "/api/v2/collections/c1",
+      headers: {
+        "If-Match": '"/api/v2/collections/c1#1"',
+      },
+      body: {
+        name: "Rainy days",
+        is_shared: false,
+        library_ids: ["1"],
+        include_in_server_collections: false,
+      },
+    },
+    personalPosterDelete,
   ] satisfies Writes,
   /** Personal synced-list editor: clearing Max items sends `max_items: 0`. */
   personalSyncedClearLimit: [
