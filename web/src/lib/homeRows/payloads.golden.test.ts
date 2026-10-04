@@ -595,10 +595,10 @@ describe("profile entries", () => {
     expect(buildSectionOverrides([gallery])[0]).not.toHaveProperty("customized");
   });
 
-  // PR K ("keep a Home row's collection when it isn't in the picker list")
-  // fixes these; it flips each `it.fails` to `it`. Until then they record that
-  // an unchanged selection can still rewrite the row's stored config.
-  describe("collection id key (fixed by PR K)", () => {
+  // Known bug: an unchanged collection selection can still rewrite the row's
+  // stored config. The fix keeps the row's collection key when the id isn't in
+  // the picker list, and flips each `it.fails` to `it`.
+  describe("collection id key (known bug)", () => {
     it.fails("keeps a personal collection row's key when its id is not in the options", () => {
       const row = profileRow({
         section_type: "collection",
