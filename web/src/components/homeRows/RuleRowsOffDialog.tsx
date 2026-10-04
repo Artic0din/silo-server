@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -8,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useReturnFocus } from "./useReturnFocus";
 
 /**
  * Confirms turning off "Let profiles add rule rows". The setting covers every
@@ -28,20 +28,10 @@ export function RuleRowsOffDialog({
 }) {
   // Without a Radix trigger, focus would land on the page body on close; it
   // goes back to whatever had it when the dialog opened (More).
-  const returnFocus = useRef<HTMLElement | null>(null);
+  const returnFocus = useReturnFocus();
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent
-        onOpenAutoFocus={() => {
-          const active = document.activeElement;
-          returnFocus.current = active instanceof HTMLElement ? active : null;
-        }}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          returnFocus.current?.focus();
-          returnFocus.current = null;
-        }}
-      >
+      <DialogContent {...returnFocus}>
         <DialogHeader>
           <DialogTitle>Turn off rule rows for profiles?</DialogTitle>
           <DialogDescription>

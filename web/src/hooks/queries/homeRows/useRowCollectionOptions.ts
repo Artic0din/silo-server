@@ -2,7 +2,10 @@ import { useMemo } from "react";
 import type { LibraryCollection } from "@/api/types";
 import { useAdminCollections } from "@/hooks/queries/admin/collections";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
-import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
+import {
+  useAllUserCollections,
+  type CollectionOption,
+} from "@/hooks/queries/useAllUserCollections";
 import type { RowCollections } from "@/lib/homeRows/types";
 
 /**
@@ -48,4 +51,14 @@ export function useAdminRowCollections(): RowCollections {
     failed: collections.isError,
     href: "/admin/collections",
   };
+}
+
+/**
+ * The Settings > Home Screen collection picker's options: this profile's own
+ * collections and the library collections it can open, each with its own
+ * poster (#1702 builds personal posters only from titles the viewer can open).
+ */
+export function useProfileRowCollections(): RowCollections {
+  const { collections, isLoading, isError } = useAllUserCollections();
+  return { options: collections, loading: isLoading, failed: isError, href: "/collections" };
 }

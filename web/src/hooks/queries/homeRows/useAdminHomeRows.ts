@@ -31,7 +31,8 @@ import {
   buildRowUpdateRequest,
   nextAppendPosition,
 } from "@/lib/homeRows/payloads";
-import { stableJson, type RowDraft } from "@/lib/homeRows/rowDraft";
+import type { RowDraft } from "@/lib/homeRows/rowDraft";
+import { stableJson } from "@/lib/homeRows/stableJson";
 import {
   RowChangedError,
   type EditSession,

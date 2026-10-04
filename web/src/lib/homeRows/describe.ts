@@ -14,10 +14,14 @@ export interface CollectionSummary {
   title: string;
   /** Manual, Smart or Synced list. */
   kind?: string;
+  /** One of the viewer's own collections: "Your X collection". */
+  yours?: boolean;
 }
 
 export interface DescribeContext {
   pageKind: "home" | "library";
+  /** The profile surface speaks to the viewer ("What you're partway through"). */
+  surface?: Surface;
   /**
    * Looks up a collection row's collection: its summary, null when the
    * surface knows it is gone, or undefined when it can't tell (yet).
@@ -104,7 +108,7 @@ function describeCollection(
   if (collection === null) return [{ warning: "Collection no longer available" }];
   if (!collection) return ["A collection"];
   const kind = collection.kind ? ` (${collection.kind})` : "";
-  return ["The ", { strong: collection.title }, ` collection${kind}`];
+  return [collection.yours ? "Your " : "The ", { strong: collection.title }, ` collection${kind}`];
 }
 
 /**
@@ -150,11 +154,37 @@ function describeFormat(config: Record<string, unknown>): string {
   return config.sort === "recent" ? `The latest ${format} additions` : `Titles in ${format}`;
 }
 
+/** Personalized rows as a profile reads them about itself, keyed by kind. */
+const PROFILE_SENTENCES: Record<string, string> = {
+  continue_watching: "What you're partway through",
+  next_up: "The next episode of every show you follow",
+  next_in_series: "The next audiobook in each series you finished",
+  watchlist: "What you saved to watch",
+  favorites: "Your favorites",
+  returning_shows: "Shows you watched that have a new season",
+  recommended_for_you: "Picked from your watch history",
+  because_you_watched: "More like what you watched last",
+  taste_match: "The best matches for your taste today",
+};
+
+function profileSentence(row: HomeRow): string | undefined {
+  if (row.sectionType === "continue_watching") {
+    if (row.config.continue_type === "listening") return "Audiobooks you're partway through";
+    if (row.config.continue_type === "reading") return "Books you're partway through";
+  }
+  return PROFILE_SENTENCES[row.sectionType];
+}
+
 /**
  * One plain sentence saying what a row shows. Personalized rows say "each
- * viewer": the admin preview shows the admin's own picks, not everyone's.
+ * viewer" on the admin surface, because its preview shows the admin's own
+ * picks, not everyone's; a profile reads them about itself. A row the profile
+ * renamed says what it was called instead.
  */
 export function describeRow(row: HomeRow, context: DescribeContext): DescriptionPart[] {
+  if (row.renamedFrom) return ["Renamed from ", { strong: row.renamedFrom }];
+  const own = context.surface === "profile" ? profileSentence(row) : undefined;
+  if (own) return [own];
   const { config } = row;
   const onHome = context.pageKind === "home";
   switch (row.sectionType) {
@@ -255,8 +285,8 @@ export function titleCount(itemLimit: number): string {
   return plural(itemLimit, "title");
 }
 
-/** "my Home" or "my Movies page": profile copy names the page the row is on. */
-function profilePageName(pageLabel: string): string {
+/** "Home" or "Movies page", after "my" or "your": profile copy names the page the row is on. */
+export function profilePageName(pageLabel: string): string {
   return pageLabel === "Home" ? "Home" : `${pageLabel} page`;
 }
 

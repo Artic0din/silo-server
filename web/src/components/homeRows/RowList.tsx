@@ -75,7 +75,7 @@ export function RowList({
   canReorder: boolean;
   orderToken: unknown;
   label: string;
-  onReorder: (orderedIds: string[], orderToken: unknown) => void;
+  onReorder: (orderedIds: string[], orderToken: unknown, movedId: string) => void;
   onDragActiveChange?: (active: boolean) => void;
   children: (row: HomeRow, sortable: SortableRowProps) => ReactNode;
 }) {
@@ -131,7 +131,7 @@ export function RowList({
     const from = ids.indexOf(String(active.id));
     const to = ids.indexOf(String(over.id));
     if (from === -1 || to === -1) return;
-    onReorder(arrayMove(ids, from, to), snapshot.token);
+    onReorder(arrayMove(ids, from, to), snapshot.token, String(active.id));
   }
 
   return (

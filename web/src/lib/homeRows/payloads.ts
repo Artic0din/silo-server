@@ -14,6 +14,7 @@ import {
 import { FILTER_SECTION_TYPES, sectionTypeLabel } from "@/lib/sectionTypes";
 import { randomUUID } from "@/lib/uuid";
 import type { RowDraft } from "./rowDraft";
+import { stableJson } from "./stableJson";
 import type { PageRef } from "./types";
 
 /** What the recipe gallery's config drawer hands its owner when the user adds a row. */
@@ -430,4 +431,56 @@ export function buildRowUpdateRequest(
   return FORM_OWNED_CONFIG_TYPES.has(draft.sectionType)
     ? { ...request, config: draft.config }
     : request;
+}
+
+/** A row added on Settings > Home Screen: the gallery's row, as this profile's own. */
+export function buildProfileRowCreate(
+  draft: RowDraft,
+  title: string,
+  position: number,
+): SettingsSectionEntry {
+  return buildProfileGallerySection(
+    buildGalleryAddPayload({
+      sectionType: draft.sectionType,
+      title,
+      itemLimit: draft.itemLimit,
+      featured: draft.hero,
+      enabled: true,
+      config: draft.config,
+    }),
+    position,
+  );
+}
+
+/**
+ * A row saved from Edit row on Settings > Home Screen, built like the old
+ * editor built it. A config the user didn't change stays the stored object,
+ * so a rename never stores (and pins) the row's config; collection and rule
+ * rows send the draft's config as it is.
+ */
+export function buildProfileRowUpdate(
+  section: SettingsSectionEntry,
+  draft: RowDraft,
+  title: string,
+): SettingsSectionEntry {
+  const entry = buildProfileSectionSaveEntry({
+    section: { ...section, config: {} },
+    sectionType: draft.sectionType,
+    title,
+    itemLimit: draft.itemLimit,
+    featured: draft.hero,
+    queryDefinition: queryDefinitionFromSectionConfig(draft.config),
+    selectedCollectionId: "",
+    recipeParams: draft.config,
+  });
+  let { config } = entry;
+  if (
+    draft.sectionType === section.section_type &&
+    stableJson(draft.config) === stableJson(section.config ?? {})
+  ) {
+    config = section.config;
+  } else if (FORM_OWNED_CONFIG_TYPES.has(draft.sectionType)) {
+    config = draft.config;
+  }
+  return { ...entry, default_title: section.default_title, config };
 }

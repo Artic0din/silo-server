@@ -16,6 +16,7 @@ import {
   useProfileSectionSettings,
 } from "@/hooks/queries/sections";
 import { HOME_PAGE, samePage } from "@/lib/homeRows/pages";
+import { nextAppendPosition } from "@/lib/homeRows/payloads";
 import {
   applySectionDeletion,
   buildSectionOverrides,
@@ -35,7 +36,13 @@ interface PageState {
 
 /** `profile` is the household profile that made the change; only it is written. */
 type QueueEntry = { page: PageRef; profile: ProfileRequestContextSnapshot } & (
-  | { kind: "save"; state: PageState; changedIds: Set<string> }
+  | {
+      kind: "save";
+      state: PageState;
+      /** The page as read when the draft was started, which the save compares it to. */
+      baseline: SettingsSectionEntry[];
+      changedIds: Set<string>;
+    }
   | { kind: "reset" }
 );
 
@@ -43,6 +50,12 @@ interface SaveQueue {
   running: boolean;
   /** The newest state not yet sent; a later change replaces it. */
   next: QueueEntry | null;
+}
+
+const NO_SECTIONS: SettingsSectionEntry[] = [];
+
+function idList(ids: string | readonly string[]): readonly string[] {
+  return typeof ids === "string" ? [ids] : ids;
 }
 
 function pageQuery(page: PageRef) {
@@ -61,8 +74,16 @@ export interface ProfileHomeRows {
   libraryId: number | undefined;
   /** The page's rows in order, including changes not saved yet. */
   sections: SettingsSectionEntry[];
+  /** The page's rows as last read, without changes not saved yet. */
+  savedSections: SettingsSectionEntry[];
   /** Both the rows and the saved overrides have loaded. */
   ready: boolean;
+  /** The rows are still loading for the first time. */
+  loading: boolean;
+  /** Why the rows failed to load, when they did and none are on screen. */
+  loadError: Error | null;
+  /** Reads the rows and the saved overrides again. */
+  reload(): Promise<void>;
   /** Changes save only when the page is ready and no reset is in flight. */
   canEdit: boolean;
   /** The saved overrides failed to load, so editing stays off. */
@@ -74,8 +95,8 @@ export interface ProfileHomeRows {
   move(activeId: string, overId: string): void;
   /** Replaces the row with the same id, or adds it at the bottom. */
   saveSection(section: SettingsSectionEntry): void;
-  /** Removes a server row from this page, or deletes the profile's own row. */
-  remove(id: string): void;
+  /** Removes server rows from this page and deletes the profile's own rows, in one save. */
+  remove(ids: string | readonly string[]): void;
   /** Drops every override this profile saved for the page. */
   reset(): void;
   /** When this tab last saved a change to the row, in ms since the epoch. */
@@ -103,6 +124,9 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const [draft, setDraftState] = useState<PageState | null>(null);
   // Mirrors `draft` so changes made in one event build on each other.
   const draftRef = useRef<PageState | null>(null);
+  // The page as read when the draft was started. A refetch between saves may
+  // bring an admin's edit; comparing the draft to it would pin the old value.
+  const draftBaseline = useRef<SettingsSectionEntry[]>(NO_SECTIONS);
   const [pending, setPending] = useState(false);
   const [resetting, setResetting] = useState(false);
   const queue = useRef<SaveQueue>({ running: false, next: null });
@@ -133,11 +157,14 @@ export function useProfileHomeRows(): ProfileHomeRows {
         });
         return;
       }
-      // Built when sent, so it keeps the override IDs the save before it stored.
+      // Built when sent, against the overrides as last read, so it keeps the
+      // override IDs the save before it stored; and against the page the draft
+      // started from, so it stores only what this profile changed.
       const overrides = buildSectionOverrides(entry.state.sections, entry.state.removed, {
         savedOverrides: queryClient.getQueryData<{ overrides: SectionOverride[] }>(
           sectionKeys.profileOverridesRaw(scope, libraryKey),
         )?.overrides,
+        baseline: entry.baseline,
         newId: newOverrideId.current,
         changedSectionIds: entry.changedIds,
       });
@@ -165,10 +192,10 @@ export function useProfileHomeRows(): ProfileHomeRows {
       if (!isCapturedProfileAuthorityActive(entry.profile)) continue;
       try {
         await send(entry);
-        if (entry.kind === "reset") toast.success("Sections reset to default");
+        if (entry.kind === "reset") toast.success("Reset to the server's rows.");
       } catch (error) {
         if (entry.kind === "reset") {
-          toast.error("Failed to reset section customizations");
+          toast.error("Could not reset your rows");
         } else {
           toast.error(sectionSaveErrorMessage(error));
           // A newer change still to be sent carries the user's latest state, this
@@ -192,21 +219,24 @@ export function useProfileHomeRows(): ProfileHomeRows {
   }, [queryClient, send, setDraft]);
 
   const change = useCallback(
-    (id: string, edit: (state: PageState) => PageState | null) => {
+    (ids: string | readonly string[], edit: (state: PageState) => PageState | null) => {
       if (!canEdit) return;
       const profile = captureProfileRequestContext();
       if (!profile) return;
-      const base = draftRef.current ?? {
-        sections: serverSections ?? [],
+      const current = draftRef.current;
+      const baseline = current ? draftBaseline.current : (serverSections ?? []);
+      const base = current ?? {
+        sections: baseline,
         removed: hydrateRemovedSystemSections(savedOverrides),
       };
       const next = edit(base);
       if (!next) return;
       setDraft(next);
+      draftBaseline.current = baseline;
       const q = queue.current;
       const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
-      changedIds.add(id);
-      q.next = { kind: "save", page, profile, state: next, changedIds };
+      for (const id of idList(ids)) changedIds.add(id);
+      q.next = { kind: "save", page, profile, state: next, baseline, changedIds };
       void drain();
     },
     [canEdit, drain, page, savedOverrides, serverSections, setDraft],
@@ -238,19 +268,26 @@ export function useProfileHomeRows(): ProfileHomeRows {
         ...state,
         sections: state.sections.some((s) => s.id === section.id)
           ? state.sections.map((s) => (s.id === section.id ? section : s))
-          : [...state.sections, { ...section, position: state.sections.length }],
+          : [
+              ...state.sections,
+              { ...section, position: nextAppendPosition(state.sections.map((s) => s.position)) },
+            ],
       })),
     [change],
   );
 
-  // The removed row is not on the page any more, so naming it changes nothing
-  // the save leaves out; it only records the write.
+  // A removed row is not on the page any more, so naming it changes nothing
+  // the save leaves out; it only records the write. Several go in one save:
+  // the server refuses a save that still holds any rule row while rule rows
+  // are off, so deleting them one save at a time would never get through.
   const remove = useCallback(
-    (id: string) =>
-      change(id, (state) => {
-        const next = applySectionDeletion(state.sections, state.removed, id);
-        return { sections: next.sections, removed: next.removedSystemSections };
-      }),
+    (ids: string | readonly string[]) =>
+      change(ids, (state) =>
+        idList(ids).reduce<PageState>((current, id) => {
+          const next = applySectionDeletion(current.sections, current.removed, id);
+          return { sections: next.sections, removed: next.removedSystemSections };
+        }, state),
+      ),
     [change],
   );
 
@@ -279,13 +316,23 @@ export function useProfileHomeRows(): ProfileHomeRows {
 
   const lastWriteAt = useCallback((rowId: string) => writes.current.get(rowId), []);
 
+  const { refetch: refetchSettings } = settingsQuery;
+  const { refetch: refetchOverrides } = rawOverridesQuery;
+  const reload = useCallback(async () => {
+    await Promise.all([refetchSettings(), refetchOverrides()]);
+  }, [refetchOverrides, refetchSettings]);
+
   return {
     page,
     setPage,
     scope,
     libraryId,
     sections,
+    savedSections: serverSections ?? NO_SECTIONS,
     ready,
+    loading: settingsQuery.isLoading,
+    loadError: settingsQuery.data ? null : settingsQuery.error,
+    reload,
     canEdit,
     overridesFailed: rawOverridesQuery.isError,
     pending,

@@ -362,7 +362,9 @@ describe("Edit row", () => {
     const dialog = await editRow("Trending This Week");
     expect(within(dialog).getByText("Trending on this server · 7 days")).toBeInTheDocument();
     expect(
-      within(dialog).getByText("Changes apply to everyone on Home who hasn't changed this row."),
+      within(dialog).getByText(
+        "Changes apply to everyone on Home. A profile that changed this row keeps its own changes.",
+      ),
     ).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("radio", { name: /Last 30 days/ }));
     expect(within(dialog).getByLabelText("Row name")).toHaveValue("Trending This Month");

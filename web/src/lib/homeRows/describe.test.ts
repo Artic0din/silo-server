@@ -47,6 +47,32 @@ describe("describeRow", () => {
     );
   });
 
+  it("speaks to the viewer on their own Home Screen settings", () => {
+    const own = { pageKind: "home" as const, surface: "profile" as const };
+    expect(text(describeRow(row("continue_watching"), own))).toBe("What you're partway through");
+    expect(text(describeRow(row("recommended_for_you"), own))).toBe(
+      "Picked from your watch history",
+    );
+    expect(text(describeRow(row("favorites"), own))).toBe("Your favorites");
+    // Rows that aren't personal read the same on both surfaces.
+    expect(text(describeRow(row("hidden_gems"), own))).toBe("Well rated, rarely watched");
+  });
+
+  it("calls the viewer's own collection theirs", () => {
+    const context = {
+      pageKind: "home" as const,
+      collection: () => ({ title: "Comfort Shows", kind: "Manual", yours: true }),
+    };
+    expect(text(describeRow(row("collection", { user_collection_id: "c1" }), context))).toBe(
+      "Your Comfort Shows collection (Manual)",
+    );
+  });
+
+  it("says what a renamed row was called instead of what it shows", () => {
+    const renamed = { ...row("trending_on_server", { window: "7d" }), renamedFrom: "Trending" };
+    expect(describeRow(renamed, home)).toEqual(["Renamed from ", { strong: "Trending" }]);
+  });
+
   it("follows the preset params of multi-preset rows", () => {
     expect(text(describeRow(row("trending_on_server", { window: "7d" }), home))).toBe(
       "Most played on this server in the last 7 days",

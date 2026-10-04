@@ -214,12 +214,38 @@ describe("useProfileHomeRows", () => {
     await settle("PUT /api/v2/profile/sections");
     await waitFor(() => expect(result.current.pending).toBe(false));
 
-    // The first save leaves the shown Trakt row out; the merged one names it.
-    expect(puts[0]!.overrides.map((o) => o.section_id)).toEqual(["a", "b"]);
+    // The first save stores only the row it changed, so the shown Trakt row
+    // is left out; the merged one names it.
+    expect(puts[0]!.overrides.map((o) => o.section_id)).toEqual(["a"]);
     expect(puts[1]!.overrides).toContainEqual(
       expect.objectContaining({ section_id: "trakt", title: "Trakt" }),
     );
     expect(hiddenIds(puts[1]!.overrides)).toEqual(["a", "b"]);
+  });
+
+  it("does not pin an admin edit that lands between two saves of one burst", async () => {
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.setHidden("a", true));
+    // An admin changes row b's size and moves row c above it while the first
+    // save is in flight, so the refetch after it reads the admin's new rows.
+    pages.home!.rows = [
+      entry("a"),
+      entry("c", { position: 1 }),
+      entry("b", { position: 2, item_limit: 30 }),
+    ];
+    act(() => result.current.setHidden("c", true));
+
+    await settle("PUT /api/v2/profile/sections");
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    // The second save stores only the rows the profile hid, with no positions
+    // and nothing for row b, which keeps following the admin.
+    expect(puts[1]!.overrides.map((o) => o.section_id)).toEqual(["a", "c"]);
+    expect(puts[1]!.overrides.every((o) => o.position === undefined)).toBe(true);
+    expect(puts[1]!.overrides.every((o) => o.item_limit === undefined)).toBe(true);
   });
 
   it("keeps an older edit when its save fails and a newer save is queued", async () => {
@@ -296,7 +322,7 @@ describe("useProfileHomeRows", () => {
 
     expect(shownTitles(result.current.sections)).toEqual(["a", "b", "c"]);
     expect(mocks.error).toHaveBeenCalledWith(
-      "Failed to save section changes: This action is not available in demo mode.",
+      "Could not save your rows: This action is not available in demo mode.",
     );
   });
 
@@ -396,7 +422,7 @@ describe("useProfileHomeRows", () => {
     expect(calls.indexOf("DELETE /api/v2/profile/sections")).toBeGreaterThan(
       calls.indexOf("PUT /api/v2/profile/sections"),
     );
-    expect(mocks.success).toHaveBeenCalledWith("Sections reset to default");
+    expect(mocks.success).toHaveBeenCalledWith("Reset to the server's rows.");
     expect(result.current.canEdit).toBe(true);
     expect(shownTitles(result.current.sections)).toEqual(["a", "b", "c"]);
   });

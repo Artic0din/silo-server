@@ -4,9 +4,11 @@
  * is on screen, stay fresh for a few minutes, and share one small budget of
  * requests in flight.
  */
+import type { ResolvedSection } from "@/api/types";
 import { previewSection } from "@/lib/recipes";
 import { pageParam } from "./pages";
-import { stableJson, type RowDraft } from "./rowDraft";
+import type { RowDraft } from "./rowDraft";
+import { stableJson } from "./stableJson";
 import type { HomeRow, PageRef } from "./types";
 
 /** Titles a peek asks for. Phones show the first two. */
@@ -58,6 +60,8 @@ export async function fetchRowPreview(
 export interface PeekRequest {
   queryKey: readonly unknown[];
   fetch(signal: AbortSignal): Promise<PreviewItem[]>;
+  /** Titles to show while the peek loads; it still fetches once. */
+  placeholder?: () => PreviewItem[] | undefined;
 }
 
 /**
@@ -74,6 +78,49 @@ export function adminPeekKey(page: PageRef, row: HomeRow): readonly unknown[] {
     row.sectionType,
     stableJson(row.config),
   ];
+}
+
+/**
+ * A profile peek reads the row as this profile sees it on Home or the library
+ * page, so the key carries its kind, config and size as well as the page.
+ */
+export function profilePeekKey(page: PageRef, row: HomeRow): readonly unknown[] {
+  return [
+    "home-row-peek",
+    "profile",
+    pageParam(page),
+    row.id,
+    row.sectionType,
+    stableJson(row.config),
+    row.itemLimit,
+  ];
+}
+
+/** A peek's titles from a row as the viewer's Home resolves it. */
+export function peekItemsOf(section: ResolvedSection): PreviewItem[] {
+  return section.items.slice(0, PEEK_ITEM_LIMIT).map((item) => ({
+    id: item.content_id,
+    title: item.title,
+    posterUrl: item.poster_url || undefined,
+    thumbhash: item.poster_thumbhash || undefined,
+  }));
+}
+
+/**
+ * Titles from Home's own cache of the row, shown while a profile peek loads.
+ * The cached row has no config, so it is used only when its kind and size
+ * still match and this tab hasn't changed the row since it was cached.
+ */
+export function profilePeekSeed(
+  cached: { data?: { section: ResolvedSection }; dataUpdatedAt: number } | undefined,
+  row: HomeRow,
+  lastWriteAt: number | undefined,
+): PreviewItem[] | undefined {
+  const section = cached?.data?.section;
+  if (!section || section.section_type !== row.sectionType || section.item_limit !== row.itemLimit)
+    return undefined;
+  if (lastWriteAt !== undefined && lastWriteAt >= cached.dataUpdatedAt) return undefined;
+  return peekItemsOf(section);
 }
 
 /**

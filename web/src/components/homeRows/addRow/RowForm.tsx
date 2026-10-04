@@ -129,6 +129,7 @@ export function RowForm({
   collectionChoices,
   libraryPages,
   ruleRowsNote = false,
+  contentLocked = false,
 }: {
   draft: RowDraft;
   onChange: (draft: RowDraft) => void;
@@ -148,11 +149,16 @@ export function RowForm({
   libraryPages?: { pages: LibraryPage[]; currentId: number };
   /** On a rule row, end the form by saying which switch lets profiles add rule rows too. */
   ruleRowsNote?: boolean;
+  /**
+   * What the row shows can't change (a server row on Settings > Home Screen):
+   * no collection picker, rules or title list, and no rule order.
+   */
+  contentLocked?: boolean;
 }) {
   const nameId = useId();
   const family = variantLocked ? undefined : variantFamily(draft.sectionType);
   const rules = FILTER_SECTION_TYPES.has(draft.sectionType);
-  const control = (
+  const control = contentLocked ? null : (
     <KindControl
       draft={draft}
       onChange={onChange}
@@ -242,7 +248,7 @@ export function RowForm({
           onChange({ ...draft, hero, ...(hero ? { extraLibraryIds: [] } : {}) })
         }
       >
-        {rules ? (
+        {rules && !contentLocked ? (
           <RuleSortField
             value={queryDefinitionFromSectionConfig(draft.config)}
             onChange={(query) => onChange(withRules(draft, query))}
