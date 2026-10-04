@@ -284,30 +284,24 @@ export function useProfileSectionOverrides(scope: ProfileSectionScope, libraryId
   });
 }
 
-export function useSaveProfileOverrides() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: SaveOverridesRequest) =>
-      v2("PUT /api/v2/profile/sections", {
-        query: sectionScopeQuery(data.scope, data.library_id),
-        body: { overrides: data.overrides },
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
+/**
+ * Replaces the profile's overrides for one page. Not retry-safe and unguarded
+ * (last write wins), so callers serialize their own saves and refetch after.
+ */
+export function replaceProfileSectionOverrides(data: SaveOverridesRequest) {
+  return v2("PUT /api/v2/profile/sections", {
+    query: sectionScopeQuery(data.scope, data.library_id),
+    body: { overrides: data.overrides },
   });
 }
 
-export function useResetProfileOverrides() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (params: { scope: ProfileSectionScope; libraryId?: string }) =>
-      v2("DELETE /api/v2/profile/sections", {
-        query: sectionScopeQuery(params.scope, params.libraryId),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
+/** Drops every override the profile saved for one page. */
+export function resetProfileSectionOverrides(params: {
+  scope: ProfileSectionScope;
+  libraryId?: string;
+}) {
+  return v2("DELETE /api/v2/profile/sections", {
+    query: sectionScopeQuery(params.scope, params.libraryId),
   });
 }
 

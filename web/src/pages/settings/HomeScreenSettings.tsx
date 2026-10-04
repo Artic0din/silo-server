@@ -1,16 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
-import {
-  useProfileSectionOverrides,
-  useProfileSectionSettings,
-  useSaveProfileOverrides,
-  useResetProfileOverrides,
-} from "@/hooks/queries/sections";
+import { useProfileHomeRows } from "@/hooks/queries/homeRows/useProfileHomeRows";
 import { useUserLibraries } from "@/hooks/queries/libraries";
-import type { SettingsSectionEntry, SectionOverride } from "@/api/types";
+import type { SettingsSectionEntry } from "@/api/types";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,8 +25,8 @@ import type { AddPayload } from "@/components/RecipeGallery/RecipeConfigDrawer";
 import { buildProfileGallerySection } from "@/lib/homeRows/payloads";
 import type { GalleryPreset, RecipeDefinition } from "@/lib/recipes";
 import { fetchRecipeCatalog } from "@/lib/recipes";
-import { canAddAdminOnlyRecipes, isTraktConfig } from "@/lib/sectionTypes";
-import { randomUUID } from "@/lib/uuid";
+import { canAddAdminOnlyRecipes } from "@/lib/sectionTypes";
+import type { PageRef } from "@/lib/homeRows/types";
 import { Plus } from "lucide-react";
 import {
   SectionDragOverlay,
@@ -48,10 +43,10 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import type { DragStartEvent, DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { toast } from "sonner";
-import { v2, V2ProblemError } from "@/api/v2/request";
+import { v2 } from "@/api/v2/request";
 import { useOptionalAuth } from "@/hooks/useAuth";
 import {
   useEffectiveSettings,
@@ -61,170 +56,19 @@ import {
 import { SETTING_KEYS } from "@/lib/settingsContract";
 
 export { buildProfileGallerySection };
+export {
+  applySectionDeletion,
+  buildSectionOverrides,
+  canMutateSectionSettings,
+  createOverrideIdSource,
+  hydrateRemovedSystemSections,
+  sectionSaveErrorMessage,
+  shouldRestoreLatestSaveFailure,
+  shouldRestoreSelectionState,
+} from "@/lib/homeRows/profileOverrides";
 
 const PROFILE_SCOPE: SettingIdentity = { scope: "profile" };
 const HOME_PREFERENCE_KEYS = [SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS] as const;
-
-interface RemovedSystemOverride {
-  id: string;
-}
-
-interface SectionOverrideIds {
-  /** The profile's saved overrides for the page. */
-  savedOverrides?: SectionOverride[];
-  /** An ID for an admin section the profile has no saved override for. */
-  newId?: (sectionId: string) => string;
-  /** The section the change being saved is to, if it is to one section. */
-  changedSectionId?: string;
-}
-
-/**
- * The override set to save for one page. A change to an admin section keeps
- * the ID of the profile's saved override for that section, or gets one from
- * `newId`: the server's section source policy refuses a legacy Trakt admin
- * section's override without an ID. It also refuses a new override that
- * leaves such a section showing, so a shown one without a saved override is
- * left out and keeps its admin position, unless the change is to that
- * section; the refusal then reaches the user instead of the change silently
- * not saving. Positions are only as close to the list order as that held
- * position allows.
- */
-export function buildSectionOverrides(
-  sections: SettingsSectionEntry[],
-  removedSystemSections: RemovedSystemOverride[] = [],
-  { savedOverrides = [], newId = () => randomUUID(), changedSectionId }: SectionOverrideIds = {},
-): SectionOverride[] {
-  // The server resolves the last saved override for a section.
-  const savedIds = new Map<string, string>();
-  for (const override of savedOverrides) {
-    if (override.section_id && override.id) savedIds.set(override.section_id, override.id);
-  }
-  const leftOut = (s: SettingsSectionEntry) =>
-    !s.is_custom &&
-    !s.hidden &&
-    !savedIds.has(s.id) &&
-    s.id !== changedSectionId &&
-    isTraktConfig(s.config);
-  // A section left out keeps its admin position, so the others are numbered
-  // in list order around it and never on it: the server orders sections with
-  // equal positions arbitrarily.
-  const heldPositions = new Set(sections.filter(leftOut).map((s) => s.position));
-  const overrides: SectionOverride[] = [];
-  let position = 0;
-  for (const s of sections) {
-    if (leftOut(s)) {
-      position = Math.max(position, s.position + 1);
-      continue;
-    }
-    while (heldPositions.has(position)) position += 1;
-    overrides.push({
-      section_id: s.is_custom ? undefined : s.id,
-      id: s.is_custom ? s.id : (savedIds.get(s.id) ?? newId(s.id)),
-      position: position++,
-      hidden: s.hidden,
-      title: s.title,
-      featured: s.featured,
-      item_limit: s.item_limit,
-      section_type: s.is_custom ? s.section_type : undefined,
-      config: s.config,
-    });
-  }
-  for (const section of removedSystemSections) {
-    overrides.push({
-      section_id: section.id,
-      id: savedIds.get(section.id) ?? newId(section.id),
-      removed: true,
-    });
-  }
-  return overrides;
-}
-
-/**
- * Gives each admin section one new override ID and returns the same one on
- * later calls, so a quick second save on a page reuses the IDs of the first
- * before the saved overrides refetch.
- */
-export function createOverrideIdSource(): (sectionId: string) => string {
-  const ids = new Map<string, string>();
-  return (sectionId) => {
-    const id = ids.get(sectionId) ?? randomUUID();
-    ids.set(sectionId, id);
-    return id;
-  };
-}
-
-export function applySectionDeletion(
-  sections: SettingsSectionEntry[],
-  removedSystemSections: RemovedSystemOverride[],
-  id: string,
-): { sections: SettingsSectionEntry[]; removedSystemSections: RemovedSystemOverride[] } {
-  const target = sections.find((section) => section.id === id);
-  if (!target) {
-    return { sections, removedSystemSections };
-  }
-
-  const nextSections = sections.filter((section) => section.id !== id);
-  if (target.is_custom) {
-    return { sections: nextSections, removedSystemSections };
-  }
-
-  if (removedSystemSections.some((section) => section.id === id)) {
-    return { sections: nextSections, removedSystemSections };
-  }
-
-  return {
-    sections: nextSections,
-    removedSystemSections: [...removedSystemSections, { id }],
-  };
-}
-
-export function hydrateRemovedSystemSections(
-  overrides: SectionOverride[] = [],
-): RemovedSystemOverride[] {
-  return Array.from(
-    new Set(
-      overrides
-        .filter((override) => override.removed && Boolean(override.section_id))
-        .map((override) => override.section_id as string),
-    ),
-  ).map((id) => ({ id }));
-}
-
-interface ReadyQueryState {
-  isSuccess: boolean;
-  isError: boolean;
-}
-
-export function canMutateSectionSettings(
-  settingsQuery?: ReadyQueryState,
-  rawOverridesQuery?: ReadyQueryState,
-): boolean {
-  return Boolean(
-    settingsQuery?.isSuccess &&
-    !settingsQuery.isError &&
-    rawOverridesQuery?.isSuccess &&
-    !rawOverridesQuery.isError,
-  );
-}
-
-export function shouldRestoreSelectionState(
-  currentSelectionValue: string,
-  selectionValueAtSave: string,
-): boolean {
-  return currentSelectionValue === selectionValueAtSave;
-}
-
-export function shouldRestoreLatestSaveFailure(
-  currentSelectionValue: string,
-  selectionValueAtSave: string,
-  latestAttemptId: number,
-  failedAttemptId: number,
-): boolean {
-  return (
-    shouldRestoreSelectionState(currentSelectionValue, selectionValueAtSave) &&
-    latestAttemptId === failedAttemptId
-  );
-}
 
 function toEditableSection(section: SettingsSectionEntry): EditableSectionViewModel {
   return {
@@ -237,18 +81,6 @@ function toEditableSection(section: SettingsSectionEntry): EditableSectionViewMo
     isCustom: section.is_custom,
     config: section.config,
   };
-}
-
-/**
- * A permission denial carries its cause in the detail: the custom-sections
- * refusal and the demo-mode gate both answer 403 permission_denied.
- */
-export function sectionSaveErrorMessage(error: unknown): string {
-  const detail =
-    error instanceof V2ProblemError && error.problemType === "permission_denied"
-      ? error.problem.detail?.trim()
-      : undefined;
-  return detail ? `Failed to save section changes: ${detail}` : "Failed to save section changes";
 }
 
 export default function HomeScreenSettings() {
@@ -269,33 +101,18 @@ export default function HomeScreenSettings() {
     sectionFlags?.allow_profile_custom_sections,
   );
 
-  // Scope state
-  const [scopeValue, setScopeValue] = useState("home");
-  const scope = scopeValue === "home" ? "home" : "library";
-  const libraryId = scopeValue.startsWith("library:")
-    ? Number(scopeValue.split(":")[1])
-    : undefined;
-
-  // Section data
-  const settingsQuery = useProfileSectionSettings(scope, libraryId);
-  const rawOverridesQuery = useProfileSectionOverrides(scope, libraryId);
-  const saveMutation = useSaveProfileOverrides();
-  const resetMutation = useResetProfileOverrides();
-  const canEditSections = canMutateSectionSettings(settingsQuery, rawOverridesQuery);
+  // Page and section data; every section save goes through the hook.
+  const homeRows = useProfileHomeRows();
+  const { scope, sections: orderedSections } = homeRows;
+  const scopeValue = homeRows.page.kind === "home" ? "home" : `library:${homeRows.page.libraryId}`;
+  const canEditSections = homeRows.canEdit;
   const homePreferences = useEffectiveSettings({ keys: HOME_PREFERENCE_KEYS });
   const saveHomePreference = useSetSettingValue();
   const hideWatchedItems =
     homePreferences.data?.[SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS]?.value === true;
-  const activeSelectionValue = scopeValue;
-  const activeSelectionRef = useRef(activeSelectionValue);
-  const latestSaveAttemptRef = useRef(0);
-  // New override IDs for admin sections on this page.
-  const newOverrideIdRef = useRef(createOverrideIdSource());
 
   // DnD state
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [orderedSections, setOrderedSections] = useState<SettingsSectionEntry[]>([]);
-  const [removedSystemSections, setRemovedSystemSections] = useState<RemovedSystemOverride[]>([]);
 
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -318,68 +135,6 @@ export default function HomeScreenSettings() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // Sync from server
-  useEffect(() => {
-    activeSelectionRef.current = activeSelectionValue;
-  }, [activeSelectionValue]);
-
-  useEffect(() => {
-    if (settingsQuery.data?.sections) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setOrderedSections(settingsQuery.data.sections);
-    }
-  }, [settingsQuery.data?.sections]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRemovedSystemSections(hydrateRemovedSystemSections(rawOverridesQuery.data?.overrides));
-  }, [rawOverridesQuery.data?.overrides]);
-
-  // Save helper
-  function saveOverrides(
-    sections: SettingsSectionEntry[],
-    removedOverrides: RemovedSystemOverride[] = removedSystemSections,
-    changedSectionId?: string,
-  ) {
-    if (!canEditSections) {
-      return;
-    }
-
-    const selectionValueAtSave = activeSelectionValue;
-    const saveAttemptId = latestSaveAttemptRef.current + 1;
-    latestSaveAttemptRef.current = saveAttemptId;
-    const overrides = buildSectionOverrides(sections, removedOverrides, {
-      savedOverrides: rawOverridesQuery.data?.overrides,
-      newId: newOverrideIdRef.current,
-      changedSectionId,
-    });
-    saveMutation.mutate(
-      {
-        scope,
-        library_id: libraryId ? String(libraryId) : undefined,
-        overrides,
-      },
-      {
-        onError: (error) => {
-          toast.error(sectionSaveErrorMessage(error));
-          if (
-            !shouldRestoreLatestSaveFailure(
-              activeSelectionRef.current,
-              selectionValueAtSave,
-              latestSaveAttemptRef.current,
-              saveAttemptId,
-            )
-          ) {
-            return;
-          }
-
-          if (settingsQuery.data?.sections) setOrderedSections(settingsQuery.data.sections);
-          setRemovedSystemSections(hydrateRemovedSystemSections(rawOverridesQuery.data?.overrides));
-        },
-      },
-    );
-  }
-
   // DnD handlers
   function handleDragStart(event: DragStartEvent) {
     if (!canEditSections) {
@@ -396,12 +151,7 @@ export default function HomeScreenSettings() {
     setActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = orderedSections.findIndex((s) => s.id === active.id);
-    const newIndex = orderedSections.findIndex((s) => s.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const next = arrayMove(orderedSections, oldIndex, newIndex);
-    setOrderedSections(next);
-    saveOverrides(next, removedSystemSections, String(active.id));
+    homeRows.move(String(active.id), String(over.id));
   }
 
   function handleDragCancel() {
@@ -415,9 +165,8 @@ export default function HomeScreenSettings() {
     if (!canEditSections) {
       return;
     }
-    const next = orderedSections.map((s) => (s.id === id ? { ...s, hidden: !s.hidden } : s));
-    setOrderedSections(next);
-    saveOverrides(next, removedSystemSections, id);
+    const section = orderedSections.find((s) => s.id === id);
+    if (section) homeRows.setHidden(id, !section.hidden);
   }
 
   function handleRequestDelete(section: SettingsSectionEntry) {
@@ -433,19 +182,12 @@ export default function HomeScreenSettings() {
       return;
     }
 
-    const nextState = applySectionDeletion(
-      orderedSections,
-      removedSystemSections,
-      pendingDeleteSection.id,
-    );
-    setOrderedSections(nextState.sections);
-    setRemovedSystemSections(nextState.removedSystemSections);
+    homeRows.remove(pendingDeleteSection.id);
     if (activeId === pendingDeleteSection.id) {
       setActiveId(null);
     }
     setConfirmDeleteOpen(false);
     setPendingDeleteSection(null);
-    saveOverrides(nextState.sections, nextState.removedSystemSections);
   }
 
   function handleDeleteDialogChange(open: boolean) {
@@ -475,15 +217,7 @@ export default function HomeScreenSettings() {
     if (!canEditSections) {
       return;
     }
-    let next: SettingsSectionEntry[];
-    const existing = orderedSections.find((s) => s.id === updated.id);
-    if (existing) {
-      next = orderedSections.map((s) => (s.id === updated.id ? updated : s));
-    } else {
-      next = [...orderedSections, { ...updated, position: orderedSections.length }];
-    }
-    setOrderedSections(next);
-    saveOverrides(next, removedSystemSections, updated.id);
+    homeRows.saveSection(updated);
   }
 
   // Reset
@@ -495,9 +229,12 @@ export default function HomeScreenSettings() {
   }
 
   function handleScopeChange(value: string) {
-    newOverrideIdRef.current = createOverrideIdSource();
-    setOrderedSections([]);
-    setRemovedSystemSections([]);
+    const page: PageRef =
+      value === "home"
+        ? { kind: "home" }
+        : { kind: "library", libraryId: Number(value.split(":")[1]) };
+    // Refused while this page still has saves to send.
+    if (!homeRows.setPage(page)) return;
     setActiveId(null);
     setConfirmResetOpen(false);
     setConfirmDeleteOpen(false);
@@ -506,17 +243,14 @@ export default function HomeScreenSettings() {
     setDrawerSection(null);
     setGalleryOpen(false);
     setPickedRecipe(null);
-    setScopeValue(value);
   }
 
   function handleAddFromGallery(payload: AddPayload) {
     if (!canEditSections) {
       return;
     }
-    const next = [...orderedSections, buildProfileGallerySection(payload, orderedSections.length)];
-    setOrderedSections(next);
+    homeRows.saveSection(buildProfileGallerySection(payload, orderedSections.length));
     setPickedRecipe(null);
-    saveOverrides(next);
   }
 
   function handleHideWatchedItemsChange(enabled: boolean) {
@@ -550,13 +284,7 @@ export default function HomeScreenSettings() {
         variant="default"
         onConfirm={() => {
           setConfirmResetOpen(false);
-          resetMutation.mutate(
-            { scope, libraryId: libraryId ? String(libraryId) : undefined },
-            {
-              onSuccess: () => toast.success("Sections reset to default"),
-              onError: () => toast.error("Failed to reset section customizations"),
-            },
-          );
+          homeRows.reset();
         }}
       />
 
@@ -649,7 +377,7 @@ export default function HomeScreenSettings() {
         </div>
         {!canEditSections ? (
           <p className="text-muted-foreground text-[13px]">
-            {rawOverridesQuery.isError
+            {homeRows.overridesFailed
               ? "Saved section state failed to load. Editing is disabled."
               : "Loading saved section state before section changes are enabled."}
           </p>
