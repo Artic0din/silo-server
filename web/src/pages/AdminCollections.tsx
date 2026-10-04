@@ -5,7 +5,7 @@ import {
   adminMutationMessage,
 } from "@/api/adminCollections";
 import type { AdminCollectionDeleteSnapshot } from "@/api/adminCollections";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { AdminJob, LibraryCollection } from "@/api/types";
@@ -13,6 +13,7 @@ import { V2ProblemError } from "@/api/v2/request";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { useAdminCollectionsBoard } from "@/hooks/queries/admin/collectionGroups";
 import {
+  patchAdminCollectionField,
   useAdminCollectionCapabilities,
   useAdminCollections,
   useDeleteAdminCollections,
@@ -28,7 +29,9 @@ import { useEventChannel } from "@/components/realtimeEventsContext";
 import { CalmPage } from "@/components/calm/CalmPage";
 import { PageMoreMenu, type PageMoreMenuItem } from "@/components/calm/PageMoreMenu";
 import { PillSwitcher } from "@/components/calm/PillSwitcher";
+import { SelectAllHeader, SelectModeBar } from "@/components/calm/SelectModeBar";
 import { CollectionActionsMenu } from "@/components/collections/CollectionActionsMenu";
+import { DeleteCollectionsDialog } from "@/components/collections/DeleteCollectionsDialog";
 import { HideCollectionDialog } from "@/components/collections/HideCollectionDialog";
 import {
   CollectionColumnHeader,
@@ -43,6 +46,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
   Info,
   Layers,
   LayoutGrid,
@@ -50,8 +55,10 @@ import {
   List,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   Sparkles,
+  SquareCheckBig,
   Trash2,
 } from "lucide-react";
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
@@ -65,11 +72,26 @@ import {
   type AdminListView,
   type KindFilter,
 } from "@/lib/collections/adminList";
-import { COLLECTION_IN_USE, serverDeleteDescription } from "@/lib/collections/copy";
+import { MAX_SELECTED_COLLECTIONS, runBatch } from "@/lib/collections/batch";
+import {
+  COLLECTION_IN_USE,
+  COLLECTIONS_IN_USE,
+  alreadyShown,
+  batchResult,
+  serverDeleteDescription,
+  syncListsLabel,
+  syncSkipNote,
+  type BatchAction,
+} from "@/lib/collections/copy";
 import { listReturnState } from "@/lib/collections/listReturn";
 import { serverCollectionPeek } from "@/lib/collections/peek";
 import { SERVER_SCOPE } from "@/lib/collections/scope";
-import { COLLECTION_KIND_LABEL, isListBackedCollectionType } from "@/lib/collections/types";
+import {
+  COLLECTION_KIND_LABEL,
+  collectionKindOf,
+  isListBackedCollectionType,
+} from "@/lib/collections/types";
+import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 import { cn } from "@/lib/utils";
 import { buildLibraryCollectionCatalogHref } from "./catalogSearchParams";
 import { collectionsInAdminScope } from "./adminCollectionsShared";
@@ -84,6 +106,26 @@ const KIND_OPTIONS: ReadonlyArray<{ value: KindFilter; label: string }> = [
   { value: "smart", label: COLLECTION_KIND_LABEL.smart },
   { value: "synced", label: COLLECTION_KIND_LABEL.synced },
 ];
+
+/** Several collections about to be deleted together, each read fresh for its ETag. */
+interface BulkDelete {
+  snapshots: AdminCollectionDeleteSnapshot[];
+  /** Titles left alone because rows use them. */
+  kept: string[];
+  /** Delete all in this view, rather than the selection. */
+  wholeView: boolean;
+}
+
+/** One line per collection a select-mode action couldn't change. */
+function batchFailure(collection: LibraryCollection, error: unknown): string {
+  return `${collection.title}: ${SERVER_SCOPE.errorMessage(error, "Something went wrong")}`;
+}
+
+function showBatchResult(action: BatchAction, done: number, total: number, failures: string[]) {
+  const { tone, message } = batchResult(action, done, total);
+  if (failures.length === 0) toast[tone](message);
+  else toast[tone](message, { description: failures.join(" ") });
+}
 
 /** A collection being deleted from the list or the board, read fresh for its ETag. */
 interface PendingDelete {
@@ -133,8 +175,16 @@ export default function AdminCollections() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   // The Delete button closes its dialog as it's pressed; keep it open for the answer.
   const holdDeleteOpen = useRef(false);
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [bulkDelete, setBulkDelete] = useState<BulkDelete | null>(null);
   const [hiding, setHiding] = useState<LibraryCollection | null>(null);
+  // Hide from tabs in select mode, waiting on the confirm because rows use some.
+  const [bulkHiding, setBulkHiding] = useState<LibraryCollection[] | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  const selectionAnchor = useRef<string | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const moreTrigger = useRef<HTMLButtonElement>(null);
+  const selectAll = useRef<HTMLButtonElement>(null);
   // The switch runs ahead of the list while a change saves.
   const [visibilityOverrides, setVisibilityOverrides] = useState<ReadonlyMap<string, boolean>>(
     new Map(),
@@ -154,6 +204,27 @@ export default function AdminCollections() {
     () => filterAdminCollections(collections, { ...state, failed: true }).length,
     [collections, state],
   );
+  // Select mode works on the List; switching to Arrange leaves it.
+  const selecting = selectMode && state.view === "list";
+  const selected = useMemo(
+    () => listed.filter((collection) => selectedIds.has(collection.id)),
+    [listed, selectedIds],
+  );
+  const selectedLists = selected.filter((collection) =>
+    isListBackedCollectionType(collection.collection_type),
+  );
+  const selectedSmart = selected.filter(
+    (collection) => collectionKindOf(collection.collection_type) === "smart",
+  ).length;
+
+  // Entering select mode puts focus on Select all; leaving it, on More, since
+  // the Done button or checkbox that had focus is gone.
+  const wasSelecting = useRef(selecting);
+  useEffect(() => {
+    if (wasSelecting.current === selecting) return;
+    wasSelecting.current = selecting;
+    (selecting ? selectAll : moreTrigger).current?.focus();
+  }, [selecting]);
 
   const board = useAdminCollectionsBoard(arrangeLibraryId ?? undefined);
   const viewCollections = useMemo(
@@ -194,6 +265,7 @@ export default function AdminCollections() {
 
   function setView(view: AdminListView) {
     if (view === state.view) return;
+    if (view === "arrange") exitSelectMode();
     // Arrange works on one library: from All libraries it opens the first.
     update(
       view === "arrange"
@@ -307,15 +379,127 @@ export default function AdminCollections() {
     );
   }
 
-  const [deleteSnapshots, setDeleteSnapshots] = useState<AdminCollectionDeleteSnapshot[]>([]);
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    selectionAnchor.current = null;
+  }
+
+  function enterSelectMode() {
+    setView("list");
+    setSelectMode(true);
+  }
+
+  function changeSelection(id: string, checked: boolean, extendRange: boolean) {
+    const ids = listed.map((collection) => collection.id);
+    const anchor = extendRange && selectedIds.size > 0 ? selectionAnchor.current : null;
+    setSelectedIds((current) =>
+      updateCheckboxSelection(current, ids, anchor, id, checked, extendRange),
+    );
+    if (anchor === null || !ids.includes(anchor)) selectionAnchor.current = id;
+  }
+
+  // Escape leaves select mode, but only for keys pressed inside the list or
+  // its bar: menus and dialogs render in portals outside them.
+  function handleSelectKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (
+      event.key !== "Escape" ||
+      event.defaultPrevented ||
+      !selecting ||
+      !event.currentTarget.contains(event.target as Node)
+    )
+      return;
+    exitSelectMode();
+  }
+
+  /** Runs one select-mode action over `targets`, then reports and refreshes once. */
+  async function runSelected(
+    action: BatchAction,
+    targets: LibraryCollection[],
+    run: (collection: LibraryCollection) => Promise<unknown>,
+  ) {
+    setBatchRunning(true);
+    try {
+      const { done, failures } = await runBatch(targets, run, batchFailure);
+      showBatchResult(action, done, targets.length, failures);
+    } finally {
+      setBatchRunning(false);
+      await SERVER_SCOPE.invalidate(queryClient);
+    }
+  }
+
+  function syncSelected() {
+    setSyncingIds((current) => new Set([...current, ...selectedLists.map((list) => list.id)]));
+    void runSelected("sync", selectedLists, async (list) => {
+      try {
+        const result = await SERVER_SCOPE.sync(list.id);
+        if (result.status === "failed") throw new Error(result.message || "Sync failed");
+      } finally {
+        setSyncingIds((current) => {
+          const next = new Set(current);
+          next.delete(list.id);
+          return next;
+        });
+      }
+    });
+  }
+
+  function setSelectedVisible(visible: boolean) {
+    const changing = selected.filter((collection) => isVisible(collection) !== visible);
+    if (changing.length === 0) toast.success(alreadyShown(visible));
+    // Rows that show them would keep showing them with a See all that can't open.
+    else if (!visible && changing.some((collection) => (collection.row_count ?? 0) > 0))
+      setBulkHiding(changing);
+    else void saveSelectedVisible(changing, visible);
+  }
+
+  async function saveSelectedVisible(targets: LibraryCollection[], visible: boolean) {
+    const ids = targets.map((collection) => collection.id);
+    setVisibilityOverrides((current) => {
+      const next = new Map(current);
+      for (const id of ids) next.set(id, visible);
+      return next;
+    });
+    try {
+      await runSelected(visible ? "show" : "hide", targets, (collection) =>
+        patchAdminCollectionField(collection.id, { visibility: visible ? "visible" : "hidden" }),
+      );
+    } finally {
+      setVisibilityOverrides((current) => {
+        const next = new Map(current);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+    }
+  }
+
   const [preparingDelete, setPreparingDelete] = useState(false);
-  async function prepareDeleteAll() {
+  const listRowCounts = useMemo(
+    () => new Map(collections.map((collection) => [collection.id, collection.row_count ?? 0])),
+    [collections],
+  );
+
+  /**
+   * Reads each collection that will go for its ETag and opens the confirm.
+   * Collections rows use are kept: the server refuses to delete them. Arrange's
+   * board doesn't carry row counts, so they come from the List.
+   */
+  async function prepareBulkDelete(targets: LibraryCollection[], wholeView: boolean) {
+    const used = (collection: LibraryCollection) =>
+      (listRowCounts.get(collection.id) ?? collection.row_count ?? 0) > 0;
+    const deletable = targets.filter((collection) => !used(collection));
+    if (deletable.length === 0) {
+      toast.error(COLLECTIONS_IN_USE);
+      return;
+    }
     setPreparingDelete(true);
     try {
-      setDeleteSnapshots(
-        await prepareAdminCollectionDeletes(viewCollections.map((entry) => entry.id)),
-      );
-      setConfirmDeleteAll(true);
+      const snapshots = await prepareAdminCollectionDeletes(deletable.map((entry) => entry.id));
+      setBulkDelete({
+        snapshots,
+        kept: targets.filter(used).map((collection) => collection.title),
+        wholeView,
+      });
     } catch (error) {
       toast.error(adminMutationMessage(error, "Could not prepare deletion"));
     } finally {
@@ -324,27 +508,31 @@ export default function AdminCollections() {
   }
 
   const activeLibrary = libraryList.find((library) => library.id === activeLibraryId) ?? null;
-  const filtered = state.kind !== "all" || state.q.trim() !== "" || state.failed;
-  const collectionDeletionNotice =
-    "Silo will keep collections that are still used by home or library sections. This action cannot be undone.";
-  const sharedDeletionNotice =
-    "Shared collections will also be removed from their other libraries.";
-  const deleteCount = deleteSnapshots.length === 1 ? "the 1" : `all ${deleteSnapshots.length}`;
-  const deleteNoun = deleteSnapshots.length === 1 ? "collection" : "collections";
-  const deleteAllDescription = activeLibrary
-    ? `Delete ${deleteCount} ${deleteNoun} shown for ${activeLibrary.name}? ${sharedDeletionNotice} ${collectionDeletionNotice}`
-    : filtered
-      ? `Delete ${deleteCount} ${deleteNoun} in this view? ${collectionDeletionNotice}`
-      : `Delete ${deleteCount} server ${deleteNoun}? ${collectionDeletionNotice}`;
   const deleteProgressLabel = `Deleting ${deleteCollections.progress?.completed ?? 0} of ${deleteCollections.progress?.total ?? viewCollections.length} collections`;
-  const bulkBusy = preparingDelete || deleteCollections.isPending || activeApplyJob;
+  const deleting = preparingDelete || deleteCollections.isPending;
+  // A starter set being added would race a delete of the collections it makes.
+  const bulkBusy = deleting || activeApplyJob;
 
-  function handleDeleteAll() {
-    if (!activeApplyJob)
-      deleteCollections.mutate(deleteSnapshots, { onSuccess: () => setConfirmDeleteAll(false) });
+  function confirmBulkDelete() {
+    if (bulkDelete && !activeApplyJob) deleteCollections.mutate(bulkDelete.snapshots);
   }
 
-  // Until Starter packs and Select collections arrive, More holds today's page actions.
+  const bulkDeleteKinds = new Set(
+    bulkDelete?.snapshots.map((entry) => collectionKindOf(entry.collection.collection_type)),
+  );
+  const bulkDeleteElsewhere =
+    bulkDelete && activeLibraryId !== null
+      ? bulkDelete.snapshots.flatMap(({ collection }) => {
+          const others = librariesOf(collection).filter(
+            (library) => library.id !== activeLibraryId,
+          );
+          return others.length > 0
+            ? [{ title: collection.title, libraryNames: others.map((library) => library.name) }]
+            : [];
+        })
+      : [];
+
+  // Starter packs take the first place once they replace templates.
   const moreItems: PageMoreMenuItem[] = [
     {
       key: "templates",
@@ -356,16 +544,26 @@ export default function AdminCollections() {
       onSelect: () => setGalleryOpen(true),
     },
     {
+      key: "select",
+      label: "Select collections",
+      help: "Sync, show, hide or delete several at once.",
+      icon: SquareCheckBig,
+      // Focus moves to Select all once select mode opens.
+      returnFocus: false,
+      disabled: selecting || collections.length === 0 || deleting,
+      onSelect: enterSelectMode,
+    },
+    {
       key: "delete-all",
       label: deleteCollections.isPending ? `${deleteProgressLabel}…` : "Delete all in this view…",
       help: "Every collection the current filters show.",
       icon: Trash2,
       group: true,
       disabled: viewCollections.length === 0 || bulkBusy,
-      onSelect: () => void prepareDeleteAll(),
+      onSelect: () => void prepareBulkDelete(viewCollections, true),
     },
   ];
-  const more = <PageMoreMenu items={moreItems} compact={narrow} />;
+  const more = <PageMoreMenu items={moreItems} compact={narrow} triggerRef={moreTrigger} />;
   const newCollection = (
     <Button
       asChild
@@ -382,12 +580,10 @@ export default function AdminCollections() {
   );
 
   const pendingNames = pendingDelete ? namesOf(pendingDelete.collection) : [];
+  const hideTargets = hiding ? [hiding] : (bulkHiding ?? []);
 
   return (
-    <div
-      aria-busy={deleteCollections.isPending || preparingDelete}
-      inert={deleteCollections.isPending || preparingDelete ? true : undefined}
-    >
+    <div aria-busy={deleting} inert={deleting ? true : undefined}>
       <CalmPage
         heading="page"
         title="Collections"
@@ -400,7 +596,7 @@ export default function AdminCollections() {
             </>
           )
         }
-        padBottom={narrow}
+        padBottom={narrow || selecting}
       >
         <CollectionApplyJobBanner job={latestApplyJob} />
 
@@ -441,121 +637,197 @@ export default function AdminCollections() {
         </div>
 
         {state.view === "list" ? (
-          <section aria-label="Collections" className="surface-panel rounded-[26px] p-1.5">
-            {allCollections.isError ? (
-              <div role="alert" className="grid justify-items-center gap-3 px-4 py-10 text-sm">
-                <p>Couldn&apos;t load collections</p>
-                <Button variant="outline" size="sm" onClick={() => void allCollections.refetch()}>
-                  Retry
-                </Button>
-              </div>
-            ) : allCollections.isLoading ? (
-              <ListSkeleton />
-            ) : inLibrary.length === 0 ? (
-              <EmptyLibrary
-                libraryName={activeLibrary?.name ?? null}
-                canBrowseTemplates={Boolean(capabilities?.imports)}
-                onBrowseTemplates={() => setGalleryOpen(true)}
-                newCollection={newCollection}
-              />
-            ) : (
-              <>
-                <ListFilters
-                  state={state}
-                  total={inLibrary.length}
-                  failedCount={failedCount}
-                  onChange={(patch) => update(patch, { replace: true })}
+          <div className="contents" onKeyDown={handleSelectKeyDown}>
+            <section aria-label="Collections" className="surface-panel rounded-[26px] p-1.5">
+              {allCollections.isError ? (
+                <div role="alert" className="grid justify-items-center gap-3 px-4 py-10 text-sm">
+                  <p>Couldn&apos;t load collections</p>
+                  <Button variant="outline" size="sm" onClick={() => void allCollections.refetch()}>
+                    Retry
+                  </Button>
+                </div>
+              ) : allCollections.isLoading ? (
+                <ListSkeleton />
+              ) : inLibrary.length === 0 ? (
+                <EmptyLibrary
+                  libraryName={activeLibrary?.name ?? null}
+                  canBrowseTemplates={Boolean(capabilities?.imports)}
+                  onBrowseTemplates={() => setGalleryOpen(true)}
+                  newCollection={newCollection}
                 />
-                {listed.length === 0 ? (
-                  <div className="grid justify-items-center gap-2 px-4 py-10 text-sm">
-                    <p className="text-muted-foreground">No collections match.</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        update({ kind: "all", q: "", failed: false }, { replace: true })
-                      }
-                    >
-                      Clear filters
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <CollectionColumnHeader count={listed.length} />
-                    <ol className="grid">
-                      {listed.map((collection) => {
-                        const libraries = librariesOf(collection);
-                        const visible = isVisible(collection);
-                        const syncing = syncingIds.has(collection.id);
-                        const peekLibraryId = state.libraryId ?? libraries[0]?.id;
-                        return (
-                          <CollectionListItem
-                            key={collection.id}
-                            collection={collection}
-                            libraryNames={libraries.map((library) => library.name)}
-                            showLibraries={state.libraryId === null}
-                            peek={
-                              peekLibraryId ? serverCollectionPeek(collection, peekLibraryId) : null
-                            }
-                            visible={visible}
-                            syncing={syncing}
-                            switchDisabled={visibilityOverrides.has(collection.id)}
-                            onVisibleChange={(next) => changeVisible(collection, next)}
-                            onOpen={() => openEditor(collection)}
-                            menu={
-                              <CollectionActionsMenu
-                                placement="row"
-                                name={collection.title}
-                                onEdit={() => openEditor(collection)}
-                                openIn={{
-                                  libraries,
-                                  onOpen: (libraryId) =>
-                                    navigate(
-                                      buildLibraryCollectionCatalogHref(
-                                        collection.id,
-                                        collection.title,
-                                        libraryId,
-                                      ),
-                                    ),
-                                  disabledReason: visible
-                                    ? undefined
-                                    : "Hidden from Collections tabs",
-                                }}
-                                sync={
-                                  isListBackedCollectionType(collection.collection_type)
-                                    ? {
-                                        syncing:
-                                          syncing || collection.last_sync_status === "running",
-                                        onSync: () => syncNow(collection),
-                                      }
-                                    : undefined
-                                }
-                                onDelete={() => void prepareDelete(collection)}
-                              />
-                            }
-                          />
-                        );
-                      })}
-                    </ol>
-                  </>
+              ) : (
+                <>
+                  {selecting ? (
+                    <SelectAllHeader
+                      ref={selectAll}
+                      count={listed.length}
+                      selectedCount={selected.length}
+                      limit={MAX_SELECTED_COLLECTIONS}
+                      noun="collections"
+                      onSelectAll={(checked) => {
+                        setSelectedIds(new Set(checked ? listed.map((entry) => entry.id) : []));
+                        selectionAnchor.current = null;
+                      }}
+                      onDone={exitSelectMode}
+                    />
+                  ) : (
+                    <ListFilters
+                      state={state}
+                      total={inLibrary.length}
+                      failedCount={failedCount}
+                      onChange={(patch) => update(patch, { replace: true })}
+                    />
+                  )}
+                  {listed.length === 0 ? (
+                    <div className="grid justify-items-center gap-2 px-4 py-10 text-sm">
+                      <p className="text-muted-foreground">No collections match.</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          update({ kind: "all", q: "", failed: false }, { replace: true })
+                        }
+                      >
+                        Clear filters
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {selecting ? null : <CollectionColumnHeader count={listed.length} />}
+                      <ol className="grid">
+                        {listed.map((collection) => {
+                          const libraries = librariesOf(collection);
+                          const visible = isVisible(collection);
+                          const syncing = syncingIds.has(collection.id);
+                          const peekLibraryId = state.libraryId ?? libraries[0]?.id;
+                          return (
+                            <CollectionListItem
+                              key={collection.id}
+                              collection={collection}
+                              libraryNames={libraries.map((library) => library.name)}
+                              showLibraries={state.libraryId === null}
+                              peek={
+                                peekLibraryId
+                                  ? serverCollectionPeek(collection, peekLibraryId)
+                                  : null
+                              }
+                              visible={visible}
+                              syncing={syncing}
+                              switchDisabled={visibilityOverrides.has(collection.id)}
+                              onVisibleChange={(next) => changeVisible(collection, next)}
+                              onOpen={() => openEditor(collection)}
+                              selection={
+                                selecting
+                                  ? {
+                                      selected: selectedIds.has(collection.id),
+                                      label: `Select ${collection.title}`,
+                                      onChange: (checked, extend) =>
+                                        changeSelection(collection.id, checked, extend),
+                                    }
+                                  : undefined
+                              }
+                              menu={
+                                // In select mode the bar holds the actions.
+                                selecting ? null : (
+                                  <CollectionActionsMenu
+                                    placement="row"
+                                    name={collection.title}
+                                    onEdit={() => openEditor(collection)}
+                                    openIn={{
+                                      libraries,
+                                      onOpen: (libraryId) =>
+                                        navigate(
+                                          buildLibraryCollectionCatalogHref(
+                                            collection.id,
+                                            collection.title,
+                                            libraryId,
+                                          ),
+                                        ),
+                                      disabledReason: visible
+                                        ? undefined
+                                        : "Hidden from Collections tabs",
+                                    }}
+                                    sync={
+                                      isListBackedCollectionType(collection.collection_type)
+                                        ? {
+                                            syncing:
+                                              syncing || collection.last_sync_status === "running",
+                                            onSync: () => syncNow(collection),
+                                          }
+                                        : undefined
+                                    }
+                                    onDelete={() => void prepareDelete(collection)}
+                                  />
+                                )
+                              }
+                            />
+                          );
+                        })}
+                      </ol>
+                    </>
+                  )}
+                  {selecting ? null : (
+                    <p className="text-muted-foreground flex items-center gap-2 px-4 pt-2 pb-3 text-[13px]">
+                      <Info aria-hidden className="size-4 shrink-0" />
+                      <span>
+                        Click a collection to edit it. Order and shelves live in{" "}
+                        <button
+                          type="button"
+                          className="text-foreground font-semibold underline-offset-4 hover:underline"
+                          onClick={() => setView("arrange")}
+                        >
+                          Arrange
+                        </button>
+                        .
+                      </span>
+                    </p>
+                  )}
+                </>
+              )}
+            </section>
+            {selecting ? (
+              <SelectModeBar
+                count={selected.length}
+                limit={MAX_SELECTED_COLLECTIONS}
+                noun="collections"
+                busy={batchRunning || deleting}
+                note={syncSkipNote(
+                  selectedSmart,
+                  selected.length - selectedLists.length - selectedSmart,
                 )}
-                <p className="text-muted-foreground flex items-center gap-2 px-4 pt-2 pb-3 text-[13px]">
-                  <Info aria-hidden className="size-4 shrink-0" />
-                  <span>
-                    Click a collection to edit it. Order and shelves live in{" "}
-                    <button
-                      type="button"
-                      className="text-foreground font-semibold underline-offset-4 hover:underline"
-                      onClick={() => setView("arrange")}
-                    >
-                      Arrange
-                    </button>
-                    .
-                  </span>
-                </p>
-              </>
-            )}
-          </section>
+                actions={[
+                  {
+                    key: "sync",
+                    label: syncListsLabel(selectedLists.length),
+                    icon: RefreshCw,
+                    disabled: selectedLists.length === 0,
+                    onClick: syncSelected,
+                  },
+                  {
+                    key: "show",
+                    label: "Show on tabs",
+                    icon: Eye,
+                    onClick: () => setSelectedVisible(true),
+                  },
+                  {
+                    key: "hide",
+                    label: "Hide from tabs",
+                    icon: EyeOff,
+                    onClick: () => setSelectedVisible(false),
+                  },
+                  {
+                    key: "delete",
+                    label: "Delete…",
+                    icon: Trash2,
+                    destructive: true,
+                    separated: true,
+                    disabled: activeApplyJob,
+                    onClick: () => void prepareBulkDelete(selected, false),
+                  },
+                ]}
+              />
+            ) : null}
+          </div>
         ) : (
           <ArrangeView
             libraryId={arrangeLibraryId}
@@ -571,7 +843,7 @@ export default function AdminCollections() {
         )}
       </CalmPage>
 
-      {narrow ? <MobileDockBar more={more} addRow={newCollection} /> : null}
+      {narrow && !selecting ? <MobileDockBar more={more} addRow={newCollection} /> : null}
 
       <CollectionTemplateGallery
         open={galleryOpen}
@@ -595,26 +867,33 @@ export default function AdminCollections() {
       />
 
       <HideCollectionDialog
-        open={hiding !== null}
+        open={hideTargets.length > 0}
         onOpenChange={(open) => {
-          if (!open) setHiding(null);
+          if (open) return;
+          setHiding(null);
+          setBulkHiding(null);
         }}
-        name={hiding?.title ?? ""}
-        libraryNames={hiding ? namesOf(hiding) : []}
-        rowCount={hiding?.row_count ?? 0}
+        name={hideTargets[0]?.title ?? ""}
+        libraryNames={hideTargets[0] ? namesOf(hideTargets[0]) : []}
+        rowCount={hideTargets.reduce((sum, collection) => sum + (collection.row_count ?? 0), 0)}
+        count={hideTargets.length}
         onConfirm={() => {
           if (hiding) saveVisible(hiding, false);
+          else if (bulkHiding) void saveSelectedVisible(bulkHiding, false);
         }}
       />
 
-      <ConfirmDialog
-        open={confirmDeleteAll}
-        onOpenChange={setConfirmDeleteAll}
-        title="Delete all collections"
-        description={deleteAllDescription}
-        confirmLabel="Delete all"
-        variant="destructive"
-        onConfirm={handleDeleteAll}
+      <DeleteCollectionsDialog
+        open={bulkDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setBulkDelete(null);
+        }}
+        count={bulkDelete?.snapshots.length ?? 0}
+        kind={bulkDeleteKinds.size === 1 ? [...bulkDeleteKinds][0]! : null}
+        where={activeLibrary?.name ?? (bulkDelete?.wholeView ? "this view" : null)}
+        elsewhere={bulkDeleteElsewhere}
+        kept={bulkDelete?.kept ?? []}
+        onConfirm={confirmBulkDelete}
       />
     </div>
   );

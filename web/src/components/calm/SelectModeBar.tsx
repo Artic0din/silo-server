@@ -1,4 +1,4 @@
-import { Fragment, type Ref } from "react";
+import { Fragment, type ReactNode, type Ref } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,8 @@ export interface SelectModeAction {
   destructive?: boolean;
   /** A thin divider is drawn before it. */
   separated?: boolean;
+  /** Off for this selection only, e.g. nothing picked that it applies to. */
+  disabled?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ export function SelectModeBar({
   noun,
   actions,
   busy = false,
+  note,
 }: {
   count: number;
   limit: number;
@@ -36,11 +39,13 @@ export function SelectModeBar({
   noun: string;
   actions: SelectModeAction[];
   busy?: boolean;
+  /** One line under the bar about what the actions will pass over. */
+  note?: ReactNode;
 }) {
   const tooMany = count > limit;
   const disabled = busy || count === 0 || tooMany;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:left-[240px]">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-1.5 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:left-[240px]">
       <div
         role="group"
         aria-label={`Selected ${noun}`}
@@ -62,7 +67,7 @@ export function SelectModeBar({
             <Button
               variant="ghost"
               size="sm"
-              disabled={disabled}
+              disabled={disabled || action.disabled}
               onClick={action.onClick}
               className={cn(
                 action.destructive &&
@@ -75,6 +80,11 @@ export function SelectModeBar({
           </Fragment>
         ))}
       </div>
+      {note ? (
+        <p className="text-muted-foreground bg-background/80 rounded-full px-2.5 text-[12.5px] backdrop-blur">
+          {note}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -46,6 +46,24 @@ describe("SelectModeBar", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Select up to 100 collections at a time.");
     expect(screen.getByRole("button", { name: "Sync lists" })).toBeDisabled();
   });
+
+  it("turns off one action that doesn't apply, and says why under the bar", () => {
+    render(
+      <SelectModeBar
+        count={2}
+        limit={100}
+        noun="collections"
+        note="Sync skips smart collections (2 here)."
+        actions={[
+          { key: "sync", label: "Sync 0 lists", icon: RefreshCw, onClick: vi.fn(), disabled: true },
+          { key: "delete", label: "Delete…", icon: Trash2, onClick: vi.fn() },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Sync 0 lists" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete…" })).toBeEnabled();
+    expect(screen.getByText("Sync skips smart collections (2 here).")).toBeInTheDocument();
+  });
 });
 
 describe("SelectAllHeader", () => {
