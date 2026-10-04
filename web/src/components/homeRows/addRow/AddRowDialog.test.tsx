@@ -2,7 +2,9 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import type { RowDraft } from "@/lib/homeRows/rowDraft";
 import type { EditSession, HomeRow, HomeRowsAdapter } from "@/lib/homeRows/types";
@@ -11,6 +13,31 @@ import { AddRowDialog } from "./AddRowDialog";
 import { paramFieldKeys } from "@/lib/homeRows/paramFields";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/hooks/queries/ratingsCapability", () => ({
+  useShownRatingSources: () => new Set(["imdb", "tmdb"]),
+}));
+vi.mock("@/hooks/queries/items", () => ({
+  fetchWatchDetail: async (id: string) => ({ title: `Title ${id}` }),
+}));
+
+const COLLECTIONS: CollectionOption[] = [
+  {
+    id: "ghibli",
+    title: "Studio Ghibli",
+    source: "library",
+    group: "Movies",
+    collection_type: "manual",
+    item_count: 23,
+  },
+  {
+    id: "best",
+    title: "Best Picture Winners",
+    source: "library",
+    group: "Movies",
+    collection_type: "mdblist",
+    item_count: 96,
+  },
+];
 
 function row(overrides: Partial<HomeRow> = {}): HomeRow {
   return {
@@ -40,7 +67,10 @@ function adapter(): HomeRowsAdapter {
     status: "ready",
     error: null,
     canEdit: true,
-    rows: [row({ id: "t", sectionType: "trending_on_server", config: { window: "7d" } })],
+    rows: [
+      row({ id: "t", sectionType: "trending_on_server", config: { window: "7d" } }),
+      row({ id: "g", sectionType: "collection", config: { library_collection_id: "ghibli" } }),
+    ],
     pending: false,
     conflict: null,
     reload: async () => {},
@@ -58,26 +88,33 @@ function adapter(): HomeRowsAdapter {
       throw new Error("unused");
     },
     save,
+    collections: {
+      options: COLLECTIONS,
+      loading: false,
+      failed: false,
+      href: "/admin/collections",
+    },
   };
 }
 
 function Harness({ session = null }: { session?: EditSession | null }) {
   const [open, setOpen] = useState(false);
   return (
-    <QueryClientProvider client={new QueryClient()}>
-      <button onClick={() => setOpen(true)}>Open</button>
-      {open ? (
-        <AddRowDialog
-          adapter={adapter()}
-          catalog={recipeCatalogFixture}
-          libraries={[{ id: 7, name: "Movies" }]}
-          session={session}
-          onClose={() => setOpen(false)}
-          onSaved={() => {}}
-          onBridge={() => {}}
-        />
-      ) : null}
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <button onClick={() => setOpen(true)}>Open</button>
+        {open ? (
+          <AddRowDialog
+            adapter={adapter()}
+            catalog={recipeCatalogFixture}
+            libraries={[{ id: 7, name: "Movies" }]}
+            session={session}
+            onClose={() => setOpen(false)}
+            onSaved={() => {}}
+          />
+        ) : null}
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -353,5 +390,237 @@ describe("param fields", () => {
 
   it("has no Anchor item field for Because you watched", () => {
     expect(paramFieldKeys("because_you_watched")).toEqual([]);
+  });
+});
+
+function editSession(overrides: Partial<HomeRow>): EditSession {
+  return { row: row({ id: "e", ...overrides }), token: null };
+}
+
+function savedDraft(): RowDraft {
+  expect(save).toHaveBeenCalledTimes(1);
+  return save.mock.calls[0]![1];
+}
+
+describe("collection rows", () => {
+  it("picks a collection, names the row after it and adds it", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "A collection" }));
+    const form = await screen.findByRole("dialog", { name: "A collection" });
+    expect(within(form).getByRole("link", { name: "Collections" })).toHaveAttribute(
+      "href",
+      "/admin/collections",
+    );
+    expect(within(form).getByRole("button", { name: "Add row" })).toBeDisabled();
+    expect(within(form).getByRole("radio", { name: "Studio Ghibli" })).toHaveAccessibleDescription(
+      "Manual · 23 titles · On Home",
+    );
+    await userEvent.click(within(form).getByRole("radio", { name: "Best Picture Winners" }));
+    expect(within(form).getByLabelText("Row name")).toHaveValue("Best Picture Winners");
+    expect(within(form).getByText("Starts as the collection's name.")).toBeInTheDocument();
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      sectionType: "collection",
+      title: "Best Picture Winners",
+      config: { library_collection_id: "best" },
+    });
+  });
+
+  it("keeps a row's collection, and every other key, when only its name changes", async () => {
+    const config = { user_collection_id: "u-9", generated_source: "collection_auto" };
+    await open(editSession({ title: "Shared", sectionType: "collection", config }));
+    const dialog = screen.getByRole("dialog", { name: "Edit row" });
+    expect(
+      within(dialog).getByText(
+        "This row's collection isn't in this list. The row keeps it until you pick another.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Row name"), { target: { value: "Renamed" } });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(savedDraft()).toMatchObject({ title: "Renamed", config });
+  });
+
+  it("turns a ready-made row into a collection row without leaving the dialog", async () => {
+    await open(
+      editSession({
+        title: "My picks",
+        sectionType: "trending_on_server",
+        config: { window: "7d" },
+      }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Edit row" });
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Change what/ }));
+    const picker = await screen.findByRole("dialog", { name: "Change what this row shows" });
+    await userEvent.click(within(picker).getByRole("button", { name: "A collection" }));
+    const form = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(form).getByRole("button", { name: "Save" })).toBeDisabled();
+    await userEvent.click(within(form).getByRole("radio", { name: "Studio Ghibli" }));
+    expect(within(form).getByLabelText("Row name")).toHaveValue("My picks");
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(savedDraft()).toMatchObject({
+      sectionType: "collection",
+      title: "My picks",
+      config: { library_collection_id: "ghibli" },
+    });
+  });
+});
+
+// Configs in the shape the older editor has always written for rule rows.
+const MULTI_GROUP = {
+  library_ids: [1],
+  match: "any",
+  groups: [
+    {
+      match: "all",
+      rules: [
+        { field: "genre", op: "is", value: "Horror" },
+        { field: "year", op: "gte", value: 1980 },
+      ],
+    },
+    { match: "any", rules: [{ field: "genre", op: "is_not", value: "Comedy" }] },
+  ],
+  sort: { field: "year", order: "asc" },
+};
+
+// The removed Easy mode saved fields the server does not know and booleans as text.
+const UNKNOWN_FIELDS = {
+  library_ids: [],
+  match: "all",
+  groups: [
+    {
+      match: "all",
+      rules: [
+        { field: "cast", op: "contains", value: "Tom Hanks" },
+        { field: "genre", op: "is", value: "Drama" },
+        { field: "watched", op: "is", value: "true" },
+      ],
+    },
+  ],
+  sort: { field: "added_at", order: "desc" },
+};
+
+describe("rule rows", () => {
+  it.each([
+    ["multi-group", MULTI_GROUP],
+    ["unknown-field", UNKNOWN_FIELDS],
+  ])("saves an untouched %s rule row with the config it opened with", async (_, config) => {
+    await open(editSession({ sectionType: "custom_filter", config: structuredClone(config) }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(JSON.stringify(savedDraft().config)).toBe(JSON.stringify(config));
+  });
+
+  it("edits rules in one sentence and list, with no Easy mode", async () => {
+    await open(editSession({ sectionType: "custom_filter", config: structuredClone(MULTI_GROUP) }));
+    expect(screen.getAllByRole("group", { name: "What the row shows" })).toHaveLength(1);
+    expect(screen.getByRole("group", { name: "Group 2" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Easy" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Advanced" })).toBeNull();
+  });
+
+  it("keeps personalized rules and sorts editable, with the order under More options", async () => {
+    await open(
+      editSession({
+        sectionType: "custom_filter",
+        config: {
+          library_ids: [],
+          match: "all",
+          groups: [{ match: "all", rules: [{ field: "watched", op: "is", value: false }] }],
+          sort: { field: "date_viewed", order: "desc" },
+        },
+      }),
+    );
+    expect(screen.queryByRole("group", { name: "Rule not editable here" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Field" })).toHaveTextContent("Watched");
+    await userEvent.click(screen.getByRole("button", { name: /More options/ }));
+    expect(screen.getByRole("combobox", { name: "Sort by" })).toHaveTextContent("Date Viewed");
+  });
+
+  it("names the order on the closed More options box", async () => {
+    await open(
+      editSession({
+        sectionType: "custom_filter",
+        config: { ...structuredClone(MULTI_GROUP), sort: { field: "rating_imdb", order: "desc" } },
+      }),
+    );
+    expect(screen.getByRole("button", { name: /More options/ })).toHaveTextContent(
+      "Highest rated first·20 titles·not the hero banner",
+    );
+  });
+
+  it("shows rules it can't edit read-only and keeps them until removed", async () => {
+    await open(
+      editSession({ sectionType: "custom_filter", config: structuredClone(UNKNOWN_FIELDS) }),
+    );
+    const readOnly = screen.getAllByRole("group", { name: "Rule not editable here" });
+    expect(readOnly).toHaveLength(2);
+    await userEvent.click(within(readOnly[0]!).getByRole("button", { name: "Remove" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(savedDraft().config.groups).toEqual([
+      {
+        match: "all",
+        rules: [
+          { field: "genre", op: "is", value: "Drama" },
+          { field: "watched", op: "is", value: "true" },
+        ],
+      },
+    ]);
+  });
+
+  it("opens a legacy genre row in the rule builder and saves it as it is", async () => {
+    const config = {
+      filter_type: "movie",
+      match: "all",
+      groups: [{ match: "all", rules: [{ field: "genre", op: "contains", value: "Horror" }] }],
+      sort: "added_at",
+      order: "desc",
+    };
+    await open(
+      editSession({ title: "Horror", sectionType: "genre", config: structuredClone(config) }),
+    );
+    expect(screen.getByText("Genre (no longer offered)")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Kind of titles" })).toHaveTextContent("Movies");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(JSON.stringify(savedDraft().config)).toBe(JSON.stringify(config));
+  });
+
+  it("starts a new rule row with no rules", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Titles matching rules" }));
+    const form = await screen.findByRole("dialog", { name: "Titles matching rules" });
+    expect(
+      within(form).getByText("Describe the titles you want. New matches show up on their own."),
+    ).toBeInTheDocument();
+    expect(within(form).getByText(/No rules yet/)).toBeInTheDocument();
+    await userEvent.click(within(form).getByRole("button", { name: "Add rule" }));
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0].config).toMatchObject({
+      library_ids: [],
+      match: "all",
+      groups: [{ match: "all", rules: [{ field: "genre", op: "is", value: "" }] }],
+    });
+  });
+});
+
+describe("Editor's Picks rows", () => {
+  it("edits the titles and can't save an empty list", async () => {
+    await open(
+      editSession({
+        title: "Staff picks",
+        sectionType: "admin_curated_list",
+        config: { item_ids: ["m1"] },
+      }),
+    );
+    expect(await screen.findByText("Title m1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Remove Title m1" }));
+    expect(screen.getByText("Search above and add at least one title.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

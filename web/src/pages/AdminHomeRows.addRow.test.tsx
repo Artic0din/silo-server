@@ -8,7 +8,11 @@ import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-s
 import { V2ProblemError } from "@/api/v2/request";
 import AdminHomeRows from "./AdminHomeRows";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  request: vi.fn(),
+  error: vi.fn(),
+  collections: [] as Array<Record<string, unknown>>,
+}));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
   v2: mocks.request,
@@ -18,7 +22,7 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({
   useAdminLibraries: () => ({ data: [{ id: 7, name: "Movies", type: "movies" }] }),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
-  useAdminCollections: () => ({ data: [] }),
+  useAdminCollections: () => ({ data: mocks.collections }),
 }));
 vi.mock("@/hooks/queries/collectionSurfaceRefresh", () => ({
   invalidateAdminCollectionQueries: vi.fn(),
@@ -30,11 +34,8 @@ vi.mock("@/lib/recipes", async () => ({
   ...(await vi.importActual<typeof import("@/lib/recipes")>("@/lib/recipes")),
   fetchRecipeCatalog: async () => recipeCatalogFixture,
 }));
-vi.mock("@/components/collections/CollectionRulesEditor", () => ({
-  default: () => <div>Rules editor</div>,
-}));
-vi.mock("@/components/CollectionSearchableSelect", () => ({
-  CollectionSearchableSelect: () => <div>Collection picker</div>,
+vi.mock("@/hooks/queries/ratingsCapability", () => ({
+  useShownRatingSources: () => new Set(["imdb", "tmdb"]),
 }));
 
 type Row = {
@@ -108,6 +109,28 @@ beforeEach(() => {
   preview = true;
   holdCreate = null;
   failNextPatch = false;
+  mocks.collections = [
+    {
+      id: "lib-1",
+      title: "Studio Ghibli",
+      library_id: 7,
+      library_ids: [7],
+      collection_type: "manual",
+      visibility: "visible",
+      item_count: 23,
+      poster_url: "",
+    },
+    {
+      id: "secret",
+      title: "Staff only",
+      library_id: 7,
+      library_ids: [7],
+      collection_type: "smart",
+      visibility: "hidden",
+      item_count: 4,
+      poster_url: "",
+    },
+  ];
   mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
     args.onResponse?.(new Response(null, { headers: { ETag: '"rev-1"' } }));
     const scope = args.query?.scope ?? "home";
@@ -301,11 +324,35 @@ describe("Add row", () => {
     expect(previews).toEqual([]);
   });
 
-  it("opens the older editor for collection rows until the dialog has a collection picker", async () => {
+  it("adds a collection row with the gallery's create body, offering only visible collections", async () => {
     const dialog = await openAddRow();
     await userEvent.click(within(dialog).getByRole("button", { name: "A collection" }));
-    expect(await screen.findByText("Collection picker")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Add a row to Home" })).not.toBeInTheDocument();
+    const form = await screen.findByRole("dialog", { name: "A collection" });
+    expect(
+      within(form)
+        .getAllByRole("radio")
+        .map((radio) => radio.getAttribute("aria-label")),
+    ).toEqual(["Studio Ghibli"]);
+    // The server refuses a collection row preview without a collection.
+    expect(within(form).getByText("Pick a collection to see its titles here.")).toBeInTheDocument();
+    expect(previews).toEqual([]);
+    await userEvent.click(within(form).getByRole("radio", { name: "Studio Ghibli" }));
+    await waitFor(() => expect(previews).toHaveLength(1));
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(creates()).toHaveLength(1));
+    expect(creates()[0]!.args.body).toEqual({
+      ...(golden.adminCreate as Record<string, object>)["collection/picked/home"],
+      position: 5,
+    });
+  });
+
+  it("says how many titles a rule row's rules match", async () => {
+    const dialog = await openAddRow();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Titles matching rules" }));
+    const form = await screen.findByRole("dialog", { name: "Titles matching rules" });
+    expect(await within(form).findByText(/titles match/)).toHaveTextContent(
+      "2 titles match·showing 2",
+    );
   });
 });
 
@@ -432,7 +479,7 @@ describe("Edit row", () => {
     });
   });
 
-  it("carries the dialog's name and More options into the older editor, through a reload", async () => {
+  it("turns a row into a rule row and keeps that through a 412 and Reload row", async () => {
     await setup();
     const dialog = await editRow("Trending This Week");
     fireEvent.change(within(dialog).getByLabelText("Row name"), { target: { value: "My picks" } });
@@ -445,24 +492,26 @@ describe("Edit row", () => {
     );
     const picker = await screen.findByRole("dialog", { name: "Change what this row shows" });
     await userEvent.click(within(picker).getByRole("button", { name: "Titles matching rules" }));
-    expect(await screen.findByText("Rules editor")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("My picks")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Featured" })).toBeChecked();
+    let form = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(form).getByRole("group", { name: "What the row shows" })).toBeInTheDocument();
+    await userEvent.click(within(form).getByRole("button", { name: "Add rule" }));
 
     failNextPatch = true;
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Reload section" }));
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await userEvent.click(await within(form).findByRole("button", { name: "Reload row" }));
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Reload section" })).toBeNull(),
+      expect(within(form).queryByRole("button", { name: "Reload row" })).toBeNull(),
     );
-    expect(screen.getByText("Rules editor")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("My picks")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    form = screen.getByRole("dialog", { name: "Edit row" });
+    expect(within(form).getByRole("group", { name: "What the row shows" })).toBeInTheDocument();
+    expect(within(form).getByLabelText("Row name")).toHaveValue("My picks");
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]!.args.body).toMatchObject({
       section_type: "custom_filter",
       title: "My picks",
       featured: true,
+      config: { groups: [{ match: "all", rules: [{ field: "genre", op: "is", value: "" }] }] },
     });
   });
 
@@ -475,16 +524,40 @@ describe("Edit row", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens collection rows in the older editor", async () => {
+  it("opens collection rows in the row dialog", async () => {
     rows[1] = {
       ...rows[1]!,
       title: "Ghibli",
       section_type: "collection",
-      config: { library_collection_id: "c1" },
+      config: { library_collection_id: "lib-1" },
     };
     await setup();
     await userEvent.click(await screen.findByRole("button", { name: "More for Ghibli" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Edit row…" }));
-    expect(await screen.findByText("Collection picker")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(dialog).getByRole("radiogroup", { name: "Collection" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "Studio Ghibli" })).toBeChecked();
+  });
+
+  it("names a collection row's collection and its kind, and says when it is gone (S11)", async () => {
+    rows[1] = {
+      ...rows[1]!,
+      title: "Old picks",
+      section_type: "collection",
+      config: { library_collection_id: "deleted" },
+    };
+    rows.push(
+      stored("g", {
+        position: 6,
+        title: "Ghibli",
+        section_type: "collection",
+        config: { library_collection_id: "lib-1" },
+      }),
+    );
+    await setup();
+    expect(await screen.findByText("Collection no longer available")).toBeInTheDocument();
+    expect(screen.getByText("Studio Ghibli").parentElement).toHaveTextContent(
+      "The Studio Ghibli collection (Manual)",
+    );
   });
 });

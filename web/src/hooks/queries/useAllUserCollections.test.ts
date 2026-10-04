@@ -85,4 +85,55 @@ describe("buildAllUserCollectionOptions", () => {
       { id: "shows", group: "TV Shows" },
     ]);
   });
+
+  it("carries the poster, title count and type of both sources for the row picker", () => {
+    const options = buildAllUserCollectionOptions(
+      [{ id: 1, name: "Movies" }],
+      [
+        {
+          id: "personal",
+          name: "Weekend Picks",
+          collection_type: "mdblist",
+          item_count: 12,
+          poster_url: "/p.jpg",
+          poster_thumbhash: "abc",
+        },
+      ],
+      [
+        [
+          {
+            ...libraryCollection("library", "Staff Picks"),
+            collection_type: "manual",
+            item_count: 23,
+            poster_url: "/l.jpg",
+            poster_thumbhash: "def",
+          },
+        ],
+      ],
+    );
+    expect(
+      options.map(({ id, collection_type, item_count, poster_url, poster_thumbhash }) => ({
+        id,
+        collection_type,
+        item_count,
+        poster_url,
+        poster_thumbhash,
+      })),
+    ).toEqual([
+      {
+        id: "personal",
+        collection_type: "mdblist",
+        item_count: 12,
+        poster_url: "/p.jpg",
+        poster_thumbhash: "abc",
+      },
+      {
+        id: "library",
+        collection_type: "manual",
+        item_count: 23,
+        poster_url: "/l.jpg",
+        poster_thumbhash: "def",
+      },
+    ]);
+  });
 });

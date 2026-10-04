@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
-  collectionOptions: [] as string[],
 }));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
@@ -43,15 +42,6 @@ vi.mock("@/lib/recipes", () => ({
   fetchRecipeCatalog: async () => ({ categories: {} }),
   previewSection: async () => ({ items: [], total_count: 0 }),
 }));
-vi.mock("@/components/collections/CollectionRulesEditor", () => ({ default: () => null }));
-vi.mock("@/components/LibraryMultiSelect", () => ({ default: () => null }));
-vi.mock("@/components/RecipeGallery/RecipeParamFields", () => ({ default: () => null }));
-vi.mock("@/components/CollectionSearchableSelect", () => ({
-  CollectionSearchableSelect: ({ options }: { options: { id: string }[] }) => {
-    mocks.collectionOptions = options.map((option) => option.id);
-    return <div>Collection picker</div>;
-  },
-}));
 // The real list and sortable rows render; only the drag gesture is replaced by
 // two buttons, so a test can start a drag, refetch, and then drop.
 vi.mock("@dnd-kit/core", async () => {
@@ -75,7 +65,26 @@ vi.mock("@dnd-kit/core", async () => {
   };
 });
 const libraries = [{ id: 7, name: "Movies", type: "movies" }];
-const collections: never[] = [];
+const collections = [
+  {
+    id: "public",
+    title: "Public picks",
+    library_id: 7,
+    library_ids: [7],
+    collection_type: "manual",
+    visibility: "visible",
+    item_count: 3,
+  },
+  {
+    id: "hidden",
+    title: "Hidden picks",
+    library_id: 7,
+    library_ids: [7],
+    collection_type: "manual",
+    visibility: "hidden",
+    item_count: 3,
+  },
+];
 const initial = (id: string) => ({
   id,
   title: `Original ${id.toUpperCase()}`,
@@ -415,13 +424,17 @@ describe("admin section captured snapshots", () => {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
-  it("restricts the admin editor collection picker to library collections", async () => {
+  it("restricts the admin collection picker to visible library collections", async () => {
     rows[0]!.section_type = "collection";
     rows[0]!.config = { library_collection_id: "public" };
     await setup();
     await chooseRowAction("Original A", "Edit row…");
-    await screen.findByText("Collection picker");
-    expect(mocks.collectionOptions).toEqual(["public"]);
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(
+      within(dialog)
+        .getAllByRole("radio")
+        .map((radio) => radio.getAttribute("aria-label")),
+    ).toEqual(["Public picks"]);
   });
   it("preserves collection recipe metadata on a title-only save", async () => {
     rows[0]!.section_type = "collection";

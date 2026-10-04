@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, Plus, Search, Trash2, X } from "lucide-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { useRowPreview } from "@/hooks/queries/homeRows/useRowPreview";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
-  BRIDGED_ROW_KINDS,
   isPersonalRowKind,
   pickerGroups,
   rowKindLabel,
@@ -21,6 +21,7 @@ import {
   type PickerCard,
 } from "@/lib/homeRows/catalog";
 import { pageLabel as labelOfPage } from "@/lib/homeRows/pages";
+import { collectionIdOf } from "@/lib/homeRows/payloads";
 import {
   canSaveDraft,
   DRAFT_FIELD_LABELS,
@@ -28,18 +29,24 @@ import {
   draftFromRow,
   findRecipe,
   mergeReloadedDraft,
+  previewWaitText,
   savedTitle,
   withVariant,
   type DraftField,
   type RowDraft,
 } from "@/lib/homeRows/rowDraft";
 import { searchPickerGroups } from "@/lib/homeRows/search";
-import { RowChangedError, type EditSession, type HomeRowsAdapter } from "@/lib/homeRows/types";
+import {
+  RowChangedError,
+  type EditSession,
+  type HomeRowsAdapter,
+  type RowCollections,
+} from "@/lib/homeRows/types";
 import { kindLocked, showsLabel, variantLocked } from "@/lib/homeRows/variants";
 import type { RecipeCatalogResponse } from "@/lib/recipes";
 import { cn } from "@/lib/utils";
 import type { ParamLibrary } from "./ParamFields";
-import { RowForm } from "./RowForm";
+import { RowForm, type CollectionChoices } from "./RowForm";
 import { RowPicker } from "./RowPicker";
 
 export interface AddRowDialogProps {
@@ -52,17 +59,10 @@ export interface AddRowDialogProps {
   onClose: () => void;
   /** After a row is added or saved, with the ids of new rows. */
   onSaved: (newIds: string[]) => void;
-  /**
-   * A collection or rule card was picked: those rows open the older editor
-   * for now. `session` is set when an existing row is changing kind, with the
-   * name and More options from the dialog's draft.
-   */
-  onBridge: (sectionType: string, session: EditSession | null, carry: BridgeCarry | null) => void;
   onDelete?: (session: EditSession) => void;
 }
 
-/** What an existing row keeps when it changes to a kind the older editor handles. */
-export type BridgeCarry = Pick<RowDraft, "title" | "itemLimit" | "hero">;
+const NO_COLLECTIONS: RowCollections = { options: [], loading: false, failed: false, href: "" };
 
 function sentenceWithoutStop(sentence: string) {
   return sentence.replace(/\.$/, "");
@@ -106,7 +106,6 @@ export function AddRowDialog({
   session: initialSession,
   onClose,
   onSaved,
-  onBridge,
   onDelete,
 }: AddRowDialogProps) {
   const editing = initialSession !== null;
@@ -160,10 +159,29 @@ export function AddRowDialog({
     () => new Set(adapter.rows.map((row) => row.sectionType)),
     [adapter.rows],
   );
+  const collections = adapter.collections ?? NO_COLLECTIONS;
+  const collectionChoices = useMemo<CollectionChoices>(() => {
+    const currentId = draft?.sectionType === "collection" ? collectionIdOf(draft.config) : "";
+    return {
+      collections,
+      pageLabel: page,
+      onPageIds: new Set(
+        adapter.rows
+          .filter((row) => row.sectionType === "collection")
+          .map((row) => collectionIdOf(row.config)),
+      ),
+      current: collections.options.find((option) => option.id === currentId),
+    };
+  }, [collections, page, adapter.rows, draft]);
+  const previewWait = draft ? previewWaitText(draft) : null;
+  // Why the strip shows no titles: this surface has no preview, or the draft can't have one yet.
+  let previewOffText = "Previews aren't available on this server.";
+  if (adapter.surface === "profile") previewOffText = `You'll see it on ${page} after you add it.`;
+  else if (adapter.capabilities.draftPreview && previewWait) previewOffText = previewWait;
   const preview = useRowPreview(
     draft ?? { sectionType: "", config: {} },
     adapter.page,
-    adapter.capabilities.draftPreview && step === "form" && draft !== null,
+    adapter.capabilities.draftPreview && step === "form" && draft !== null && !previewWait,
   );
 
   const def = draft ? findRecipe(catalog, draft.sectionType) : undefined;
@@ -171,16 +189,6 @@ export function AddRowDialog({
   const canSave = draft !== null && canSaveDraft(draft);
 
   function pick(card: PickerCard, presetKey?: string) {
-    if (BRIDGED_ROW_KINDS.has(card.type)) {
-      onBridge(
-        card.type,
-        editing ? session : null,
-        editing && draft
-          ? { title: draft.title, itemLimit: draft.itemLimit, hero: draft.hero }
-          : null,
-      );
-      return;
-    }
     const preset = card.def.presets.find((entry) => entry.key === presetKey) ?? card.def.presets[0];
     const fresh = draftForPreset(card.def, preset);
     setDraft(
@@ -213,7 +221,10 @@ export function AddRowDialog({
 
   function submit() {
     if (!draft || conflict || !canSave) return;
-    const finished = { ...draft, title: savedTitle(draft, catalog) };
+    const finished = {
+      ...draft,
+      title: savedTitle(draft, catalog, collectionChoices.current?.title),
+    };
     void run(async () => {
       try {
         if (session) {
@@ -264,7 +275,7 @@ export function AddRowDialog({
         ? { label: "Edit row", to: "form" as const }
         : null;
   let title: string;
-  let description: string;
+  let description: ReactNode;
   if (step === "pick") {
     title = changing ? "Change what this row shows" : `Add a row to ${page}`;
     description = changing
@@ -278,7 +289,21 @@ export function AddRowDialog({
   } else {
     const type = draft?.sectionType ?? "";
     title = rowKindLabel(type);
-    description = `${rowKindSentence(type)}${isPersonalRowKind(type) ? " Different for each viewer." : ""}`;
+    if (type === "collection") {
+      description = (
+        <>
+          Show one of your collections as a row. Make or change collections in{" "}
+          <Link to={collections.href} className="text-foreground underline underline-offset-2">
+            Collections
+          </Link>
+          .
+        </>
+      );
+    } else if (type === "custom_filter") {
+      description = "Describe the titles you want. New matches show up on their own.";
+    } else {
+      description = `${rowKindSentence(type)}${isPersonalRowKind(type) ? " Different for each viewer." : ""}`;
+    }
   }
 
   // The footer's left side: progress while adding, Delete row… while editing.
@@ -401,11 +426,8 @@ export function AddRowDialog({
               catalog={catalog}
               preview={preview}
               liveLabel={editing ? "Live preview" : "Live preview from your libraries"}
-              previewOffText={
-                adapter.surface === "profile"
-                  ? `You'll see it on ${page} after you add it.`
-                  : "Previews aren't available on this server."
-              }
+              previewOffText={previewOffText}
+              collectionChoices={collectionChoices}
               shows={
                 editing
                   ? {

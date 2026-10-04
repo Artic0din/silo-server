@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { collapsedRowText, describeRow, rowSwitchLabel, titleCount } from "./describe";
+import {
+  collapsedRowText,
+  collectionKind,
+  describeRow,
+  ruleSortSummary,
+  rowSwitchLabel,
+  titleCount,
+} from "./describe";
 import type { HomeRow } from "./types";
 
 function row(sectionType: string, config: Record<string, unknown> = {}): HomeRow {
@@ -20,7 +27,11 @@ const home = { pageKind: "home" as const };
 const library = { pageKind: "library" as const };
 
 function text(parts: ReturnType<typeof describeRow>): string {
-  return parts.map((part) => (typeof part === "string" ? part : part.strong)).join("");
+  return parts
+    .map((part) =>
+      typeof part === "string" ? part : "strong" in part ? part.strong : part.warning,
+    )
+    .join("");
 }
 
 describe("describeRow", () => {
@@ -77,15 +88,31 @@ describe("describeRow", () => {
     );
   });
 
-  it("names the collection a collection row shows, in bold", () => {
-    const parts = describeRow(row("collection", { library_collection_id: "c1" }), {
+  it("names the collection a collection row shows, in bold, with its kind", () => {
+    const context = {
       ...home,
-      collectionTitle: (id) => (id === "c1" ? "Studio Ghibli" : undefined),
-    });
-    expect(parts).toEqual(["The ", { strong: "Studio Ghibli" }, " collection"]);
+      collection: (id: string) =>
+        id === "c1" ? { title: "Studio Ghibli", kind: "Manual" } : id === "gone" ? null : undefined,
+    };
+    expect(describeRow(row("collection", { library_collection_id: "c1" }), context)).toEqual([
+      "The ",
+      { strong: "Studio Ghibli" },
+      " collection (Manual)",
+    ]);
+    // Not known yet (the list is still loading): no claim either way.
+    expect(text(describeRow(row("collection", { library_collection_id: "c2" }), context))).toBe(
+      "A collection",
+    );
     expect(text(describeRow(row("collection", { library_collection_id: "gone" }), home))).toBe(
       "A collection",
     );
+  });
+
+  it("says when a collection row's collection is gone (S11)", () => {
+    const context = { ...home, collection: () => null };
+    expect(describeRow(row("collection", { library_collection_id: "gone" }), context)).toEqual([
+      { warning: "Collection no longer available" },
+    ]);
   });
 
   it("counts the rules of a rule row and names what it matches", () => {
@@ -153,5 +180,26 @@ describe("row copy", () => {
     expect(collapsedRowText("admin", "Home")).toBe(" is off. Nobody sees this row.");
     expect(collapsedRowText("profile", "Home")).toBe(" is hidden on your Home.");
     expect(collapsedRowText("profile", "Movies")).toBe(" is hidden on your Movies page.");
+  });
+});
+
+describe("collection kinds", () => {
+  it("names each stored collection type the way the picker filters them", () => {
+    expect(collectionKind("manual")).toBe("Manual");
+    expect(collectionKind("smart")).toBe("Smart");
+    for (const type of ["mdblist", "tmdb", "trakt"] as const)
+      expect(collectionKind(type)).toBe("Synced list");
+    expect(collectionKind(undefined)).toBeUndefined();
+  });
+});
+
+describe("rule row order", () => {
+  it("names how a rule row is ordered for the More options summary", () => {
+    const summary = (field: string, order: string) => ruleSortSummary({ sort: { field, order } });
+    expect(summary("rating_imdb", "desc")).toBe("Highest rated first");
+    expect(summary("added_at", "desc")).toBe("Newest added first");
+    expect(summary("title", "asc")).toBe("A to Z");
+    expect(summary("runtime", "asc")).toBe("Custom order");
+    expect(ruleSortSummary({ sort: "added_at", order: "desc" })).toBe("Newest added first");
   });
 });

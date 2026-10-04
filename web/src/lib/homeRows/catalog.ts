@@ -225,14 +225,6 @@ export const NOT_OFFERED_FOR_NEW_ROWS: ReadonlySet<string> = new Set([
   "award_winners",
 ]);
 
-/** Kinds whose add and edit form is still the older section editor. */
-export const BRIDGED_ROW_KINDS: ReadonlySet<string> = new Set([
-  "collection",
-  "custom_filter",
-  "genre",
-  "admin_curated_list",
-]);
-
 const AWARD_NAMES: Record<string, string> = {
   oscar: "Oscar Winners",
   emmy: "Emmy Winners",

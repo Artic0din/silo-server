@@ -32,6 +32,7 @@ export function RowPreview({
   state,
   liveLabel,
   offText,
+  countUpTo,
 }: {
   title: string;
   sectionType: string;
@@ -39,6 +40,11 @@ export function RowPreview({
   liveLabel: string;
   /** What the strip says when this surface has no preview. */
   offText: string;
+  /**
+   * Rule rows: once the preview loads, the header says how many titles
+   * match and how many of them (up to this) the row shows.
+   */
+  countUpTo?: number;
 }) {
   const group = rowKindGroup(sectionType);
   const Icon = GROUP_ICONS[group];
@@ -53,7 +59,16 @@ export function RowPreview({
         <span className="truncate text-base font-semibold tracking-[-0.015em]">
           {title || "Untitled row"}
         </span>
-        {state.status === "off" ? null : (
+        {state.status === "off" ? null : countUpTo !== undefined && state.status === "ready" ? (
+          <span className="text-muted-foreground shrink-0 text-xs">
+            <b className="text-foreground font-semibold">{state.totalCount}</b>
+            {state.totalCount === 1 ? " title matches" : " titles match"}
+            <span aria-hidden className="mx-1.5">
+              ·
+            </span>
+            showing {Math.min(state.totalCount, countUpTo)}
+          </span>
+        ) : (
           <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs">
             <span
               aria-hidden

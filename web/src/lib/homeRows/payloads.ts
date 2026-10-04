@@ -162,6 +162,40 @@ function collectionRowConfig(
   return { ...rest, [key]: selectedCollectionId };
 }
 
+/**
+ * A collection row's config after the user picks `option`: the key comes
+ * from the option's source, and every key other than the two id keys stays.
+ * Picking the collection the row already shows keeps the config as it is.
+ */
+export function withPickedCollection(
+  config: Record<string, unknown>,
+  option: Pick<CollectionOption, "id" | "source">,
+): Record<string, unknown> {
+  if (collectionIdOf(config) === option.id) return config;
+  return collectionRowConfig(
+    config,
+    option.id,
+    option.source === "user" ? "user_collection_id" : "library_collection_id",
+  );
+}
+
+/**
+ * A rule row's config with new rules: the query keys are replaced (legacy
+ * filter_type, filter_library_id(s) and order fold into today's shape) and
+ * recipe metadata the rules don't touch stays.
+ */
+export function withQueryDefinition(
+  config: Record<string, unknown>,
+  query: QueryDefinition,
+): Record<string, unknown> {
+  const rest = { ...config };
+  delete rest.filter_type;
+  delete rest.filter_library_id;
+  delete rest.filter_library_ids;
+  delete rest.order;
+  return { ...rest, ...queryDefinitionToSectionConfig(query) };
+}
+
 export interface BuildProfileSectionSaveEntryInput {
   section: SettingsSectionEntry | null;
   sectionType: string;
@@ -258,12 +292,7 @@ export function buildAdminSectionPayload({
       "library_collection_id",
     );
   } else if (FILTER_SECTION_TYPES.has(sectionType)) {
-    // The editor replaces query fields, while keeping recipe metadata it does not edit.
-    delete base.filter_type;
-    delete base.filter_library_id;
-    delete base.filter_library_ids;
-    delete base.order;
-    config = { ...base, ...queryDefinitionToSectionConfig(queryDefinition) };
+    config = withQueryDefinition(base, queryDefinition);
   } else if (recipeParams && LIBRARY_FILTER_SECTION_TYPES.has(sectionType)) {
     // The library picker owns the filter keys; keeping the old ones from base
     // would re-add a replaced filter_library_id.
@@ -325,18 +354,26 @@ export function buildRowCreateRequest(
   };
 }
 
+/** Kinds whose form edits the config itself: the picked collection's id key, the rules. */
+const FORM_OWNED_CONFIG_TYPES: ReadonlySet<string> = new Set([
+  "collection",
+  ...FILTER_SECTION_TYPES,
+]);
+
 /**
  * The update request for a row saved from Edit row: the row editor's bytes.
  * The draft's config already starts from the stored config, so the builder
  * gets no base to merge back: a key the user's variant change removed stays
- * removed. `enabled` comes from the version being saved over.
+ * removed. Collection and rule rows send the draft's config as it is, so an
+ * untouched one saves exactly as stored. `enabled` comes from the version
+ * being saved over.
  */
 export function buildRowUpdateRequest(
   section: PageSectionConfig,
   draft: RowDraft,
   title: string,
 ): Partial<PageSectionConfig> & { id?: string } {
-  return buildAdminSectionPayload({
+  const request = buildAdminSectionPayload({
     section: { ...section, config: {} },
     scope: section.scope,
     currentLibraryId: section.library_id,
@@ -349,4 +386,7 @@ export function buildRowUpdateRequest(
     selectedCollectionId: "",
     recipeParams: draft.config,
   });
+  return FORM_OWNED_CONFIG_TYPES.has(draft.sectionType)
+    ? { ...request, config: draft.config }
+    : request;
 }

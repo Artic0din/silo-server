@@ -4,6 +4,7 @@
  * adapter hook, so nothing under components/homeRows reads an account role or
  * an API type.
  */
+import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import type { PeekRequest } from "./peek";
 import type { RowDraft } from "./rowDraft";
 
@@ -53,6 +54,15 @@ export interface HomeRowsCapabilities {
   ruleRows: boolean;
 }
 
+/** The collections a collection row may show on this surface. */
+export interface RowCollections {
+  options: CollectionOption[];
+  loading: boolean;
+  failed: boolean;
+  /** Where collections are made and changed on this surface. */
+  href: string;
+}
+
 export type HomeRowsConflict = null | { scope: "page" | "row"; rowId?: string };
 
 export interface HomeRowsAdapter {
@@ -93,4 +103,6 @@ export interface HomeRowsAdapter {
   save(session: EditSession, draft: RowDraft): Promise<void>;
   /** Where a shown row's poster peek comes from; null (or absent) keeps the row's icon. */
   peek?(row: HomeRow): PeekRequest | null;
+  /** What the collection picker offers; without it the picker has nothing to offer. */
+  collections?: RowCollections;
 }
