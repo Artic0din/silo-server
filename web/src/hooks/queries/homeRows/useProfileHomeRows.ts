@@ -54,7 +54,9 @@ export interface ProfileHomeRows {
   libraryId: number | undefined;
   /** The page's rows in order, including changes not saved yet. */
   sections: SettingsSectionEntry[];
-  /** Changes save only once both the rows and the saved overrides have loaded. */
+  /** Both the rows and the saved overrides have loaded. */
+  ready: boolean;
+  /** Changes save only when the page is ready and no reset is in flight. */
   canEdit: boolean;
   /** The saved overrides failed to load, so editing stays off. */
   overridesFailed: boolean;
@@ -99,7 +101,8 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const newOverrideId = useRef(createOverrideIdSource());
   const writes = useRef(new Map<string, number>());
 
-  const canEdit = canMutateSectionSettings(settingsQuery, rawOverridesQuery) && !resetting;
+  const ready = canMutateSectionSettings(settingsQuery, rawOverridesQuery);
+  const canEdit = ready && !resetting;
 
   const setDraft = useCallback((next: PageState | null) => {
     draftRef.current = next;
@@ -251,6 +254,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
     scope,
     libraryId,
     sections,
+    ready,
     canEdit,
     overridesFailed: rawOverridesQuery.isError,
     pending,

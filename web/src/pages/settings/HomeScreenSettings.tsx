@@ -336,7 +336,7 @@ export default function HomeScreenSettings() {
               Changes apply only to the selected home screen.
             </p>
           </div>
-          <Select value={scopeValue} onValueChange={handleScopeChange}>
+          <Select value={scopeValue} onValueChange={handleScopeChange} disabled={homeRows.pending}>
             <SelectTrigger className="w-full sm:w-56">
               <SelectValue />
             </SelectTrigger>
@@ -375,7 +375,7 @@ export default function HomeScreenSettings() {
             {orderedSections.length} sections
           </Badge>
         </div>
-        {!canEditSections ? (
+        {!homeRows.ready ? (
           <p className="text-muted-foreground text-[13px]">
             {homeRows.overridesFailed
               ? "Saved section state failed to load. Editing is disabled."

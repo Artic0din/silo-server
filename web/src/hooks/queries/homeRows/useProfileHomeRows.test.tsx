@@ -285,6 +285,7 @@ describe("useProfileHomeRows", () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.sections).toHaveLength(3));
 
+    expect(result.current.ready).toBe(false);
     expect(result.current.canEdit).toBe(false);
     act(() => result.current.setHidden("a", true));
     act(() => result.current.move("c", "a"));
@@ -333,6 +334,8 @@ describe("useProfileHomeRows", () => {
     act(() => result.current.setHidden("a", true));
     act(() => result.current.reset());
     expect(result.current.canEdit).toBe(false);
+    // Busy, not loading: the page has its rows and saved overrides.
+    expect(result.current.ready).toBe(true);
     act(() => result.current.setHidden("b", true));
 
     await settle("PUT /api/v2/profile/sections");
