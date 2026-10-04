@@ -23035,7 +23035,7 @@ export interface components {
       /** @example false */
       is_shared?: boolean;
       /**
-       * @description Libraries the sync matches against; every library when omitted
+       * @description Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted
        * @example [
        *       "1"
        *     ]
@@ -28287,7 +28287,7 @@ export interface components {
       /** @example false */
       is_shared?: boolean;
       /**
-       * @description Libraries the sync matches against; every library when omitted
+       * @description Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted
        * @example [
        *       "1"
        *     ]
@@ -28363,7 +28363,7 @@ export interface components {
       /** @example false */
       is_shared?: boolean;
       /**
-       * @description Libraries the sync matches against; every library when omitted
+       * @description Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted
        * @example [
        *       "1"
        *     ]
@@ -28472,7 +28472,7 @@ export interface components {
       /** @example false */
       is_shared?: boolean;
       /**
-       * @description Libraries the sync matches against; every library when omitted
+       * @description Libraries the sync matches against, limited to the libraries the collection's owner can access; every library the owner can access when omitted
        * @example [
        *       "1"
        *     ]
