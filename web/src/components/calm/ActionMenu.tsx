@@ -3,6 +3,7 @@ import { Ellipsis, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -34,7 +35,13 @@ export interface ActionMenuSubmenu extends ActionMenuEntry {
   items: ActionMenuAction[];
 }
 
-export type ActionMenuItem = ActionMenuAction | ActionMenuSubmenu;
+/** An on/off setting, drawn as a switch and read as a checked menu item. */
+export interface ActionMenuToggle extends ActionMenuEntry {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}
+
+export type ActionMenuItem = ActionMenuAction | ActionMenuSubmenu | ActionMenuToggle;
 
 const ITEM_CLASS = "gap-2.5 rounded-[9px] px-2.5 py-2";
 
@@ -81,6 +88,29 @@ function Action({ item }: { item: ActionMenuAction }) {
   );
 }
 
+function Toggle({ item }: { item: ActionMenuToggle }) {
+  const id = useId();
+  return (
+    <DropdownMenuCheckboxItem
+      checked={item.checked}
+      disabled={item.disabled}
+      onCheckedChange={item.onCheckedChange}
+      {...helpAria(id, item)}
+      // The switch is drawn at the end, so drop the check indicator's padding.
+      className={cn(ITEM_CLASS, "pl-2.5 [&>span:first-child]:hidden", item.help && "items-start")}
+    >
+      <ItemBody id={id} item={item} />
+      <span
+        aria-hidden
+        data-state={item.checked ? "checked" : "unchecked"}
+        className="group/switch bg-border data-[state=checked]:bg-primary ml-auto inline-flex h-[1.15rem] w-8 shrink-0 items-center rounded-full p-px transition-colors"
+      >
+        <span className="bg-foreground group-data-[state=checked]/switch:bg-primary-foreground size-4 rounded-full transition-transform group-data-[state=checked]/switch:translate-x-[calc(100%-2px)]" />
+      </span>
+    </DropdownMenuCheckboxItem>
+  );
+}
+
 function Submenu({ item }: { item: ActionMenuSubmenu }) {
   const id = useId();
   return (
@@ -106,11 +136,14 @@ export function ActionMenu({
   label,
   items,
   triggerRef,
+  triggerClassName,
 }: {
   /** The trigger's accessible name, e.g. "More for Trending". */
   label: string;
   items: ActionMenuItem[];
   triggerRef?: Ref<HTMLButtonElement>;
+  /** Extra classes for the trigger, e.g. to sit over a poster. */
+  triggerClassName?: string;
 }) {
   return (
     <DropdownMenu modal={false}>
@@ -120,7 +153,10 @@ export function ActionMenu({
           type="button"
           variant="ghost"
           size="icon"
-          className="text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground size-9 rounded-[10px] max-lg:size-11"
+          className={cn(
+            "text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground size-9 rounded-[10px] max-lg:size-11",
+            triggerClassName,
+          )}
           aria-label={label}
         >
           <Ellipsis className="size-4" />
@@ -130,7 +166,13 @@ export function ActionMenu({
         {items.map((item, index) => (
           <Fragment key={item.key}>
             {item.group && index > 0 ? <DropdownMenuSeparator /> : null}
-            {"items" in item ? <Submenu item={item} /> : <Action item={item} />}
+            {"items" in item ? (
+              <Submenu item={item} />
+            ) : "checked" in item ? (
+              <Toggle item={item} />
+            ) : (
+              <Action item={item} />
+            )}
           </Fragment>
         ))}
       </DropdownMenuContent>
