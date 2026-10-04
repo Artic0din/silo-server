@@ -127,6 +127,13 @@ describe("RuleBuilder", () => {
     ).toEqual(["from the", "Libraries: 2 libraries", "that match"]);
   });
 
+  it("counts chosen libraries whose names are unknown alongside the named ones", () => {
+    render(<Harness initial={query({ library_ids: [1, 9] })} />);
+    expect(
+      sentencePieces(screen.getByRole("group", { name: "What the row shows" })).slice(2, 5),
+    ).toEqual(["from the", "Libraries: Movies +1 more", "libraries"]);
+  });
+
   it("starts “that match …” on a second line, as the mockup lays it out", () => {
     render(<Harness initial={query({ library_ids: [1, 2] })} />);
     const sentence = screen.getByRole("group", { name: "What the row shows" });
