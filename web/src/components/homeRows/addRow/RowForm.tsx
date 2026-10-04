@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { Info } from "lucide-react";
 import { queryDefinitionFromSectionConfig } from "@/api/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,11 +67,13 @@ function KindControl({
   onChange,
   choices,
   libraries,
+  ruleRowsNote,
 }: {
   draft: RowDraft;
   onChange: (draft: RowDraft) => void;
   choices: CollectionChoices;
   libraries: ParamLibrary[];
+  ruleRowsNote: boolean;
 }) {
   if (draft.sectionType === "collection") {
     return (
@@ -86,12 +89,24 @@ function KindControl({
   }
   if (FILTER_SECTION_TYPES.has(draft.sectionType)) {
     return (
-      <RuleBuilder
-        value={queryDefinitionFromSectionConfig(draft.config)}
-        onChange={(query) => onChange(withRules(draft, query))}
-        libraries={libraries}
-        allowPersonalized
-      />
+      <>
+        <RuleBuilder
+          value={queryDefinitionFromSectionConfig(draft.config)}
+          onChange={(query) => onChange(withRules(draft, query))}
+          libraries={libraries}
+          allowPersonalized
+        />
+        {ruleRowsNote ? (
+          <p className="text-muted-foreground flex items-start gap-2 text-[13px]">
+            <Info aria-hidden className="mt-0.5 size-[15px] shrink-0" />
+            <span>
+              Only admins can add rule rows unless{" "}
+              <strong className="text-foreground font-medium">Let profiles add rule rows</strong> is
+              on in More.
+            </span>
+          </p>
+        ) : null}
+      </>
     );
   }
   if (draft.sectionType === "admin_curated_list") {
@@ -126,6 +141,7 @@ export function RowForm({
   onVariant,
   collectionChoices,
   libraryPages,
+  ruleRowsNote = false,
 }: {
   draft: RowDraft;
   onChange: (draft: RowDraft) => void;
@@ -143,6 +159,8 @@ export function RowForm({
   collectionChoices: CollectionChoices;
   /** Add row on a library page, for a kind that can be copied: the pages it may also go to. */
   libraryPages?: { pages: LibraryPage[]; currentId: number };
+  /** Under the rule builder, say which switch lets profiles add rule rows too. */
+  ruleRowsNote?: boolean;
 }) {
   const nameId = useId();
   const family = variantLocked ? undefined : variantFamily(draft.sectionType);
@@ -153,6 +171,7 @@ export function RowForm({
       onChange={onChange}
       choices={collectionChoices}
       libraries={libraries}
+      ruleRowsNote={ruleRowsNote}
     />
   );
   const setConfig = (config: Record<string, unknown>) => onChange({ ...draft, config });

@@ -14,7 +14,17 @@ import {
   type BatchFailure,
   type ShownBatchResult,
 } from "@/hooks/queries/homeRows/useAdminHomeRows";
-import { Copy, Pencil, RotateCcw, SquareCheckBig, Star, StarOff, Trash2 } from "lucide-react";
+import { useProfileRuleRowsSetting } from "@/hooks/queries/homeRows/useProfileRuleRowsSetting";
+import {
+  Copy,
+  Pencil,
+  RotateCcw,
+  SquareCheckBig,
+  Star,
+  StarOff,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import { toast } from "sonner";
 import {
@@ -28,6 +38,7 @@ import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/Hom
 import { DeleteRowDialog, DeleteRowsDialog } from "@/components/homeRows/DeleteRowDialog";
 import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
 import { RestoreDialog } from "@/components/homeRows/RestoreDialog";
+import { RuleRowsOffDialog } from "@/components/homeRows/RuleRowsOffDialog";
 import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { AddToOtherLibrariesDialog } from "@/components/homeRows/AddToOtherLibrariesDialog";
@@ -127,6 +138,10 @@ export default function AdminHomeRows() {
   // ⋯ Add to other libraries…: the row being copied.
   const [copyRow, setCopyRow] = useState<HomeRow | null>(null);
   const libraryPages = useMemo(() => libraryPagesOf(adapter.pages), [adapter.pages]);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const ruleRowsSetting = useProfileRuleRowsSetting(moreOpen);
+  const [confirmRuleRowsOff, setConfirmRuleRowsOff] = useState(false);
+  const [turningRuleRowsOff, setTurningRuleRowsOff] = useState(false);
   const offerLibraryCopies = adapter.capabilities.libraryCopies && libraryPages.length > 1;
 
   useEffect(() => {
@@ -328,7 +343,34 @@ export default function AdminHomeRows() {
       disabled: !canManageCurrentScope || snapshotLoading || adapter.pending,
       onSelect: openRestore,
     },
+    {
+      key: "profile-rule-rows",
+      label: "Let profiles add rule rows",
+      help:
+        ruleRowsSetting.refusal ??
+        (ruleRowsSetting.failed
+          ? "Couldn't read this setting. Open More again to retry."
+          : "Profiles can build their own “Titles matching rules” rows."),
+      icon: Users,
+      group: true,
+      checked: ruleRowsSetting.allowed === true,
+      disabled: ruleRowsSetting.busy || ruleRowsSetting.refusal !== null,
+      // Turning off locks profiles that have rule rows out of changing that page.
+      asksFirst: (checked) => !checked,
+      onCheckedChange: (checked) => {
+        if (checked) void ruleRowsSetting.set(true);
+        else setConfirmRuleRowsOff(true);
+      },
+    },
   ];
+
+  function turnRuleRowsOff() {
+    setTurningRuleRowsOff(true);
+    void ruleRowsSetting.set(false).finally(() => {
+      setTurningRuleRowsOff(false);
+      setConfirmRuleRowsOff(false);
+    });
+  }
 
   function rowMenuItems(row: HomeRow, shared: SharedRowMenuItems): RowMenuItem[] {
     const section = sectionFor(row);
@@ -407,6 +449,7 @@ export default function AdminHomeRows() {
         highlightRowId={highlightId}
         rowMenuItems={rowMenuItems}
         moreItems={moreItems}
+        onMoreOpenChange={setMoreOpen}
         addRow={{ onClick: openAddRow, disabled: !canManageCurrentScope || snapshotLoading }}
         selection={
           selectMode
@@ -469,6 +512,12 @@ export default function AdminHomeRows() {
           onOpenChange={(open) => {
             if (!open) setConfirmDeleteSelected(false);
           }}
+        />
+        <RuleRowsOffDialog
+          open={confirmRuleRowsOff}
+          busy={turningRuleRowsOff}
+          onConfirm={turnRuleRowsOff}
+          onOpenChange={setConfirmRuleRowsOff}
         />
         <RestoreDialog
           open={confirmRestoreOpen}

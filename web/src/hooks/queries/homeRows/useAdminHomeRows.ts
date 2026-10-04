@@ -506,6 +506,7 @@ export function useAdminHomeRows(): AdminHomeRows {
       draftPreview: previewAvailable,
       ruleRows: true,
       libraryCopies: page.kind === "library",
+      profileRuleRowsSwitch: true,
     },
     create,
     copyToLibraries,

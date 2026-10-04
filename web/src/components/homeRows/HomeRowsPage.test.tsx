@@ -102,7 +102,12 @@ function FakePage({
     setShown: async (id, shown) =>
       setRows((current) => current.map((row) => (row.id === id ? { ...row, shown } : row))),
     setHero: async () => {},
-    capabilities: { draftPreview: false, ruleRows: true, libraryCopies: false },
+    capabilities: {
+      draftPreview: false,
+      ruleRows: true,
+      libraryCopies: false,
+      profileRuleRowsSwitch: false,
+    },
     create: async () => ({ newIds: [] }),
     openEdit: async () => {
       throw new Error("not used");
