@@ -251,11 +251,6 @@ export function linkPick(list: SyncedList | null): SyncedPick {
   return { list, name: "", description: "", schedule: "" };
 }
 
-/** Whether a synced draft's list is the given pick. */
-export function isPicked(synced: SyncedDraft | undefined, pickId: string): boolean {
-  return synced?.list?.pickId === pickId;
-}
-
 /**
  * The draft with `pick` as its list. Name, description, max titles and
  * schedule take the pick's value only while they still hold what the last
