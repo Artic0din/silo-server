@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -311,9 +312,20 @@ func (s *Service) selectMembers(ctx context.Context, owner catalog.AccessFilter,
 		return nil, 0, 0, fmt.Errorf("checking the owner's access to matched titles: %w", err)
 	}
 	if len(cfg.LibraryIDs) > 0 && s.libraryItems != nil {
-		inLibraries, err := s.libraryItems.GetItemsInFolders(ctx, ids, cfg.LibraryIDs)
-		if err != nil {
-			return nil, 0, 0, err
+		// A title must sit in a chosen library the owner can also access, not
+		// pass each check through a different library.
+		libraries := cfg.LibraryIDs
+		if owner.AllowedLibraryIDs != nil {
+			libraries = slices.DeleteFunc(slices.Clone(libraries), func(id int) bool {
+				return !slices.Contains(owner.AllowedLibraryIDs, id)
+			})
+		}
+		inLibraries := map[string]bool{}
+		if len(libraries) > 0 {
+			inLibraries, err = s.libraryItems.GetItemsInFolders(ctx, ids, libraries)
+			if err != nil {
+				return nil, 0, 0, err
+			}
 		}
 		for id := range allowed {
 			allowed[id] = inLibraries[id]

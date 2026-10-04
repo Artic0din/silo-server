@@ -201,4 +201,30 @@ func TestImportFillsItsLimitWithTitlesItsOwnerCanAccessDB(t *testing.T) {
 		}
 		sync(t, "Matched 3 of 7 entries (item limit reached after 6 scanned)", 3, 2, 4, 5)
 	})
+	t.Run("a chosen library the owner can't access adds nothing", func(t *testing.T) {
+		// Entry 2 is in both libraries. The owner reaches it through the open
+		// one, but the collection asks for the closed one only, so it stays out.
+		exec(t, `INSERT INTO media_item_libraries(content_id,media_folder_id) VALUES($1,$2)`, contentIDs[2], closed)
+		t.Cleanup(func() {
+			_, _ = pool.Exec(context.Background(), `DELETE FROM media_item_libraries WHERE content_id=$1 AND media_folder_id=$2`, contentIDs[2], closed)
+		})
+		setOwner(t, "", []int{open})
+		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{
+			ID: collection.ID, RequestProfileID: "owner",
+			SourceConfig: new(fmt.Sprintf(`{"mode":"tmdb_list","url":"https://www.themoviedb.org/list/310","limit":3,"library_ids":[%d]}`, closed)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		result, err := svc.SyncCollection(ctx, account, collection.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, err := store.ListCollectionItems(ctx, collection.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 0 || result.ItemsMatched != 0 {
+			t.Fatalf("members = %+v (matched %d), want none", items, result.ItemsMatched)
+		}
+	})
 }
