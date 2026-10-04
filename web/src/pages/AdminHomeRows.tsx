@@ -353,11 +353,12 @@ export default function AdminHomeRows() {
     {
       key: "profile-rule-rows",
       label: "Let profiles add rule rows",
+      // The server flag admits every admin-only kind, Editor's picks too.
       help:
         ruleRowsSetting.refusal ??
         (ruleRowsSetting.failed
           ? "Couldn't read this setting. Open More again to retry."
-          : "Profiles can build their own “Titles matching rules” rows."),
+          : "Profiles can build their own “Titles matching rules” and “Editor's picks” rows."),
       icon: Users,
       group: true,
       checked: ruleRowsSetting.allowed === true,
