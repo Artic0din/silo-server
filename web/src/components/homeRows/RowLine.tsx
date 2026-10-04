@@ -51,15 +51,20 @@ function Dot() {
 }
 
 function Description({ parts }: { parts: DescriptionPart[] }) {
-  return parts.map((part, index) =>
-    typeof part === "string" ? (
-      part
-    ) : (
+  return parts.map((part, index) => {
+    if (typeof part === "string") return part;
+    if ("warning" in part)
+      return (
+        <span key={index} className="text-warning font-medium">
+          {part.warning}
+        </span>
+      );
+    return (
       <b key={index} className="text-foreground/75 font-medium">
         {part.strong}
       </b>
-    ),
-  );
+    );
+  });
 }
 
 /**

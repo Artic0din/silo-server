@@ -1,8 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PageSectionConfig } from "@/api/types";
 import {
-  useCreateSection,
-  useUpdateSection,
   useDeleteSection,
   useDeleteSections,
   useRestoreDefaultSections,
@@ -26,23 +24,18 @@ import {
   fetchAdminSectionOrderSnapshot,
 } from "@/api/adminSections";
 import { V2ProblemError } from "@/api/v2/request";
-import SectionEditorDrawer from "@/components/sections/SectionEditorDrawer";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
 import { DeleteRowDialog, DeleteRowsDialog } from "@/components/homeRows/DeleteRowDialog";
 import type { PageMoreMenuItem } from "@/components/homeRows/PageMoreMenu";
 import { RestoreDialog } from "@/components/homeRows/RestoreDialog";
 import { MAX_SELECTED_ROWS, SelectModeBar } from "@/components/homeRows/SelectModeBar";
-import { AddRowDialog, type BridgeCarry } from "@/components/homeRows/addRow/AddRowDialog";
-import { BRIDGED_ROW_KINDS } from "@/lib/homeRows/catalog";
+import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
+import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
 import { pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
-import { nextAppendPosition } from "@/lib/homeRows/payloads";
 import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
-
-/** A collection or rule card picked in the row dialog, which the older editor opens. */
-type DrawerBridge = { type: string; carry: BridgeCarry | null };
 
 /** How long a newly added row stays highlighted. */
 const NEW_ROW_HIGHLIGHT_MS = 2500;
@@ -86,8 +79,6 @@ export default function AdminHomeRows() {
   useLayoutEffect(() => {
     snapshotRequest.current++;
   }, [currentPageKey]);
-  const [editingETag, setEditingETag] = useState<string | null>(null);
-  const [editConflict, setEditConflict] = useState(false);
   const [deleteETag, setDeleteETag] = useState<string | null>(null);
   const [deleteConflict, setDeleteConflict] = useState(false);
   const deletedRow = useRef(false);
@@ -98,18 +89,23 @@ export default function AdminHomeRows() {
     ReturnType<typeof fetchAdminSectionOrderSnapshot>
   > | null>(null);
   const [restoreConflict, setRestoreConflict] = useState(false);
-  const { data: collectionsData = [] } = useAdminCollections();
+  const { data: collectionsData } = useAdminCollections();
   const { data: recipeCatalog, isError: recipeCatalogFailed } = useQuery({
     queryKey: ["recipe-catalog"],
     queryFn: fetchRecipeCatalog,
     staleTime: 5 * 60 * 1000,
   });
-  const collectionTitles = useMemo(
-    () => new Map(collectionsData.map((collection) => [collection.id, collection.title])),
+  // Every library collection, hidden ones included: a row may show one the picker no longer offers.
+  const collectionSummaries = useMemo(
+    () =>
+      new Map<string, CollectionSummary>(
+        (collectionsData ?? []).map((collection) => [
+          collection.id,
+          { title: collection.title, kind: collectionKind(collection.collection_type) },
+        ]),
+      ),
     [collectionsData],
   );
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingSection, setEditingSection] = useState<PageSectionConfig | null>(null);
   const [confirmDeleteSection, setConfirmDeleteSection] = useState<PageSectionConfig | null>(null);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -128,13 +124,8 @@ export default function AdminHomeRows() {
   const restoreDefaultsMutation = useRestoreDefaultSections();
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
   const [resetProfiles, setResetProfiles] = useState(false);
-  const createMutation = useCreateSection();
-  const updateMutation = useUpdateSection();
   // The Add row / Edit row dialog: open with no session to add a row.
   const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
-  // A collection or rule card picked in the row dialog: the kind for the older
-  // editor, and the name and More options an existing row carries into it.
-  const [bridge, setBridge] = useState<DrawerBridge | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -219,27 +210,9 @@ export default function AdminHomeRows() {
     });
   }
 
-  function handleEdit(section: PageSectionConfig, from: DrawerBridge | null = null) {
-    const request = ++snapshotRequest.current;
-    void prepareSnapshot(async () => {
-      const snapshot = await fetchAdminSectionSnapshot(section.id);
-      if (request !== snapshotRequest.current) return;
-      setEditingSection(snapshot.section);
-      setEditingETag(snapshot.etag);
-      setEditConflict(false);
-      setBridge(from);
-      setDialogOpen(true);
-    });
-  }
-
-  /** Edit row…: ready-made rows open the row dialog, the rest the older editor. */
+  /** Edit row…: reads the row as it is now, then opens it in the row dialog. */
   function openRow(row: HomeRow) {
-    const section = sectionFor(row);
-    if (!section || !canManageCurrentScope || snapshotLoading) return;
-    if (BRIDGED_ROW_KINDS.has(row.sectionType)) {
-      handleEdit(section);
-      return;
-    }
+    if (!sectionFor(row) || !canManageCurrentScope || snapshotLoading) return;
     const request = ++snapshotRequest.current;
     void prepareSnapshot(async () => {
       const session = await adapter.openEdit(row.id);
@@ -251,21 +224,6 @@ export default function AdminHomeRows() {
   function openAddRow() {
     snapshotRequest.current++;
     setRowDialog({ session: null });
-  }
-
-  /** A collection or rule card: until the dialog edits those rows, the older editor does. */
-  function bridgeToEditor(type: string, session: EditSession | null, carry: BridgeCarry | null) {
-    setRowDialog(null);
-    if (session) {
-      const section = sectionFor(session.row);
-      if (section) handleEdit(section, { type, carry });
-      return;
-    }
-    setEditingSection(null);
-    setEditingETag(null);
-    setEditConflict(false);
-    setBridge({ type, carry: null });
-    setDialogOpen(true);
   }
 
   function confirmDeleteRow() {
@@ -429,7 +387,10 @@ export default function AdminHomeRows() {
         title="Home rows"
         subtitle="The rows everyone sees on Home and on library pages. Profiles can still hide, rename or reorder them."
         focus={focus}
-        collectionTitle={(id) => collectionTitles.get(id)}
+        collection={(id) =>
+          // Unknown until the list loads; after that, a missing id is a deleted collection.
+          collectionsData ? (collectionSummaries.get(id) ?? null) : undefined
+        }
         onOpenRow={openRow}
         highlightRowId={highlightId}
         rowMenuItems={rowMenuItems}
@@ -521,69 +482,6 @@ export default function AdminHomeRows() {
           }}
         />
 
-        <SectionEditorDrawer
-          mode="admin"
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) {
-              snapshotRequest.current++;
-              setEditingSection(null);
-              setBridge(null);
-            }
-          }}
-          section={editingSection}
-          initialType={bridge?.type}
-          carried={bridge?.carry ?? undefined}
-          conflict={editConflict}
-          onReload={() => {
-            // A reload refreshes the stored row; the kind picked in the dialog stays.
-            if (editingSection) handleEdit(editingSection, bridge);
-          }}
-          scope={editingSection?.scope ?? scope}
-          currentLibraryId={editingSection ? editingSection.library_id : activeLibraryId}
-          libraries={librariesList}
-          recipeCatalog={recipeCatalog}
-          isSubmitting={createMutation.isPending || updateMutation.isPending}
-          onSave={(section) => {
-            if (section.id) {
-              updateMutation.mutate(
-                { ...section, id: section.id, etag: editingETag! },
-                {
-                  onSuccess: () => {
-                    setDialogOpen(false);
-                    setEditingSection(null);
-                  },
-                  onError: (error) => {
-                    setEditConflict(error instanceof V2ProblemError && error.status === 412);
-                    toast.error(
-                      error instanceof Error ? error.message : "Failed to update section",
-                    );
-                  },
-                },
-              );
-            } else {
-              // New rows go to the bottom: the server stores the position sent.
-              const position = nextAppendPosition(adapter.sections.map((row) => row.position));
-              createMutation.mutate(
-                { ...section, position },
-                {
-                  onSuccess: (created) => {
-                    setDialogOpen(false);
-                    setEditingSection(null);
-                    setHighlightId(created.id);
-                  },
-                  onError: (error) => {
-                    toast.error(
-                      error instanceof Error ? error.message : "Failed to create section",
-                    );
-                  },
-                },
-              );
-            }
-          }}
-        />
-
         {rowDialog ? (
           <AddRowDialog
             adapter={adapter}
@@ -593,7 +491,6 @@ export default function AdminHomeRows() {
             session={rowDialog.session}
             onClose={() => setRowDialog(null)}
             onSaved={(newIds) => setHighlightId(newIds[0] ?? null)}
-            onBridge={bridgeToEditor}
             onDelete={(session) => {
               setRowDialog(null);
               const section = sectionFor(session.row);

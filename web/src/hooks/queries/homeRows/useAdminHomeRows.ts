@@ -15,6 +15,7 @@ import { V2ProblemError } from "@/api/v2/request";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
+import { useAdminRowCollections } from "./useRowCollectionOptions";
 import { pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
 import {
   adminPeekKey,
@@ -163,6 +164,7 @@ export function useAdminHomeRows(): AdminHomeRows {
   );
 
   const list = useAdminSections(scope, libraryId, pageKnown);
+  const collections = useAdminRowCollections();
   const { data: capabilities } = useAdminSectionCapabilities();
   const [draft, setDraft] = useState<string[] | null>(null);
   const [conflict, setConflict] = useState<HomeRowsConflict>(null);
@@ -464,6 +466,7 @@ export function useAdminHomeRows(): AdminHomeRows {
     reloadEdit,
     save,
     peek,
+    collections,
     scope,
     libraryId,
     sections,

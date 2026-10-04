@@ -51,7 +51,7 @@ export function HomeRowsPage({
   notices,
   rowMenuItems,
   onOpenRow,
-  collectionTitle,
+  collection,
   selection,
   focus,
   highlightRowId,
@@ -66,7 +66,7 @@ export function HomeRowsPage({
   notices?: ReactNode;
   rowMenuItems: (row: HomeRow, shared: SharedRowMenuItems) => RowMenuItem[];
   onOpenRow?: (row: HomeRow) => void;
-  collectionTitle?: DescribeContext["collectionTitle"];
+  collection?: DescribeContext["collection"];
   /** Present while select mode is on. */
   selection?: HomeRowsSelection;
   focus: RowFocus;
@@ -106,7 +106,7 @@ export function HomeRowsPage({
     adapter.status === "ready"
       ? `${rows.length} ${rows.length === 1 ? "row" : "rows"} · ${shownCount} ${surface === "admin" ? "on" : "shown"}`
       : undefined;
-  const describeContext: DescribeContext = { pageKind: page.kind, collectionTitle };
+  const describeContext: DescribeContext = { pageKind: page.kind, collection };
 
   function move(row: HomeRow, to: "top" | "bottom") {
     const others = rows.map((entry) => entry.id).filter((id) => id !== row.id);

@@ -112,13 +112,6 @@ type AdminDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   section: PageSectionConfig | null;
-  /**
-   * The kind picked in the Home rows dialog (a collection or rule row). It
-   * replaces a row's own kind when editing, which starts its settings fresh.
-   */
-  initialType?: string;
-  /** The name and More options the Home rows dialog had when it handed over a row. */
-  carried?: { title: string; itemLimit: number; hero: boolean };
   scope: string;
   currentLibraryId: number | null;
   libraries: Array<{ id: number; name: string }>;
@@ -179,25 +172,19 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
   const showLegacyFilter = isLegacyFilterType(sectionType);
   const showRecipeParams = !showCollectionPicker && !showLegacyFilter && isKnownRecipe;
 
-  const initialType = props.mode === "admin" ? props.initialType : undefined;
-  const carried = props.mode === "admin" ? props.carried : undefined;
   useEffect(() => {
     if (!props.open) return;
     if (props.section) {
-      // A different kind starts from empty settings, as picking it in the
-      // type select does.
-      const config =
-        initialType && initialType !== props.section.section_type ? {} : props.section.config;
-      setSectionType(initialType ?? props.section.section_type);
-      setTitle(carried?.title.trim() ? carried.title : props.section.title);
-      setItemLimit(carried?.itemLimit ?? props.section.item_limit);
-      setFeatured(carried?.hero ?? props.section.featured);
+      setSectionType(props.section.section_type);
+      setTitle(props.section.title);
+      setItemLimit(props.section.item_limit);
+      setFeatured(props.section.featured);
       setEnabled("enabled" in props.section ? Boolean(props.section.enabled) : true);
-      setQueryDefinition(queryDefinitionFromSectionConfig(config));
-      setSelectedCollectionId(collectionIdOf(config, props.mode));
-      setRecipeParams(parseRecipeParams(config));
+      setQueryDefinition(queryDefinitionFromSectionConfig(props.section.config));
+      setSelectedCollectionId(collectionIdOf(props.section.config, props.mode));
+      setRecipeParams(parseRecipeParams(props.section.config));
     } else {
-      setSectionType(initialType ?? "recently_added");
+      setSectionType("recently_added");
       setTitle("");
       setItemLimit(20);
       setFeatured(false);
@@ -206,7 +193,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setSelectedCollectionId("");
       setRecipeParams({});
     }
-  }, [props.open, props.section, props.mode, initialType, carried]);
+  }, [props.open, props.section, props.mode]);
 
   useEffect(() => {
     if (!props.open || showCollectionPicker || showLegacyFilter) return;

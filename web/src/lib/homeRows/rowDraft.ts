@@ -1,5 +1,9 @@
+import { queryDefinitionFromSectionConfig, type QueryDefinition } from "@/api/types";
+import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import type { GalleryPreset, RecipeCatalogResponse, RecipeDefinition } from "@/lib/recipes";
+import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { rowKindLabel } from "./catalog";
+import { collectionIdOf, withPickedCollection, withQueryDefinition } from "./payloads";
 import type { HomeRow } from "./types";
 import { applyVariant, variantFamily, variantOf } from "./variants";
 
@@ -45,16 +49,49 @@ function presetName(def: RecipeDefinition | undefined, presetKey: string | null)
     : undefined;
 }
 
-/** A new row from a picked preset: exactly the preset's params, as the gallery added them. */
+/**
+ * A new row from a picked preset: exactly the preset's params, as the gallery
+ * added them. A collection row is named after its collection once one is
+ * picked; a rule row starts with no rules, in the shape the rule editor saves.
+ */
 export function draftForPreset(def: RecipeDefinition, preset: GalleryPreset | undefined): RowDraft {
+  const params = { ...(preset?.default_params ?? {}) };
+  const collection = def.type === "collection";
   return {
     sectionType: def.type,
-    title: preset?.display_name ?? rowKindLabel(def.type),
-    titleFollowsVariant: variantFamily(def.type) !== undefined,
-    config: { ...(preset?.default_params ?? {}) },
+    title: collection ? "" : (preset?.display_name ?? rowKindLabel(def.type)),
+    titleFollowsVariant: collection || variantFamily(def.type) !== undefined,
+    config: FILTER_SECTION_TYPES.has(def.type)
+      ? withQueryDefinition(params, queryDefinitionFromSectionConfig(params))
+      : params,
     itemLimit: DEFAULT_ITEM_LIMIT,
     hero: false,
   };
+}
+
+/**
+ * Picks the collection a collection row shows. The name follows the pick
+ * while it is blank, still following, or still the old collection's name.
+ */
+export function withCollection(
+  draft: RowDraft,
+  option: Pick<CollectionOption, "id" | "title" | "source">,
+  currentTitle?: string,
+): RowDraft {
+  const follows =
+    draft.titleFollowsVariant ||
+    draft.title.trim() === "" ||
+    (currentTitle !== undefined && draft.title === currentTitle);
+  return {
+    ...draft,
+    config: withPickedCollection(draft.config, option),
+    ...(follows ? { title: option.title, titleFollowsVariant: true } : {}),
+  };
+}
+
+/** Replaces a rule row's rules; config keys the rules don't own stay. */
+export function withRules(draft: RowDraft, query: QueryDefinition): RowDraft {
+  return { ...draft, config: withQueryDefinition(draft.config, query) };
 }
 
 /** An existing row as the form starts it. Opening a row never changes its config. */
@@ -92,11 +129,16 @@ export function withTitle(draft: RowDraft, title: string): RowDraft {
 }
 
 /**
- * The name a save sends. A blank name falls back to the variant's preset
- * name, then to the kind's plain name, never to a raw type key.
+ * The name a save sends. A blank name falls back to `fallback` (a collection
+ * row's collection), the variant's preset name, then the kind's plain name,
+ * never a raw type key.
  */
-export function savedTitle(draft: RowDraft, catalog: RecipeCatalogResponse | undefined): string {
-  const typed = draft.title.trim();
+export function savedTitle(
+  draft: RowDraft,
+  catalog: RecipeCatalogResponse | undefined,
+  fallback?: string,
+): string {
+  const typed = draft.title.trim() || fallback?.trim();
   if (typed) return typed;
   const def = findRecipe(catalog, draft.sectionType);
   const variant = variantOf(draft.sectionType, draft.config);
@@ -109,9 +151,31 @@ export function savedTitle(draft: RowDraft, catalog: RecipeCatalogResponse | und
 
 /** Whether the server would accept the draft; the form says what is missing. */
 export function canSaveDraft(draft: RowDraft): boolean {
-  // The server refuses a seasonal row with an empty holiday list and no legacy theme.
-  const themes = draft.config.enabled_themes;
-  return !(draft.sectionType === "seasonal_themed" && Array.isArray(themes) && themes.length === 0);
+  const { config } = draft;
+  switch (draft.sectionType) {
+    case "seasonal_themed":
+      // An empty holiday list with no legacy theme.
+      return !(Array.isArray(config.enabled_themes) && config.enabled_themes.length === 0);
+    case "collection":
+      return collectionIdOf(config) !== "";
+    case "admin_curated_list":
+      return Array.isArray(config.item_ids) && config.item_ids.length > 0;
+    default:
+      return true;
+  }
+}
+
+/**
+ * Why a draft has nothing to preview yet, or null: a collection row before a
+ * collection is picked (the server refuses that preview), or an Editor's
+ * Picks row with no titles.
+ */
+export function previewWaitText(draft: RowDraft): string | null {
+  if (draft.sectionType === "collection" && collectionIdOf(draft.config) === "")
+    return "Pick a collection to see its titles here.";
+  if (draft.sectionType === "admin_curated_list" && !canSaveDraft(draft))
+    return "Add titles to see them here.";
+  return null;
 }
 
 export type DraftField = "title" | "shows" | "itemLimit" | "hero";

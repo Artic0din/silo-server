@@ -13,7 +13,13 @@ export type PreviewState =
   | { status: "off" }
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; items: PreviewItem[]; totalCount: number };
+  | {
+      status: "ready";
+      items: PreviewItem[];
+      totalCount: number;
+      /** The titles are for an earlier draft; the current one's are on the way. */
+      refreshing: boolean;
+    };
 
 /**
  * A live preview of a draft row, from the admin preview route. The draft is
@@ -44,7 +50,12 @@ export function useRowPreview(
     retry: false,
   });
   if (!enabled) return { status: "off" };
-  if (query.data) return { status: "ready", ...query.data };
+  if (query.data)
+    return {
+      status: "ready",
+      ...query.data,
+      refreshing: settled !== current || query.isFetching,
+    };
   if (query.isError) return { status: "error" };
   return { status: "loading" };
 }

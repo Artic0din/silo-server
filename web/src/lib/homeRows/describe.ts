@@ -1,14 +1,38 @@
-import { queryDefinitionFromSectionConfig } from "@/api/types";
+import { queryDefinitionFromSectionConfig, type LibraryCollection } from "@/api/types";
+import { isListBackedCollectionType } from "@/lib/collectionTypes";
 import { rowKindLabel } from "./catalog";
 import type { HomeRow, Surface } from "./types";
 
-/** A description is plain text with optional bold names ("The **Ghibli** collection"). */
-export type DescriptionPart = string | { strong: string };
+/**
+ * A description is plain text with optional bold names ("The **Ghibli**
+ * collection") and warnings ("Collection no longer available").
+ */
+export type DescriptionPart = string | { strong: string } | { warning: string };
+
+/** A collection a row shows, as the surface knows it. */
+export interface CollectionSummary {
+  title: string;
+  /** Manual, Smart or Synced list. */
+  kind?: string;
+}
 
 export interface DescribeContext {
   pageKind: "home" | "library";
-  /** Resolves a collection id to its title, when the surface knows it. */
-  collectionTitle?: (id: string) => string | undefined;
+  /**
+   * Looks up a collection row's collection: its summary, null when the
+   * surface knows it is gone, or undefined when it can't tell (yet).
+   */
+  collection?: (id: string) => CollectionSummary | null | undefined;
+}
+
+/** The plain name of a collection type: Manual, Smart or Synced list. */
+export function collectionKind(
+  collectionType: LibraryCollection["collection_type"] | undefined,
+): string | undefined {
+  if (collectionType === "manual") return "Manual";
+  if (collectionType === "smart") return "Smart";
+  if (collectionType && isListBackedCollectionType(collectionType)) return "Synced list";
+  return undefined;
 }
 
 const SERVER_WINDOWS: Record<string, string> = {
@@ -24,7 +48,7 @@ const SCOPE_NOUNS: Record<string, string> = {
   audiobook: "audiobooks",
   ebook: "books",
   manga: "manga",
-  video: "videos",
+  video: "movies and shows",
 };
 
 /** How a rule row with no rules is ordered, keyed "field:order". The default (newest added) says nothing. */
@@ -76,8 +100,22 @@ function describeCollection(
   context: DescribeContext,
 ): DescriptionPart[] {
   const id = str(config.library_collection_id) ?? str(config.user_collection_id);
-  const title = id ? context.collectionTitle?.(id) : undefined;
-  return title ? ["The ", { strong: title }, " collection"] : ["A collection"];
+  const collection = id ? context.collection?.(id) : undefined;
+  if (collection === null) return [{ warning: "Collection no longer available" }];
+  if (!collection) return ["A collection"];
+  const kind = collection.kind ? ` (${collection.kind})` : "";
+  return ["The ", { strong: collection.title }, ` collection${kind}`];
+}
+
+/**
+ * How a rule row is ordered, for its More options summary ("Highest rated
+ * first"). Orders without a plain phrase read "Custom order".
+ */
+export function ruleSortSummary(config: Record<string, unknown>): string {
+  const { field, order } = queryDefinitionFromSectionConfig(config).sort;
+  if (field === "added_at" && order === "desc") return "Newest added first";
+  const phrase = SORT_PHRASES[`${field}:${order}`];
+  return phrase ? capitalize(phrase) : "Custom order";
 }
 
 function describeRules(config: Record<string, unknown>): string {

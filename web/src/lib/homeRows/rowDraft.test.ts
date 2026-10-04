@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PageSectionConfig } from "@/api/types";
+import {
+  queryDefinitionFromSectionConfig,
+  type PageSectionConfig,
+  type QueryDefinition,
+} from "@/api/types";
 import { createAdminSection, updateAdminSection } from "@/api/adminSections";
 import golden from "./payloads.golden.json";
 import { buildRowCreateRequest, buildRowUpdateRequest, nextAppendPosition } from "./payloads";
@@ -11,6 +15,8 @@ import {
   findRecipe,
   mergeReloadedDraft,
   savedTitle,
+  withCollection,
+  withRules,
   withTitle,
   withVariant,
   type RowDraft,
@@ -224,5 +230,243 @@ describe("saving a draft", () => {
     expect(canSaveDraft(seasonal({ enabled_themes: [] }))).toBe(false);
     expect(canSaveDraft(seasonal({ enabled_themes: ["christmas"] }))).toBe(true);
     expect(canSaveDraft(seasonal({ theme: "christmas" }))).toBe(true);
+  });
+});
+
+describe("collection rows", () => {
+  const def = findRecipe(recipeCatalogFixture, "collection")!;
+  const ghibli = { id: "lib-1", title: "Studio Ghibli", source: "library" as const };
+  const pixar = { id: "lib-2", title: "Pixar", source: "library" as const };
+
+  it("adds a picked collection with the gallery's create body, plus the bottom position", async () => {
+    const adminCreate = golden.adminCreate as Record<string, unknown>;
+    for (const [pageName, page] of PAGES) {
+      const draft = withCollection(draftForPreset(def, def.presets[0]), ghibli);
+      const body = await sentBody(() =>
+        createAdminSection(
+          buildRowCreateRequest(draft, savedTitle(draft, recipeCatalogFixture), page, 9),
+        ),
+      );
+      expect(body).toEqual({
+        ...(adminCreate[`collection/picked/${pageName}`] as object),
+        position: 9,
+      });
+    }
+  });
+
+  it("can't be saved before a collection is picked", () => {
+    const draft = draftForPreset(def, def.presets[0]);
+    expect(canSaveDraft(draft)).toBe(false);
+    expect(canSaveDraft(withCollection(draft, ghibli))).toBe(true);
+  });
+
+  it("starts with the picked collection's name until the user types one", () => {
+    let draft = withCollection(draftForPreset(def, def.presets[0]), ghibli);
+    expect(draft.title).toBe("Studio Ghibli");
+    draft = withCollection(draft, pixar, ghibli.title);
+    expect(draft.title).toBe("Pixar");
+    draft = withCollection(withTitle(draft, "Animated"), ghibli, pixar.title);
+    expect(draft.title).toBe("Animated");
+  });
+
+  it("follows a new pick on an existing row only while its name is the old collection's", () => {
+    const named = draftFromRow(
+      row({
+        title: "Pixar",
+        sectionType: "collection",
+        config: { library_collection_id: "lib-2" },
+      }),
+      recipeCatalogFixture,
+    );
+    expect(withCollection(named, ghibli, "Pixar").title).toBe("Studio Ghibli");
+    expect(withCollection({ ...named, title: "Kids" }, ghibli, "Pixar").title).toBe("Kids");
+  });
+
+  it("falls back to the collection's name when the name is left blank", () => {
+    const draft = { ...withCollection(draftForPreset(def, def.presets[0]), ghibli), title: " " };
+    expect(savedTitle(draft, recipeCatalogFixture, "Studio Ghibli")).toBe("Studio Ghibli");
+  });
+
+  it("keeps the stored config byte for byte when the collection is not picked again", async () => {
+    // A personal collection that is not in the admin's list, with metadata the form never edits.
+    const config = {
+      user_collection_id: "u-9",
+      generated_source: "collection_auto",
+      generated_library_id: 2,
+    };
+    const original = draftFromRow(
+      row({ sectionType: "collection", title: "Shared", config }),
+      recipeCatalogFixture,
+    );
+    for (const draft of [withTitle(original, "Renamed"), { ...original, hero: true }]) {
+      const body = await sentBody(() =>
+        updateAdminSection({
+          ...buildRowUpdateRequest(stored(original), draft, draft.title),
+          id: "row-1",
+          etag: '"1"',
+        }),
+      );
+      expect(body.config).toEqual(config);
+      expect(body.section_type).toBe("collection");
+    }
+  });
+
+  it("writes the picked option's key and drops the old id key, keeping every other key", () => {
+    const original = draftFromRow(
+      row({
+        sectionType: "collection",
+        config: { user_collection_id: "u-1", generated_source: "collection_auto" },
+      }),
+      recipeCatalogFixture,
+    );
+    const library = withCollection(original, pixar);
+    expect(library.config).toEqual({
+      generated_source: "collection_auto",
+      library_collection_id: "lib-2",
+    });
+    expect(withCollection(library, { id: "u-2", title: "Mine", source: "user" }).config).toEqual({
+      generated_source: "collection_auto",
+      user_collection_id: "u-2",
+    });
+    // Picking the collection it already shows changes nothing.
+    expect(withCollection(original, { id: "u-1", title: "Mine", source: "user" }).config).toBe(
+      original.config,
+    );
+  });
+});
+
+describe("rule rows", () => {
+  const def = findRecipe(recipeCatalogFixture, "custom_filter")!;
+  const rules: QueryDefinition = {
+    library_ids: [1],
+    media_scope: "movie",
+    match: "any",
+    groups: [
+      {
+        match: "all",
+        rules: [
+          { field: "genre", op: "contains", value: "Horror" },
+          { field: "year", op: "between", value: [1990, 1999] },
+        ],
+      },
+      { match: "any", rules: [{ field: "rating_imdb", op: "gte", value: 7.5 }] },
+    ],
+    sort: { field: "rating_imdb", order: "desc" },
+  };
+
+  it("adds a rule row with the older editor's create body, plus the bottom position", async () => {
+    const adminCreate = golden.adminCreate as Record<string, unknown>;
+    for (const [pageName, page] of PAGES) {
+      const draft = withTitle(withRules(draftForPreset(def, undefined), rules), "90s Horror");
+      const body = await sentBody(() =>
+        createAdminSection(buildRowCreateRequest(draft, draft.title, page, 9)),
+      );
+      expect(body).toEqual({
+        ...(adminCreate[`custom_filter/rules/${pageName}`] as object),
+        position: 9,
+      });
+    }
+  });
+
+  it("starts a new rule row with no rules, in the older editor's shape", () => {
+    const draft = draftForPreset(def, undefined);
+    expect(queryDefinitionFromSectionConfig(draft.config).groups).toEqual([]);
+    expect(draft.config).toMatchObject({ library_ids: [], match: "all", groups: [] });
+  });
+
+  it("saves an untouched rule or legacy genre row exactly as stored", async () => {
+    const configs: Array<[string, Record<string, unknown>]> = [
+      [
+        "genre",
+        {
+          filter_type: "movie",
+          match: "all",
+          groups: [{ match: "all", rules: [{ field: "genre", op: "contains", value: "Horror" }] }],
+          sort: "added_at",
+          order: "desc",
+        },
+      ],
+      ["custom_filter", { ...rules, limit: 40, generated_source: "home" }],
+      [
+        "custom_filter",
+        {
+          library_ids: [],
+          match: "all",
+          groups: [
+            { match: "all", rules: [{ field: "cast", op: "contains", value: "Tom Hanks" }] },
+          ],
+          sort: { field: "added_at", order: "desc" },
+        },
+      ],
+    ];
+    for (const [sectionType, config] of configs) {
+      const original = draftFromRow(row({ sectionType, config }), recipeCatalogFixture);
+      const draft = withTitle(original, "Renamed");
+      const body = await sentBody(() =>
+        updateAdminSection({
+          ...buildRowUpdateRequest(stored(original), draft, draft.title),
+          id: "row-1",
+          etag: '"1"',
+        }),
+      );
+      expect(JSON.stringify(body.config), sectionType).toBe(JSON.stringify(config));
+    }
+  });
+
+  it("rewrites only the query keys when the rules change", () => {
+    const original = draftFromRow(
+      row({
+        sectionType: "genre",
+        config: {
+          filter_type: "movie",
+          match: "all",
+          groups: [],
+          sort: "added_at",
+          order: "desc",
+          generated_source: "home",
+        },
+      }),
+      recipeCatalogFixture,
+    );
+    const query = queryDefinitionFromSectionConfig(original.config);
+    const draft = withRules(original, {
+      ...query,
+      groups: [{ match: "all", rules: [{ field: "genre", op: "is", value: "Drama" }] }],
+    });
+    expect(draft.config).toEqual({
+      generated_source: "home",
+      library_ids: [],
+      media_scope: "movie",
+      match: "all",
+      groups: [{ match: "all", rules: [{ field: "genre", op: "is", value: "Drama" }] }],
+      sort: { field: "added_at", order: "desc" },
+    });
+  });
+
+  it("keeps a movies-and-shows scope through an edit to the rules", () => {
+    const original = draftFromRow(
+      row({ sectionType: "custom_filter", config: { media_scope: "video", groups: [] } }),
+      recipeCatalogFixture,
+    );
+    const query = queryDefinitionFromSectionConfig(original.config);
+    expect(query.media_scope).toBe("video");
+    const draft = withRules(original, { ...query, match: "any" });
+    expect(draft.config.media_scope).toBe("video");
+  });
+});
+
+describe("Editor's Picks rows", () => {
+  it("can't be saved with no titles, which the server refuses", () => {
+    const draft = (config: Record<string, unknown>): RowDraft => ({
+      sectionType: "admin_curated_list",
+      title: "Staff picks",
+      titleFollowsVariant: false,
+      config,
+      itemLimit: 20,
+      hero: false,
+    });
+    expect(canSaveDraft(draft({ item_ids: [] }))).toBe(false);
+    expect(canSaveDraft(draft({}))).toBe(false);
+    expect(canSaveDraft(draft({ item_ids: ["m1"] }))).toBe(true);
   });
 });

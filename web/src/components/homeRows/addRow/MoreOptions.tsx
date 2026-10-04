@@ -21,12 +21,15 @@ const MAX_ITEM_LIMIT = 100;
 export function MoreOptions({
   itemLimit,
   hero,
+  summary,
   onItemLimitChange,
   onHeroChange,
   children,
 }: {
   itemLimit: number;
   hero: boolean;
+  /** What the kind's own options hold, first on the summary line ("Highest rated first"). */
+  summary?: string;
   onItemLimitChange: (limit: number) => void;
   onHeroChange: (hero: boolean) => void;
   /** Kind-specific fields, shown above the common ones. */
@@ -46,6 +49,14 @@ export function MoreOptions({
               More options
             </span>
             <span className="text-muted-foreground text-[13px] font-normal">
+              {summary ? (
+                <>
+                  {summary}
+                  <span aria-hidden className="mx-1.5">
+                    ·
+                  </span>
+                </>
+              ) : null}
               {titleCount(itemLimit)}
               <span aria-hidden className="mx-1.5">
                 ·

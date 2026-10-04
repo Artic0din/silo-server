@@ -16,6 +16,7 @@ function RadioGroup({
   );
 }
 
+/** The ring and dot of a radio; it shows checked inside an item with `group/radio`. */
 function RadioDot() {
   return (
     <span
@@ -73,4 +74,4 @@ function RadioCardItem({
   );
 }
 
-export { RadioGroup, RadioGroupItem, RadioCardItem };
+export { RadioGroup, RadioGroupItem, RadioCardItem, RadioDot };
