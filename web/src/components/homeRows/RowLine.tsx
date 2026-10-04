@@ -7,6 +7,7 @@ import {
   titleCount,
   type DescriptionPart,
 } from "@/lib/homeRows/describe";
+import type { PeekRequest } from "@/lib/homeRows/peek";
 import type { HomeRow, Surface } from "@/lib/homeRows/types";
 import { cn } from "@/lib/utils";
 import { RowPeek } from "./RowPeek";
@@ -23,6 +24,8 @@ export interface RowLineProps {
   surface: Surface;
   pageLabel: string;
   description: DescriptionPart[];
+  /** Where the row's poster peek comes from; null keeps its icon. */
+  peek: PeekRequest | null;
   /** Props for the grip button, from the sortable list. */
   handleProps: ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement> };
   /** Select mode: a checkbox takes the grip's place. */
@@ -72,6 +75,7 @@ export function RowLine({
   surface,
   pageLabel,
   description,
+  peek,
   handleProps,
   selection,
   switchDisabled,
@@ -91,8 +95,9 @@ export function RowLine({
       style={style}
       data-row-id={row.id}
       data-highlighted={highlighted || undefined}
+      data-selected={selection?.selected || undefined}
       className={cn(
-        "hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
+        "group/row hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
         "before:bg-border/75 before:absolute before:top-0 before:right-4 before:left-[124px] before:h-px first:before:hidden hover:before:hidden [&:hover+li]:before:hidden",
         // Under 1024px the ⋯ column widens to a 44px touch target.
         "grid-cols-[28px_48px_minmax(0,1fr)_auto_44px] sm:grid-cols-[28px_74px_minmax(0,1fr)_auto_44px] lg:grid-cols-[28px_74px_minmax(0,1fr)_auto_36px]",
@@ -134,7 +139,7 @@ export function RowLine({
           <EyeOff className="size-[17px]" />
         </div>
       ) : (
-        <RowPeek sectionType={row.sectionType} />
+        <RowPeek sectionType={row.sectionType} request={peek} />
       )}
       <div className={cn("min-w-0", onOpen && "cursor-pointer")} onClick={onOpen}>
         {collapsed ? (

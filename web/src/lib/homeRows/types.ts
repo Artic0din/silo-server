@@ -4,6 +4,7 @@
  * adapter hook, so nothing under components/homeRows reads an account role or
  * an API type.
  */
+import type { PeekRequest } from "./peek";
 import type { RowDraft } from "./rowDraft";
 
 export type Surface = "admin" | "profile";
@@ -90,4 +91,6 @@ export interface HomeRowsAdapter {
   reloadEdit(session: EditSession): Promise<EditSession>;
   /** Saves over the session's version; rejects with RowChangedError when it moved on. */
   save(session: EditSession, draft: RowDraft): Promise<void>;
+  /** Where a shown row's poster peek comes from; null (or absent) keeps the row's icon. */
+  peek?(row: HomeRow): PeekRequest | null;
 }
