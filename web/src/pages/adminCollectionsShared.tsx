@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps, FormEvent, ReactNode } from "react";
 import type { CreateLibraryCollectionRequest, Library, LibraryCollection } from "@/api/types";
-import { normalizeQueryDefinition } from "@/api/types";
 import {
   COLLECTION_MAX_ITEMS,
   libraryEligibilityForMediaKind,
@@ -9,7 +8,6 @@ import {
 } from "@/lib/collectionTemplates";
 import {
   useAdminCollectionCapabilities,
-  useCreateAdminCollection,
   useImportMDBListCollection,
   useImportTMDBCollection,
   useImportTMDBListCollection,
@@ -24,10 +22,6 @@ import {
   selectValueToSortConfig,
   sortConfigToSelectValue,
 } from "@/lib/collectionSortConfig";
-import CollectionBuilder, {
-  createCollectionBuilderValue,
-  type CollectionBuilderValue,
-} from "@/components/collections/CollectionBuilder";
 import LibraryMultiSelect from "@/components/LibraryMultiSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,51 +99,6 @@ export function collectionsInAdminScope(
   }
 
   return [...new Map(collections.map((collection) => [collection.id, collection])).values()];
-}
-
-export function toAdminCollectionBuilderValue(
-  collection: LibraryCollection | null,
-  initialLibraryId: number | null,
-): CollectionBuilderValue {
-  const libraryIds =
-    collection?.library_ids && collection.library_ids.length > 0
-      ? collection.library_ids
-      : collection?.library_id
-        ? [collection.library_id]
-        : initialLibraryId
-          ? [initialLibraryId]
-          : [];
-
-  return createCollectionBuilderValue({
-    title: collection?.title ?? "",
-    description: collection?.description ?? "",
-    // New Manual collections are made on the collection editor page, so a new one here is Smart.
-    collection_type: collection?.collection_type === "manual" ? "manual" : "smart",
-    visibility: collection?.visibility ?? "visible",
-    featured: collection?.featured ?? false,
-    query_definition: normalizeQueryDefinition({
-      ...collection?.query_definition,
-      library_ids: libraryIds,
-    }),
-    sort_config: collection?.sort_config ?? {},
-  });
-}
-
-export function toAdminCollectionRequest(
-  value: CollectionBuilderValue,
-): CreateLibraryCollectionRequest {
-  const libraryIds = value.query_definition.library_ids;
-
-  return {
-    library_ids: libraryIds,
-    title: value.title,
-    description: value.description,
-    collection_type: value.collection_type,
-    visibility: value.visibility,
-    featured: value.featured,
-    query_definition: value.collection_type === "smart" ? value.query_definition : undefined,
-    sort_config: value.collection_type === "smart" ? value.sort_config : undefined,
-  };
 }
 
 export function parseOptionalPositiveInteger(value: string): number | undefined {
@@ -417,52 +366,6 @@ export function CollectionLibraryPicker({
   );
 }
 
-function AdminCollectionSummary({
-  value,
-  collection,
-  libraries,
-  sourceLabel,
-}: {
-  value: CollectionBuilderValue;
-  collection: LibraryCollection | null;
-  libraries: Library[];
-  sourceLabel: string;
-}) {
-  const selectedLibraries = libraries
-    .filter((library) => value.query_definition.library_ids.includes(library.id))
-    .map((library) => library.name);
-
-  return (
-    <Card className="surface-panel gap-0 rounded-[1.5rem] border-0 shadow-none">
-      <CardHeader>
-        <CardTitle>Collection Summary</CardTitle>
-        <CardDescription>Keep the important state visible while you build.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <SummaryRow label="Mode" value={value.collection_type === "smart" ? "Smart" : "Manual"} />
-        <SummaryRow label="Source" value={sourceLabel} />
-        <SummaryRow
-          label="Visibility"
-          value={value.visibility === "visible" ? "Visible" : "Hidden"}
-        />
-        <SummaryRow label="Featured" value={value.featured ? "Yes" : "No"} />
-        <SummaryRow
-          label="Libraries"
-          value={selectedLibraries.length > 0 ? selectedLibraries.join(", ") : "None selected"}
-        />
-        {collection ? (
-          <SummaryRow
-            label="Items"
-            value={
-              collection.collection_type === "smart" ? "\u2014" : String(collection.item_count)
-            }
-          />
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 text-sm">
@@ -472,180 +375,9 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function CollectionForm({
-  etag,
-  libraries,
-  collection,
-  initialLibraryId,
-  onClose,
-}: {
-  etag?: string;
-  libraries: Library[];
-  collection: LibraryCollection | null;
-  initialLibraryId: number | null;
-  onClose: () => void;
-}) {
-  const createMutation = useCreateAdminCollection();
-  const updateMutation = useUpdateAdminCollection();
-  const [draft, setDraft] = useState(() =>
-    toAdminCollectionBuilderValue(collection, initialLibraryId),
-  );
-  const [posterFile, setPosterFile] = useState<File | null>(null);
-  const [backdropFile, setBackdropFile] = useState<File | null>(null);
-  const [posterSourceUrl, setPosterSourceUrl] = useState("");
-  const [backdropSourceUrl, setBackdropSourceUrl] = useState("");
-  const [removeArtwork, setRemoveArtwork] = useState<("poster" | "backdrop")[]>([]);
-
-  useEffect(() => {
-    setDraft(toAdminCollectionBuilderValue(collection, initialLibraryId));
-    setRemoveArtwork([]);
-    setPosterFile(null);
-    setBackdropFile(null);
-    setPosterSourceUrl("");
-    setBackdropSourceUrl("");
-  }, [collection, initialLibraryId]);
-
-  const isPending = createMutation.isPending || updateMutation.isPending;
-
-  const libraryIds = draft.query_definition.library_ids;
-  const setLibraryIds = (next: number[]) =>
-    setDraft({
-      ...draft,
-      query_definition: { ...draft.query_definition, library_ids: next },
-    });
-
-  return (
-    <CollectionBuilder
-      mode="admin"
-      value={draft}
-      onChange={setDraft}
-      defaultAdvanced
-      allowLibrarySelection={false}
-      lockCollectionType
-      onSubmit={() => {
-        const body = {
-          ...toAdminCollectionRequest(draft),
-          poster_source_url: posterSourceUrl.trim() || undefined,
-          backdrop_source_url: backdropSourceUrl.trim() || undefined,
-        };
-        if (collection) {
-          updateMutation.mutate(
-            {
-              id: collection.id,
-              etag: etag!,
-              body,
-              removeArtwork,
-              poster: posterFile,
-              backdrop: backdropFile,
-            },
-            { onSuccess: onClose },
-          );
-          return;
-        }
-
-        createMutation.mutate(
-          { body, poster: posterFile, backdrop: backdropFile },
-          { onSuccess: onClose },
-        );
-      }}
-      submitLabel="Save Collection"
-      libraries={libraries.map((library) => ({ id: library.id, name: library.name }))}
-      isPending={isPending}
-      previewLayout="sidebar"
-      sidebarContent={
-        <AdminCollectionSummary
-          value={draft}
-          collection={collection}
-          libraries={libraries}
-          sourceLabel="Manual / Smart"
-        />
-      }
-    >
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Libraries</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Choose which libraries this collection should appear in. Smart rules apply across the
-            selected libraries.
-          </p>
-        </div>
-        <CollectionLibraryPicker
-          libraries={libraries}
-          value={libraryIds}
-          onChange={setLibraryIds}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">Artwork</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Upload collection art that will be reused across library surfaces.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <AdminCollectionArtworkField
-            label="Poster"
-            currentUrl={removeArtwork.includes("poster") ? "" : collection?.poster_url}
-            file={posterFile}
-            onFileChange={(file) => {
-              setPosterFile(file);
-              if (file) setRemoveArtwork((current) => current.filter((type) => type !== "poster"));
-            }}
-            sourceUrl={posterSourceUrl}
-            onSourceUrlChange={(url) => {
-              setPosterSourceUrl(url);
-              if (url.trim())
-                setRemoveArtwork((current) => current.filter((type) => type !== "poster"));
-            }}
-            onDelete={
-              collection
-                ? () => {
-                    setRemoveArtwork((current) =>
-                      current.includes("poster") ? current : [...current, "poster"],
-                    );
-                    setPosterFile(null);
-                    setPosterSourceUrl("");
-                  }
-                : undefined
-            }
-          />
-          <AdminCollectionArtworkField
-            label="Backdrop"
-            currentUrl={removeArtwork.includes("backdrop") ? "" : collection?.backdrop_url}
-            file={backdropFile}
-            onFileChange={(file) => {
-              setBackdropFile(file);
-              if (file)
-                setRemoveArtwork((current) => current.filter((type) => type !== "backdrop"));
-            }}
-            sourceUrl={backdropSourceUrl}
-            onSourceUrlChange={(url) => {
-              setBackdropSourceUrl(url);
-              if (url.trim())
-                setRemoveArtwork((current) => current.filter((type) => type !== "backdrop"));
-            }}
-            onDelete={
-              collection
-                ? () => {
-                    setRemoveArtwork((current) =>
-                      current.includes("backdrop") ? current : [...current, "backdrop"],
-                    );
-                    setBackdropFile(null);
-                    setBackdropSourceUrl("");
-                  }
-                : undefined
-            }
-          />
-        </div>
-      </section>
-    </CollectionBuilder>
-  );
-}
-
 export type CollectionSourcePick = CollectionSourceType | "smart" | "templates";
 
-export function AdminCollectionArtworkField(props: ComponentProps<typeof ImageUploadField>) {
+function AdminCollectionArtworkField(props: ComponentProps<typeof ImageUploadField>) {
   const { data: capabilities } = useAdminCollectionCapabilities();
   return capabilities?.artwork ? <ImageUploadField {...props} /> : null;
 }
@@ -1649,17 +1381,8 @@ export function CollectionEditForm({
     );
   }
 
-  if (!isMDBListCollection && !isTMDBCollection && !isTraktCollection) {
-    return (
-      <CollectionForm
-        etag={etag}
-        libraries={libraries}
-        collection={collection}
-        initialLibraryId={initialLibraryId}
-        onClose={onClose}
-      />
-    );
-  }
+  // Only synced lists open here; Manual and Smart collections use the editor page.
+  if (!isMDBListCollection && !isTMDBCollection && !isTraktCollection) return null;
 
   const sourceLabel = isMDBListCollection ? "MDBList" : isTMDBCollection ? "TMDB" : "Trakt";
 

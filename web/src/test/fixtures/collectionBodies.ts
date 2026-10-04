@@ -54,7 +54,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin smart create: `query_definition` keeps numeric library ids; the top-level `library_ids` are strings. */
+  /** Admin smart create from the editor page: `query_definition` keeps numeric library ids; the top-level `library_ids` are strings. */
   adminSmartCreate: [
     {
       operation: "POST /api/v2/admin/collections",
@@ -149,7 +149,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** A loaded admin smart collection saved unchanged. The sentinel saves as no limit; the PATCH carries `featured`. */
+  /** A loaded admin smart collection saved unchanged from the editor page. The sentinel saves as no limit; the PATCH leaves out `featured`, so Pin set in Arrange stays. */
   adminSmartUnchanged: {
     "no limit": [
       {
@@ -163,7 +163,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -201,7 +200,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -239,7 +237,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -267,7 +264,7 @@ export const goldens = {
       },
     ],
   } satisfies ByLimit,
-  /** A loaded personal smart collection saved unchanged; the PATCH carries no `description`. */
+  /** A loaded personal smart collection saved unchanged from the editor page, with `description`. */
   personalSmartUnchanged: {
     "no limit": [
       {
@@ -278,6 +275,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -313,6 +311,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -348,6 +347,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -376,7 +376,7 @@ export const goldens = {
       },
     ],
   } satisfies ByLimit,
-  /** Personal create: the new collection form starts as Smart; the poster file uploads after the POST. */
+  /** Personal smart create from the editor page, with `description`; the poster file uploads after the POST. */
   personalSmartCreate: [
     {
       operation: "POST /api/v2/collections",
@@ -384,6 +384,7 @@ export const goldens = {
       headers: {},
       body: {
         name: "Comfort",
+        description: "",
         collection_type: "smart",
         is_shared: false,
         query_definition: {
@@ -485,7 +486,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal smart wizard, poster removed: the DELETE follows the PATCH on Save. */
+  /** Personal smart editor page, poster removed: the DELETE follows the PATCH on Save. */
   personalSmartStagedPosterRemoval: [
     {
       operation: "PATCH /api/v2/collections/{id}",
@@ -495,6 +496,7 @@ export const goldens = {
       },
       body: {
         name: "Rainy days",
+        description: "",
         is_shared: false,
         query_definition: {
           library_ids: [1],

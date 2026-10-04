@@ -274,3 +274,51 @@ describe("RuleBuilder", () => {
     expect(latest!.sort).toEqual({ field: "date_viewed", order: "asc" });
   });
 });
+
+describe("RuleBuilder in a Smart collection", () => {
+  it("talks about the collection, not a row", () => {
+    render(
+      <RuleBuilder
+        context="collection"
+        value={query({ groups: [] })}
+        libraries={libraries}
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole("group", { name: "What the collection shows" })).toBeInTheDocument();
+    expect(
+      screen.getByText("No rules yet, so the collection holds every title from these libraries."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/the row/)).toBeNull();
+  });
+
+  it("offers no all-libraries choice when a library is required", async () => {
+    render(
+      <RuleBuilder
+        context="collection"
+        librariesRequired
+        value={query({ library_ids: [1] })}
+        libraries={libraries}
+        onChange={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^Libraries:\s*Movies$/ }));
+    expect(screen.queryByRole("menuitem", { name: "All libraries" })).toBeNull();
+    expect(screen.getByRole("menuitemcheckbox", { name: "TV" })).toBeInTheDocument();
+  });
+
+  it("names every library the way the scope does", async () => {
+    render(
+      <RuleBuilder
+        context="collection"
+        allLibrariesLabel="all my libraries"
+        value={query({ library_ids: [1] })}
+        libraries={libraries}
+        onChange={(next) => (latest = next)}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^Libraries:\s*Movies$/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "All my libraries" }));
+    expect(latest?.library_ids).toEqual([]);
+  });
+});

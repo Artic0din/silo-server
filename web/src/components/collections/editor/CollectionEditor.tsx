@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQueries } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
@@ -10,21 +10,25 @@ import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collection
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/catalog";
 import {
-  isArtworkStaged,
   useCollectionDraft,
   useScopeDelete,
+  useScopePreview,
 } from "@/hooks/queries/collectionScope";
 import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { catalogKeys } from "@/hooks/queries/keys";
+import { useUserLibraries } from "@/hooks/queries/libraries";
 import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import {
   DRAFT_FIELD_LABEL,
+  NAME_IT_THEN_CREATE,
   NOT_CREATED_YET,
   PICK_LIBRARIES_FIRST,
+  PREVIEW_SHOWS_UNSAVED,
   SAVE_FAILED,
+  SMART_UPDATES_ITSELF,
   TITLES_ALREADY_SAVED,
   joinNames,
   notSavedMessage,
@@ -32,7 +36,13 @@ import {
   serverDeleteDescription,
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
-import type { CollectionScope, EditorSnapshot, WireCollection } from "@/lib/collections/scope";
+import { draftRules, type DraftField } from "@/lib/collections/draft";
+import type {
+  CollectionDraft,
+  CollectionScope,
+  EditorSnapshot,
+  WireCollection,
+} from "@/lib/collections/scope";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
 import { LibrariesLine } from "../fields/LibrariesLine";
@@ -41,10 +51,14 @@ import { CollectionMetaLine } from "./CollectionMetaLine";
 import { ConflictBanner } from "./ConflictBanner";
 import { DetailsPanel } from "./DetailsPanel";
 import { EditorHeader, type OpenTarget } from "./EditorHeader";
+import { CollectionPreviewPane } from "./CollectionPreviewPane";
 import { ManualContentsPanel } from "./ManualContentsPanel";
+import { SmartRulesPanel } from "./SmartRulesPanel";
 import { WhereItShowsPanel } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
+/** The fields the live preview already reflects before they are saved. */
+const PREVIEWED: ReadonlySet<DraftField> = new Set(["rules", "libraryIds", "rawSortConfig"]);
 
 /**
  * "3 titles are only in Kids: …" when unticking libraries would drop titles a
@@ -99,17 +113,55 @@ function useUntickWarning(
   return `${count} only in ${joinNames(names.filter(Boolean))}: ${shown}. They'll stop showing when you save.`;
 }
 
-/**
- * The editor page for a Manual collection, both scopes, create and edit.
- * The same instance carries on from `/new` to `/:id/edit` after Create.
- */
-export function ManualCollectionEditor<Raw extends WireCollection>({
+/** A Smart collection's rules and their live preview, over the libraries the scope offers. */
+function SmartContents<Raw extends WireCollection>({
   scope,
+  draft,
+  onChange,
+  libraries,
+}: {
+  scope: CollectionScope<Raw>;
+  draft: CollectionDraft;
+  onChange: (update: (draft: CollectionDraft) => CollectionDraft) => void;
+  libraries: Array<{ id: number; name: string }>;
+}) {
+  const needsLibraries = scope.requireLibraries && draft.libraryIds.length === 0;
+  const preview = useScopePreview(scope, draftRules(draft), !needsLibraries);
+  return (
+    <div className="grid gap-6">
+      <SmartRulesPanel
+        scopeKind={scope.kind}
+        draft={draft}
+        onChange={onChange}
+        libraries={libraries}
+      />
+      <CollectionPreviewPane preview={preview} offMessage={PICK_LIBRARIES_FIRST} />
+    </div>
+  );
+}
+
+/** A personal Smart collection picks from the libraries the profile can see. */
+function PersonalSmartContents<Raw extends WireCollection>(
+  props: Omit<Parameters<typeof SmartContents<Raw>>[0], "libraries">,
+) {
+  const { data = [] } = useUserLibraries();
+  return <SmartContents {...props} libraries={data} />;
+}
+
+/**
+ * The editor page for a Manual or Smart collection, both scopes, create and
+ * edit. The same instance carries on from `/new` to `/:id/edit` after Create.
+ */
+export function CollectionEditor<Raw extends WireCollection>({
+  scope,
+  kind: createKind = "manual",
   snapshot,
   libraryId,
   onCreated,
 }: {
   scope: CollectionScope<Raw>;
+  /** Create mode: what to create. A saved collection keeps its own kind. */
+  kind?: "manual" | "smart";
   snapshot?: EditorSnapshot<Raw>;
   /** Create mode: the library the editor was opened from. */
   libraryId?: number | null;
@@ -117,7 +169,10 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
   onCreated?: (id: string) => void;
 }) {
   const navigate = useNavigate();
-  const editor = useCollectionDraft(scope, { snapshot, kind: "manual", libraryId });
+  // The page sends Synced lists elsewhere, so a saved collection here is Manual or Smart.
+  const kind = snapshot ? (snapshot.view.kind === "smart" ? "smart" : "manual") : createKind;
+  const smart = kind === "smart";
+  const editor = useCollectionDraft(scope, { snapshot, kind, libraryId });
   const { draft, view } = editor;
   const created = Boolean(editor.id);
   const isServer = scope.kind === "server";
@@ -136,17 +191,13 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
   const remove = useScopeDelete(scope, { onDeleted: () => setLeaving(listPath) });
 
   const staged = draft.stagedItems ?? NO_TITLES;
-  const createDirty =
-    draft.name.trim() !== "" ||
-    draft.description.trim() !== "" ||
-    staged.length > 0 ||
-    Object.values(draft.artwork).some(isArtworkStaged);
   // After Create the page moves to the collection's edit URL. Until it gets
   // there it reports clean, so the guard never asks; a poster that failed to
   // upload then counts as unsaved again.
   const location = useLocation();
   const moving = openEdit !== null && location.pathname !== scope.paths.edit(openEdit);
-  useReportUnsavedChanges(!leaving && !moving && (created ? editor.isDirty : createDirty));
+  const dirty = editor.isDirty || (!created && staged.length > 0);
+  useReportUnsavedChanges(!leaving && !moving && dirty);
 
   // Leave only once the clean report has reached the guard.
   useEffect(() => {
@@ -168,7 +219,7 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
   const chosenLibraries = named(draft.libraryIds);
   const savedLibraries = named(view?.libraryIds ?? []);
   const untickWarning = useUntickWarning(
-    isServer ? editor.id : undefined,
+    isServer && !smart ? editor.id : undefined,
     editor.base.libraryIds,
     draft.libraryIds,
     libraryOptions,
@@ -198,6 +249,16 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
   const needsLibraries = scope.requireLibraries && draft.libraryIds.length === 0;
   const canCreate = draft.name.trim() !== "" && !needsLibraries;
   const pending = editor.pendingLabels;
+  // What the save bar adds after the pending fields, and before Create.
+  let afterPending: string | null = TITLES_ALREADY_SAVED;
+  let createHint = titlesReadyToAdd(staged.length);
+  if (smart) {
+    afterPending = editor.changed.some((field) => PREVIEWED.has(field))
+      ? PREVIEW_SHOWS_UNSAVED
+      : null;
+    createHint = NAME_IT_THEN_CREATE;
+  }
+  if (needsLibraries) createHint = PICK_LIBRARIES_FIRST;
   const saveBar = created ? (
     <SaveBar
       placement="page"
@@ -214,7 +275,9 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
         ) : (
           <>
             {notSavedMessage(pending)}{" "}
-            <span className="text-muted-foreground ml-3 font-normal">{TITLES_ALREADY_SAVED}</span>
+            {afterPending ? (
+              <span className="text-muted-foreground ml-3 font-normal">{afterPending}</span>
+            ) : null}
           </>
         )
       }
@@ -237,25 +300,71 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
         ) : (
           <>
             {NOT_CREATED_YET}{" "}
-            <span className="text-muted-foreground ml-3 font-normal">
-              {needsLibraries ? PICK_LIBRARIES_FIRST : titlesReadyToAdd(staged.length)}
-            </span>
+            <span className="text-muted-foreground ml-3 font-normal">{createHint}</span>
           </>
         )
       }
     />
   );
 
+  let contents: ReactNode;
+  if (smart && isServer) {
+    contents = (
+      <SmartContents
+        scope={scope}
+        draft={draft}
+        onChange={editor.setDraft}
+        libraries={libraryOptions}
+      />
+    );
+  } else if (smart) {
+    contents = <PersonalSmartContents scope={scope} draft={draft} onChange={editor.setDraft} />;
+  } else {
+    contents = (
+      <ManualContentsPanel
+        scope={scope}
+        collectionId={editor.id}
+        searchLibraries={isServer ? chosenLibraries : []}
+        librariesLine={
+          isServer ? (
+            <LibrariesLine
+              lead="Titles from"
+              libraries={libraryOptions}
+              value={draft.libraryIds}
+              onChange={(libraryIds) => editor.setDraft((next) => ({ ...next, libraryIds }))}
+              warning={
+                untickWarning ? (
+                  <p
+                    role="note"
+                    className="border-warning/50 bg-warning/10 flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13px]"
+                  >
+                    <AlertTriangle aria-hidden className="text-warning mt-0.5 size-4 shrink-0" />
+                    {untickWarning}
+                  </p>
+                ) : null
+              }
+            />
+          ) : null
+        }
+        staged={staged}
+        onStagedChange={(stagedItems) => editor.setDraft((next) => ({ ...next, stagedItems }))}
+        onRetryStaged={(position) => void editor.retryStagedItems(position)}
+        itemCount={view?.itemCount}
+        onItemsChanged={() => void editor.syncWithServer()}
+      />
+    );
+  }
+
   return (
     <>
       <UnsavedChangesGuard />
       <CollectionEditorShell
         createMode={!created}
-        contentsLabel="Titles"
+        contentsLabel={smart ? "Rules" : "Titles"}
         header={
           <EditorHeader
             back={{ label: "Collections", href: listPath }}
-            kind="manual"
+            kind={kind}
             name={view?.name ?? draft.name}
             created={created}
             shared={view?.personal?.shared}
@@ -266,7 +375,8 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
                   libraryNames={
                     isServer ? savedLibraries.map((library) => library.name) : undefined
                   }
-                  itemCount={view.itemCount}
+                  itemCount={smart ? undefined : view.itemCount}
+                  extra={smart ? SMART_UPDATES_ITSELF : undefined}
                 />
               ) : null
             }
@@ -283,47 +393,12 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
             />
           ) : null
         }
-        contents={
-          <ManualContentsPanel
-            scope={scope}
-            collectionId={editor.id}
-            searchLibraries={isServer ? chosenLibraries : []}
-            librariesLine={
-              isServer ? (
-                <LibrariesLine
-                  lead="Titles from"
-                  libraries={libraryOptions}
-                  value={draft.libraryIds}
-                  onChange={(libraryIds) => editor.setDraft((next) => ({ ...next, libraryIds }))}
-                  warning={
-                    untickWarning ? (
-                      <p
-                        role="note"
-                        className="border-warning/50 bg-warning/10 flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13px]"
-                      >
-                        <AlertTriangle
-                          aria-hidden
-                          className="text-warning mt-0.5 size-4 shrink-0"
-                        />
-                        {untickWarning}
-                      </p>
-                    ) : null
-                  }
-                />
-              ) : null
-            }
-            staged={staged}
-            onStagedChange={(stagedItems) => editor.setDraft((next) => ({ ...next, stagedItems }))}
-            onRetryStaged={(position) => void editor.retryStagedItems(position)}
-            itemCount={view?.itemCount}
-            onItemsChanged={() => void editor.syncWithServer()}
-          />
-        }
+        contents={contents}
         details={
           <DetailsPanel
             draft={draft}
             onChange={editor.setDraft}
-            showOnly={!isServer}
+            showOnly={!isServer && !smart}
             artworkSlots={capabilities?.artwork === false ? [] : scope.artworkSlots}
             savedArtwork={{ poster: view?.posterUrl, backdrop: view?.backdropUrl }}
             artworkErrors={editor.artworkErrors}

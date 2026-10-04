@@ -33,10 +33,6 @@ export function serverTabHelp(libraryNames: readonly string[]): string {
  */
 export const PERSONAL_TAB_HELP = "For you and anyone you share it with";
 
-/** The older builders' wording of the same switch, until they move onto the editor page. */
-export const LIBRARY_TAB_DESCRIPTION =
-  "Pin this collection to your library's Collections tab alongside the admin shelves. Profiles that can see this collection see it there too.";
-
 export const SHOW_TO_OTHER_PROFILES_LABEL = "Show to other profiles";
 export const SHOW_TO_OTHER_PROFILES_HELP =
   "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.";
@@ -68,6 +64,38 @@ export function createdButNotAdded(count: number): string {
   return `Created, but couldn't add ${plural(count, "title")}`;
 }
 
+// --- Rules (Smart) ----------------------------------------------------------
+
+export const RULES_CAPTION =
+  "Titles that match are in the collection. New matches join on their own.";
+/** Under a personal Smart collection's rules. */
+export const PERSONAL_RULES_NOTE =
+  "“All my libraries” follows the libraries this profile can see. Rules about you, like Watched, are offered only here.";
+export const ALL_MY_LIBRARIES = "all my libraries";
+/** The meta line's last part on a Smart collection. */
+export const SMART_UPDATES_ITSELF = "Updates itself as titles are added";
+/** After "Rules not saved" in the save bar. */
+export const PREVIEW_SHOWS_UNSAVED = "The preview already shows them.";
+
+export const PREVIEW_LIVE = "Live preview";
+export const PREVIEW_EMPTY = "No titles match yet";
+export const PREVIEW_EMPTY_HELP = "You can still save. Titles that match later join on their own.";
+export const PREVIEW_FAILED = "The preview didn't load. You can still save.";
+
+export function previewMatches(total: number): string {
+  return total === 1 ? "1 title matches" : `${total.toLocaleString()} titles match`;
+}
+
+// --- Order ------------------------------------------------------------------
+
+export const ORDER_HELP = "A profile that picks its own sort while browsing keeps that choice.";
+export const NO_LIMIT = "No limit";
+
+/** A smart collection's stored default sort, which wins over Order until cleared. */
+export function storedSortLine(sortLabel: string): string {
+  return `A saved default sort, ${sortLabel}, wins over this Order.`;
+}
+
 // --- Save bar ---------------------------------------------------------------
 
 /** How the save bar and the conflict banner name a draft field. */
@@ -95,8 +123,10 @@ export const SAVE_FAILED = "Couldn't save";
 /** Why Create waits on a server collection with no library yet. */
 export const PICK_LIBRARIES_FIRST = "Pick its libraries, then create it.";
 
+export const NAME_IT_THEN_CREATE = "Name it, then create it.";
+
 export function titlesReadyToAdd(count: number): string {
-  return count === 0 ? "Name it, then create it." : `${plural(count, "title")} ready to add`;
+  return count === 0 ? NAME_IT_THEN_CREATE : `${plural(count, "title")} ready to add`;
 }
 
 /** "Name and description not saved": the first field as labelled, the rest in lower case. */

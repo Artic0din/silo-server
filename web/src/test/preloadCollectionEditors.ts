@@ -7,7 +7,5 @@ export async function preloadLegacyCollectionEditors() {
   await Promise.all([
     import("@/pages/AdminCollectionEditor"),
     import("@/pages/ImportedCollectionEditor"),
-    import("@/pages/SmartCollectionWizard"),
-    import("@/pages/userCollectionsShared"),
   ]);
 }

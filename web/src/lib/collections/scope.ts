@@ -52,6 +52,7 @@ import {
   buildUserCollectionCatalogHref,
 } from "@/pages/catalogSearchParams";
 
+import { draftRules } from "./draft";
 import { isOwnCollection } from "./personalOwnership";
 import { collectionKindOf, syncedSourceOf, type CollectionKind, type SyncedSource } from "./types";
 
@@ -214,8 +215,7 @@ function rulesFor(kind: CollectionKind, query: QueryDefinitionInput) {
 
 /** Smart rules match the draft's libraries; the draft's list is the one the editor shows. */
 function smartRules(draft: SavableDraft): QueryDefinition | undefined {
-  if (draft.kind !== "smart") return undefined;
-  return { ...normalizeQueryDefinition(draft.rules), library_ids: draft.libraryIds };
+  return draft.kind === "smart" ? draftRules(draft) : undefined;
 }
 
 function sanitizeLibraryIds(raw: unknown): number[] {

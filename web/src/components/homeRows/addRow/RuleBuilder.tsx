@@ -62,9 +62,9 @@ const RULE_NAMES = { all: "all", any: "any" };
 const GROUP_JOIN_NAMES = { all: "and", any: "or" };
 
 /**
- * Step 2 of a rule row: "Show [movies] from the [Movies, 4K Movies] libraries
- * that match [all/any] of these:" ("from [all libraries]" when none are
- * picked), then one line per rule. More groups keep a stored multi-group
+ * Step 2 of a rule row, and a Smart collection's rules: "Show [movies] from
+ * the [Movies, 4K Movies] libraries that match [all/any] of these:" ("from
+ * [all libraries]" when none are picked), then one line per rule. More groups keep a stored multi-group
  * filter intact; a new group joins with "or" unless the stored groups
  * already join with "and". Rules these controls can't show stay read-only
  * until removed.
@@ -74,13 +74,26 @@ export function RuleBuilder({
   onChange,
   libraries,
   allowPersonalized = false,
+  context = "homeRow",
+  librariesRequired = false,
+  allLibrariesLabel = "all libraries",
+  librariesId,
 }: {
   value: QueryDefinition;
   onChange: (value: QueryDefinition) => void;
   libraries: Array<{ id: number; name: string }>;
   /** Rows resolve per viewer, so the server accepts personalized rules and sorts. */
   allowPersonalized?: boolean;
+  /** What the rules fill: a Home row or a Smart collection. */
+  context?: "homeRow" | "collection";
+  /** At least one library must be picked: there is no "all libraries" choice. */
+  librariesRequired?: boolean;
+  /** How the sentence names every library, when none is picked. */
+  allLibrariesLabel?: string;
+  /** An id for the libraries control, so another part of the page can move focus to it. */
+  librariesId?: string;
 }) {
+  const subject = context === "collection" ? "collection" : "row";
   const { groups } = value;
   const scope: MediaScope = value.media_scope ?? "all";
   const fieldOptions = getFilterRuleFieldOptions(allowPersonalized, scope);
@@ -159,7 +172,7 @@ export function RuleBuilder({
     <div className="grid gap-3">
       <div
         role="group"
-        aria-label="What the row shows"
+        aria-label={`What the ${subject} shows`}
         className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[15px]"
       >
         <span>Show</span>
@@ -176,15 +189,18 @@ export function RuleBuilder({
           </SelectContent>
         </Select>
         <span>{value.library_ids.length > 0 ? "from the" : "from"}</span>
-        <LibraryMultiSelect
-          libraries={libraries}
-          value={value.library_ids}
-          onChange={(libraryIds) => onChange({ ...value, library_ids: libraryIds })}
-          emptyLabel="all libraries"
-          allOptionLabel="All libraries"
-          triggerLabel="Libraries"
-          triggerClassName={`${INLINE_TRIGGER} justify-between`}
-        />
+        <span id={librariesId} className="inline-flex">
+          <LibraryMultiSelect
+            libraries={libraries}
+            value={value.library_ids}
+            onChange={(libraryIds) => onChange({ ...value, library_ids: libraryIds })}
+            emptyLabel={librariesRequired ? "choose libraries" : allLibrariesLabel}
+            allOptionLabel={allLibrariesLabel.charAt(0).toUpperCase() + allLibrariesLabel.slice(1)}
+            hideAllOption={librariesRequired}
+            triggerLabel="Libraries"
+            triggerClassName={`${INLINE_TRIGGER} justify-between`}
+          />
+        </span>
         {namedLibraries > 0 ? <span>{namedLibraries === 1 ? "library" : "libraries"}</span> : null}
         {groups.length > 0 ? (
           <>
@@ -205,7 +221,9 @@ export function RuleBuilder({
       <div className="border-border grid gap-2.5 rounded-2xl border p-3 sm:p-4">
         {groups.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No rules yet, so the row shows every title from these libraries.
+            {context === "collection"
+              ? "No rules yet, so the collection holds every title from these libraries."
+              : "No rules yet, so the row shows every title from these libraries."}
           </p>
         ) : null}
         {groups.map((group, index) => (
