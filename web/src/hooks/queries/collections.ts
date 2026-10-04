@@ -7,9 +7,7 @@ import {
   type ProfileRequestContextSnapshot,
 } from "@/api/client";
 import type {
-  Collection,
   CollectionCapabilitiesResponse,
-  CollectionGroup,
   CollectionSortConfig,
   CollectionsListResponse,
   CreateCollectionRequest,
@@ -33,8 +31,6 @@ import {
   invalidateAdminCollectionQueries,
 } from "./collectionSurfaceRefresh";
 
-// Single fetcher for /collections — both useCollections and useCollectionGroups
-// share the cache so the page makes one network round-trip.
 function fetchCollectionsList(): Promise<CollectionsListResponse> {
   return v2("GET /api/v2/collections").then(collectionsFromV2);
 }
@@ -58,14 +54,6 @@ export function useCollections() {
     queryKey: collectionKeys.list(),
     queryFn: fetchCollectionsList,
     select: (data) => data.collections,
-  });
-}
-
-export function useCollectionGroups() {
-  return useQuery({
-    queryKey: collectionKeys.list(),
-    queryFn: fetchCollectionsList,
-    select: (data) => data.groups,
   });
 }
 
@@ -283,120 +271,17 @@ function reorderByIds<T>(items: T[], getId: (item: T) => string, orderedIds: str
 }
 
 export interface ReorderCollectionsArgs {
+  /** Each of the acting profile's own collections, in the new order. */
   orderedIds: string[];
   etag: string;
-  groupId?: string | null;
 }
 
 export function useReorderCollections() {
   const queryClient = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: ({ orderedIds, groupId, etag }: ReorderCollectionsArgs) =>
+    mutationFn: ({ orderedIds, etag }: ReorderCollectionsArgs) =>
       v2("PUT /api/v2/collections/order", {
-        headers: { "If-Match": requiredETag(etag) },
-        body: {
-          ordered_ids: orderedIds,
-          ...(groupId !== undefined ? { group_id: groupId } : {}),
-        },
-      }),
-    onMutate: async ({ orderedIds, groupId }) => {
-      await queryClient.cancelQueries({ queryKey: collectionKeys.list() });
-      const snapshot = queryClient.getQueryData<CollectionsListResponse>(collectionKeys.list());
-      if (snapshot) {
-        const inScope = (c: Collection) =>
-          groupId === undefined ? true : (c.group_id ?? null) === groupId;
-        // Clone before stamping sort_order so the snapshot retained for
-        // rollback (ctx.snapshot) keeps its original values when onError
-        // restores the cache.
-        const reordered = reorderByIds(
-          snapshot.collections.filter(inScope),
-          (c) => c.id,
-          orderedIds,
-        ).map((c, i) => ({ ...c, sort_order: i }));
-        const next = [...snapshot.collections];
-        let cursor = 0;
-        for (let i = 0; i < next.length; i++) {
-          const current = next[i];
-          if (current && inScope(current)) {
-            next[i] = reordered[cursor++] ?? current;
-          }
-        }
-        queryClient.setQueryData<CollectionsListResponse>(collectionKeys.list(), {
-          ...snapshot,
-          collections: next,
-        });
-      }
-      return { snapshot };
-    },
-    onError: (err, _vars, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(collectionKeys.list(), ctx.snapshot);
-      toast.error(collectionMutationMessage(err, "Failed to reorder"));
-      if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
-    },
-    onSettled: () => invalidateUserCollectionQueries(queryClient),
-  });
-}
-
-export function useCreateCollectionGroup() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({ name, slug }: { name: string; slug?: string }) =>
-      v2("POST /api/v2/collections/groups", {
-        body: { name, slug },
-      }),
-    onSuccess: () => invalidateUserCollectionQueries(queryClient),
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Failed to add group");
-    },
-  });
-}
-
-export function useUpdateCollectionGroup() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({ id, name, etag }: { id: string; name: string; etag: string }) =>
-      v2("PATCH /api/v2/collections/groups/{id}", {
-        headers: { "If-Match": requiredETag(etag) },
-        path: { id },
-        body: { name },
-      }),
-    onSuccess: () => invalidateUserCollectionQueries(queryClient),
-    onError: (err) => {
-      toast.error(collectionMutationMessage(err, "Failed to rename group"));
-      if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
-    },
-  });
-}
-
-export function useDeleteCollectionGroup() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({ id, etag }: { id: string; etag: string }) =>
-      v2("DELETE /api/v2/collections/groups/{id}", {
-        path: { id },
-        headers: { "If-Match": requiredETag(etag) },
-      }),
-    onSuccess: () => invalidateUserCollectionQueries(queryClient),
-    onError: (err) => {
-      toast.error(collectionMutationMessage(err, "Failed to delete group"));
-      if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
-    },
-  });
-}
-
-export function useReorderCollectionGroups() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({ orderedIds, etag }: { orderedIds: string[]; etag: string }) =>
-      v2("PUT /api/v2/collections/groups/order", {
         headers: { "If-Match": requiredETag(etag) },
         body: { ordered_ids: orderedIds },
       }),
@@ -404,19 +289,30 @@ export function useReorderCollectionGroups() {
       await queryClient.cancelQueries({ queryKey: collectionKeys.list() });
       const snapshot = queryClient.getQueryData<CollectionsListResponse>(collectionKeys.list());
       if (snapshot) {
-        const groups = reorderByIds(snapshot.groups, (g: CollectionGroup) => g.id, orderedIds).map(
-          (g, i) => ({ ...g, sort_order: i }),
+        // Only the reordered (own) collections move, within the slots they
+        // already hold; other profiles' shared collections stay in place.
+        // Clone before stamping sort_order so the snapshot kept for rollback
+        // retains its original values.
+        const moved = new Set(orderedIds);
+        const reordered = reorderByIds(
+          snapshot.collections.filter((c) => moved.has(c.id)),
+          (c) => c.id,
+          orderedIds,
+        ).map((c, i) => ({ ...c, sort_order: i }));
+        let cursor = 0;
+        const collections = snapshot.collections.map((c) =>
+          moved.has(c.id) ? (reordered[cursor++] ?? c) : c,
         );
         queryClient.setQueryData<CollectionsListResponse>(collectionKeys.list(), {
           ...snapshot,
-          groups,
+          collections,
         });
       }
       return { snapshot };
     },
     onError: (err, _vars, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(collectionKeys.list(), ctx.snapshot);
-      toast.error(collectionMutationMessage(err, "Failed to reorder groups"));
+      toast.error(collectionMutationMessage(err, "Failed to reorder"));
       if (err instanceof V2ProblemError && err.status === 412)
         void invalidateUserCollectionQueries(queryClient);
     },
