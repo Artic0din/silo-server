@@ -320,6 +320,17 @@ describe("Synced list step, server", () => {
     expect(screen.getByRole("radio", { name: "Top 250 Sci-Fi Movies" })).toBeInTheDocument();
   });
 
+  it("shows Searching… for a new term, not the last term's results", async () => {
+    showPage(SERVER_NEW);
+    const search = await screen.findByRole("searchbox", { name: "Search lists" });
+    fireEvent.change(search, { target: { value: "sci-fi" } });
+    await screen.findByRole("radio", { name: "Top 250 Sci-Fi Movies" });
+    v2Recorder.answer("GET /api/v2/collections/import/mdblist/search", () => new Promise(() => {}));
+    fireEvent.change(search, { target: { value: "horror" } });
+    expect(await screen.findByText("Searching…")).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Top 250 Sci-Fi Movies" })).toBeNull();
+  });
+
   it("with MDBList search off, disables the box and still takes picks and links", async () => {
     v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
       ...adminCapabilities,

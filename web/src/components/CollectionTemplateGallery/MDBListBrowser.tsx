@@ -97,7 +97,9 @@ export function MDBListBrowser({
   if (search.data && search.data.lists !== lastFound?.lists && settled) {
     setLastFound({ query: settled, lists: search.data.lists });
   }
-  const found = settled ? (search.data?.lists ?? lastFound?.lists ?? []) : [];
+  // A failed search keeps the last results; a new term shows "Searching…" until it answers.
+  const fallback = search.isError ? lastFound?.lists : undefined;
+  const found = settled ? (search.data?.lists ?? fallback ?? []) : [];
 
   const term = query.trim().toLowerCase();
   const shown = useMemo(
