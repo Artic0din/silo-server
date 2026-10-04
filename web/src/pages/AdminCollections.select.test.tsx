@@ -445,6 +445,89 @@ describe("AdminCollections Select collections", () => {
   });
 });
 
+describe("AdminCollections Select collections with nothing to pick", () => {
+  const onlyTvShows = () => items.filter((entry) => entry.library_ids.includes("3"));
+  const notTvShows = (entry: AdminCollection) => !entry.library_ids.includes("3");
+
+  it("can't open on a library with no collections", async () => {
+    items = items.filter(notTvShows);
+    renderPage("/admin/collections?view=list&libraryId=3");
+    const user = userEvent.setup();
+    await screen.findByText("No collections in TV Shows yet");
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(await screen.findByRole("menuitem", { name: "Select collections" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("leaves when the library switches to one with no collections", async () => {
+    items = items.filter(notTvShows);
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Studio Ghibli");
+    await user.click(screen.getByRole("button", { name: /^TV Shows/ }));
+    await screen.findByText("No collections in TV Shows yet");
+    expect(screen.queryByRole("group", { name: "Selected collections" })).toBeNull();
+
+    // Coming back to a library with collections doesn't bring select mode back.
+    await user.click(screen.getByRole("button", { name: /^Movies/ }));
+    await screen.findByText("Studio Ghibli");
+    expect(screen.queryByRole("checkbox", { name: "Select Studio Ghibli" })).toBeNull();
+  });
+
+  it("leaves once the last ones are deleted, and gives focus back to More", async () => {
+    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", (call: RecordedCall) => {
+      items = items.filter((entry) => !call.path.endsWith(`/${entry.id}`));
+      return undefined;
+    });
+    renderPage("/admin/collections?view=list&libraryId=3");
+    const user = userEvent.setup();
+    await screen.findByText("Netflix Originals");
+    expect(onlyTvShows()).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Select collections" }));
+    await pick(user, "Netflix Originals");
+    await user.click(within(bar()).getByRole("button", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete 1" }));
+    await screen.findByText("No collections in TV Shows yet");
+    expect(screen.queryByRole("group", { name: "Selected collections" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toHaveFocus());
+  });
+});
+
+describe("AdminCollections Delete all while select mode works", () => {
+  it("waits for a Show or Hide to finish", async () => {
+    let finish!: () => void;
+    v2Recorder.answer(
+      "PATCH /api/v2/admin/collections/{id}",
+      () => new Promise<undefined>((resolve) => (finish = () => resolve(undefined))),
+    );
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Staff Picks");
+    await user.click(within(bar()).getByRole("button", { name: "Show on tabs" }));
+    await waitFor(() =>
+      expect(v2Recorder.callsOf("PATCH /api/v2/admin/collections/{id}")).toHaveLength(1),
+    );
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete all in this view…" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
+
+    await act(async () => finish());
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Showed 1 collection on Collections tabs."),
+    );
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete all in this view…" }),
+    ).not.toHaveAttribute("aria-disabled");
+  });
+});
+
 describe("AdminCollections Delete all in this view", () => {
   it("counts only what goes, names the lists it keeps, and where shared lists also go", async () => {
     renderPage("/admin/collections?view=list&libraryId=1&type=synced");

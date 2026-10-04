@@ -55,14 +55,25 @@ describe("SelectModeBar", () => {
         noun="collections"
         note="Sync skips smart collections (2 here)."
         actions={[
-          { key: "sync", label: "Sync 0 lists", icon: RefreshCw, onClick: vi.fn(), disabled: true },
+          {
+            key: "sync",
+            label: "Sync 0 lists",
+            icon: RefreshCw,
+            onClick: vi.fn(),
+            disabled: true,
+            explainedByNote: true,
+          },
           { key: "delete", label: "Delete…", icon: Trash2, onClick: vi.fn() },
         ]}
       />,
     );
-    expect(screen.getByRole("button", { name: "Sync 0 lists" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete…" })).toBeEnabled();
-    expect(screen.getByText("Sync skips smart collections (2 here).")).toBeInTheDocument();
+    const sync = screen.getByRole("button", { name: "Sync 0 lists" });
+    expect(sync).toBeDisabled();
+    // A screen reader on the off button hears why.
+    expect(sync).toHaveAccessibleDescription("Sync skips smart collections (2 here).");
+    const remove = screen.getByRole("button", { name: "Delete…" });
+    expect(remove).toBeEnabled();
+    expect(remove).not.toHaveAttribute("aria-describedby");
   });
 });
 

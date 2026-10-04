@@ -204,7 +204,13 @@ export default function AdminCollections() {
     () => filterAdminCollections(collections, { ...state, failed: true }).length,
     [collections, state],
   );
-  // Select mode works on the List; switching to Arrange leaves it.
+  // Select mode works on the List; switching to Arrange leaves it, and so
+  // does a List with nothing left to pick (another library, or the last ones
+  // deleted), which would show no Select all or Done.
+  if (selectMode && state.view === "list" && allCollections.isSuccess && inLibrary.length === 0) {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
   const selecting = selectMode && state.view === "list";
   const selected = useMemo(
     () => listed.filter((collection) => selectedIds.has(collection.id)),
@@ -217,13 +223,15 @@ export default function AdminCollections() {
     (collection) => collectionKindOf(collection.collection_type) === "smart",
   ).length;
 
-  // Entering select mode puts focus on Select all; leaving it, on More, since
+  // Entering select mode puts focus on Select all; leaving it, on More when
   // the Done button or checkbox that had focus is gone.
   const wasSelecting = useRef(selecting);
   useEffect(() => {
     if (wasSelecting.current === selecting) return;
     wasSelecting.current = selecting;
-    (selecting ? selectAll : moreTrigger).current?.focus();
+    if (selecting) selectAll.current?.focus();
+    else if (document.activeElement === document.body || !document.activeElement)
+      moreTrigger.current?.focus();
   }, [selecting]);
 
   const board = useAdminCollectionsBoard(arrangeLibraryId ?? undefined);
@@ -510,8 +518,9 @@ export default function AdminCollections() {
   const activeLibrary = libraryList.find((library) => library.id === activeLibraryId) ?? null;
   const deleteProgressLabel = `Deleting ${deleteCollections.progress?.completed ?? 0} of ${deleteCollections.progress?.total ?? viewCollections.length} collections`;
   const deleting = preparingDelete || deleteCollections.isPending;
-  // A starter set being added would race a delete of the collections it makes.
-  const bulkBusy = deleting || activeApplyJob;
+  // A starter set being added would race a delete of the collections it makes,
+  // and a select-mode change would move the ETags a delete has read.
+  const bulkBusy = deleting || activeApplyJob || batchRunning;
 
   function confirmBulkDelete() {
     if (bulkDelete && !activeApplyJob) deleteCollections.mutate(bulkDelete.snapshots);
@@ -532,6 +541,9 @@ export default function AdminCollections() {
         })
       : [];
 
+  // What the List shows once Select collections opens it, Arrange's library included.
+  const selectableCount =
+    activeLibraryId === null ? collections.length : (libraryCounts.get(activeLibraryId) ?? 0);
   // Starter packs take the first place once they replace templates.
   const moreItems: PageMoreMenuItem[] = [
     {
@@ -550,7 +562,7 @@ export default function AdminCollections() {
       icon: SquareCheckBig,
       // Focus moves to Select all once select mode opens.
       returnFocus: false,
-      disabled: selecting || collections.length === 0 || deleting,
+      disabled: selecting || selectableCount === 0 || deleting,
       onSelect: enterSelectMode,
     },
     {
@@ -801,6 +813,7 @@ export default function AdminCollections() {
                     label: syncListsLabel(selectedLists.length),
                     icon: RefreshCw,
                     disabled: selectedLists.length === 0,
+                    explainedByNote: true,
                     onClick: syncSelected,
                   },
                   {

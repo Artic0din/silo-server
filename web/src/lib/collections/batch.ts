@@ -7,7 +7,7 @@
 export const MAX_SELECTED_COLLECTIONS = 100;
 
 /** Requests a select-mode action keeps in flight at once. */
-export const BATCH_PARALLEL = 4;
+const BATCH_PARALLEL = 4;
 
 export interface BatchResult<F> {
   /** How many finished. */

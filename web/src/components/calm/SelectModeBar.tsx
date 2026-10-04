@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, type Ref } from "react";
+import { Fragment, useId, type ReactNode, type Ref } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,8 @@ export interface SelectModeAction {
   separated?: boolean;
   /** Off for this selection only, e.g. nothing picked that it applies to. */
   disabled?: boolean;
+  /** The bar's note says what it passes over, so a screen reader reads it with the button. */
+  explainedByNote?: boolean;
 }
 
 /**
@@ -42,6 +44,7 @@ export function SelectModeBar({
   /** One line under the bar about what the actions will pass over. */
   note?: ReactNode;
 }) {
+  const noteId = useId();
   const tooMany = count > limit;
   const disabled = busy || count === 0 || tooMany;
   return (
@@ -68,6 +71,7 @@ export function SelectModeBar({
               variant="ghost"
               size="sm"
               disabled={disabled || action.disabled}
+              aria-describedby={note && action.explainedByNote ? noteId : undefined}
               onClick={action.onClick}
               className={cn(
                 action.destructive &&
@@ -81,7 +85,10 @@ export function SelectModeBar({
         ))}
       </div>
       {note ? (
-        <p className="text-muted-foreground bg-background/80 rounded-full px-2.5 text-[12.5px] backdrop-blur">
+        <p
+          id={noteId}
+          className="text-muted-foreground bg-background/80 rounded-full px-2.5 text-[12.5px] backdrop-blur"
+        >
           {note}
         </p>
       ) : null}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BATCH_PARALLEL, runBatch } from "./batch";
+import { runBatch } from "./batch";
 
 function deferred() {
   let resolve!: () => void;
@@ -35,7 +35,6 @@ describe("runBatch", () => {
       () => "failed",
     );
     await flush();
-    expect(BATCH_PARALLEL).toBe(4);
     expect([...pending.keys()]).toEqual([0, 1, 2, 3]);
 
     pending.get(2)!.resolve();
