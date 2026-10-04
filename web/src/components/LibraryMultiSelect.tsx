@@ -65,6 +65,7 @@ export default function LibraryMultiSelect({
   onChange,
   eligibleKinds,
   emptyLabel = "All Libraries",
+  allOptionLabel = emptyLabel,
   hideAllOption = false,
   ineligibleReason,
   triggerClassName,
@@ -76,6 +77,8 @@ export default function LibraryMultiSelect({
   onChange: (libraryIds: number[]) => void;
   eligibleKinds?: string[];
   emptyLabel?: string;
+  /** The menu's reset item, when it should read differently from the empty summary. */
+  allOptionLabel?: string;
   hideAllOption?: boolean;
   ineligibleReason?: string;
   triggerClassName?: string;
@@ -114,7 +117,7 @@ export default function LibraryMultiSelect({
                 onChange([]);
               }}
             >
-              {emptyLabel}
+              {allOptionLabel}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

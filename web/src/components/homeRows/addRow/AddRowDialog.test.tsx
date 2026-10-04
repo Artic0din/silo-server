@@ -639,7 +639,7 @@ describe("rule rows", () => {
       editSession({ title: "Horror", sectionType: "genre", config: structuredClone(config) }),
     );
     expect(screen.getByText("Genre (no longer offered)")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Kind of titles" })).toHaveTextContent("movies");
+    expect(screen.getByRole("combobox", { name: "Kind of titles" })).toHaveTextContent(/^movies$/);
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(JSON.stringify(savedDraft().config)).toBe(JSON.stringify(config));

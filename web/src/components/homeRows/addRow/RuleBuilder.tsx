@@ -181,12 +181,15 @@ export function RuleBuilder({
           value={value.library_ids}
           onChange={(libraryIds) => onChange({ ...value, library_ids: libraryIds })}
           emptyLabel="all libraries"
+          allOptionLabel="All libraries"
           triggerLabel="Libraries"
           triggerClassName={`${INLINE_TRIGGER} justify-between`}
         />
         {namedLibraries > 0 ? <span>{namedLibraries === 1 ? "library" : "libraries"}</span> : null}
         {groups.length > 0 ? (
           <>
+            {/* The mockup starts the matching clause on its own line. */}
+            <span aria-hidden className="h-0 basis-full" />
             <span>that match</span>
             <MatchSelect
               label="How the rules combine"

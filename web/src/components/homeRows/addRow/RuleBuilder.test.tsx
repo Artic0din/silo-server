@@ -127,6 +127,30 @@ describe("RuleBuilder", () => {
     ).toEqual(["from the", "Libraries: 2 libraries", "that match"]);
   });
 
+  it("starts “that match …” on a second line, as the mockup lays it out", () => {
+    render(<Harness initial={query({ library_ids: [1, 2] })} />);
+    const sentence = screen.getByRole("group", { name: "What the row shows" });
+    const clause = within(sentence).getByText("that match");
+    const lineBreak = clause.previousElementSibling;
+    expect(lineBreak).toHaveAttribute("aria-hidden", "true");
+    expect(lineBreak).toHaveClass("basis-full");
+    expect(lineBreak).toBeEmptyDOMElement();
+  });
+
+  it("keeps the picker's reset item capitalized while the sentence reads “all libraries”", async () => {
+    const { unmount } = render(<Harness initial={query({ library_ids: [1] })} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Libraries:\s*Movies$/ }));
+    expect(screen.getByRole("menuitem", { name: "All libraries" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "All libraries" }));
+    expect(latest?.library_ids).toEqual([]);
+    unmount();
+
+    render(<Harness initial={query()} />);
+    expect(
+      screen.getByRole("button", { name: /^Libraries:\s*all libraries$/ }),
+    ).toBeInTheDocument();
+  });
+
   it("offers movies and shows together as one kind, and shows it when stored", () => {
     const { unmount } = render(<Harness initial={query()} />);
     choose(screen.getByRole("combobox", { name: "Kind of titles" }), "movies and shows");
