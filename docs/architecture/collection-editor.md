@@ -3,8 +3,7 @@
 The web edits every collection on one page, for server (library) and personal collections alike:
 `web/src/pages/CollectionEditorPage.tsx`. This page covers how that page saves, because the
 collection's titles and its other fields reach the server by different routes with different
-tokens. Manual and Smart collections use the page today, and so does creating a Synced list; a
-saved Synced list still opens its earlier editor inside it.
+tokens. Every type uses the page: Manual, Smart and Synced list, to create and to edit.
 
 ## Routes
 
@@ -111,6 +110,41 @@ links, max titles and the schedule.
   from `schedule_time_zone`, because cron runs in the node's local zone. A personal list takes a
   named schedule (Manual only, Daily, Weekly, Monthly); a template's cron maps to the nearest one,
   never more often than daily.
+
+## Editing a Synced list
+
+A saved Synced list keeps what it follows in the draft's `list` member (`ListDraft`,
+`web/src/lib/collections/scope.ts`): the link, chart or TMDB collection ID, max titles and the
+schedule. They save with the rest of the draft and merge three-way like other fields; what the
+list follows counts once, as the list.
+
+- **What can change depends on the source.** A server MDBList or TMDB list changes its link; a
+  server TMDB chart changes its chart or moves to a TMDB list; a franchise list changes its TMDB
+  collection ID. A profile changes its MDBList or TMDB list link; a chart it follows stays as it was
+  made. Discover lists (from Starter packs) and legacy Trakt lists show their source read-only.
+- **What a server save sends.** The PATCH carries every field and rebuilds the source whole
+  (`source_url` and `source_config`), as the server stores it: a changed MDBList link loses its
+  `?query`, `#fragment` and trailing slash, and a TMDB list link becomes its canonical
+  `https://www.themoviedb.org/list/{id}`. A franchise list with no ID yet, a Discover list whose max
+  titles didn't change, and every Trakt list send no source, so the server keeps the stored one. A
+  Discover list's changed max titles sends its stored rules with the new limit. A Trakt list's
+  libraries and max titles are locked, and a stopped Trakt schedule can't be turned on, because
+  the server refuses those changes. A save never sends `featured`.
+- **What a personal save sends.** Name, sharing, libraries, the Collections tab switch and Show
+  only always go; description, order, the link (`source_url`), max titles (`max_items`, `0` for the
+  whole list) and the schedule go only when they changed.
+- **Schedules.** A personal list's schedule is shown by its cadence name (`sync_cadence`), never as
+  cron. A cadence the names can't express reads "Custom schedule (current)" and is never sent back;
+  picking another sends `sync_schedule`. The picker stays locked until the collections
+  capabilities report `sync_schedule_editable`. A server list's cron is labelled with the answering
+  node's offset, as when it was created.
+- **Sync status.** The panel shows when the list last synced, when it syncs next, and how many of
+  the list's titles a sync skipped because they are in none of its libraries. That count comes
+  from a sync run (`items_unmatched`); the collection doesn't store it, so it is known only after
+  Sync now on this page. A failed last sync shows its reason at the top, with Sync now.
+- **Sync now** (header ⋯) moves the collection's revision. When it finishes, the editor reads the
+  collection again and merges (`syncWithServer`), so the next Save sends the current ETag. A
+  profile's lists offer Sync now while the server takes personal imports.
 
 ## Title search
 
