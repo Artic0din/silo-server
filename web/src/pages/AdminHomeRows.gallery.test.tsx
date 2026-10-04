@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import AdminSections from "./AdminSections";
+import AdminHomeRows from "./AdminHomeRows";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/api/v2/request", async () => ({
@@ -95,18 +96,20 @@ afterEach(() => {
 
 async function openGalleryConfig(tab: "Home" | "Library") {
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-        })
-      }
-    >
-      <AdminSections />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+          })
+        }
+      >
+        <AdminHomeRows />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
   if (tab === "Library") {
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Library" }), { button: 0 });
+    fireEvent.click(await screen.findByRole("button", { name: "Movies" }));
   }
   const gallery = await screen.findByRole("button", { name: "Add from Gallery" });
   await waitFor(() => expect(gallery).toBeEnabled());
@@ -117,9 +120,11 @@ async function openGalleryConfig(tab: "Home" | "Library") {
 describe("admin Home rows page", () => {
   it("is titled Home rows and says who sees the rows", async () => {
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <AdminSections />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <AdminHomeRows />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     expect(await screen.findByRole("heading", { level: 1, name: "Home rows" })).toBeInTheDocument();

@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { queryDefinitionFromSectionConfig, queryDefinitionToSectionConfig } from "@/api/types";
 
-import AdminSections from "./AdminSections";
+import AdminHomeRows from "./AdminHomeRows";
 
 describe("AdminSections", () => {
   it("exports the admin sections page component", () => {
-    expect(AdminSections).toBeTypeOf("function");
+    expect(AdminHomeRows).toBeTypeOf("function");
   });
 
   it("serializes section filters into the shared query definition shape", () => {
