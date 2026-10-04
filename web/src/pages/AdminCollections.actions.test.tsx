@@ -92,6 +92,8 @@ async function openStarterPacksFromMore() {
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "More" }));
   await user.click(await screen.findByRole("menuitem", { name: "Starter packs…" }));
+  // More runs a dialog-opening item only once the menu has closed.
+  return screen.findByRole("dialog", { name: "Starter packs" });
 }
 
 function renderPage(path: string) {
@@ -202,8 +204,7 @@ describe("AdminCollections Arrange actions", () => {
     renderPage("/admin/collections?libraryId=2");
 
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
-    await openStarterPacksFromMore();
-    expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent("Opened on 2");
+    expect(await openStarterPacksFromMore()).toHaveTextContent("Opened on 2");
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
