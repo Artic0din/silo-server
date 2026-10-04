@@ -1549,7 +1549,7 @@ func (h *LibraryCollectionHandler) applyTemplateBundle(
 			}
 			entry.CollectionID = collection.ID
 			rememberTemplateBundleExistingCollection(remainingByLibrarySlug, library.ID, collection)
-			if templateBundleTemplateCanInitialSync(tmpl) {
+			if !tmpl.NeedsSetup() {
 				pendingSyncs = append(pendingSyncs, pendingTemplateBundleSync{
 					CollectionID: collection.ID,
 					SyncSchedule: collection.SyncSchedule,
@@ -1671,13 +1671,6 @@ func (h *LibraryCollectionHandler) ensureTemplatePoster(
 
 func shouldQueueTemplateBundleSyncs(bundle templates.Bundle, pendingCount int) bool {
 	return bundle.ID == "all_defaults" || pendingCount > templateBundleInlineSyncLimit
-}
-
-func templateBundleTemplateCanInitialSync(tmpl templates.Template) bool {
-	if tmpl.Source == templates.SourceTMDBCollection {
-		return tmpl.TMDBCollection != nil && tmpl.TMDBCollection.CollectionID > 0
-	}
-	return true
 }
 
 func templateBundleCreatedEntries(pending []pendingTemplateBundleSync) []templateBundleApplyEntry {

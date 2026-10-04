@@ -11,6 +11,7 @@ import (
 
 	"github.com/Silo-Server/silo-server/internal/catalog"
 	"github.com/Silo-Server/silo-server/internal/collectionutil"
+	"github.com/Silo-Server/silo-server/internal/models"
 	"github.com/Silo-Server/silo-server/internal/usercollections"
 	"github.com/Silo-Server/silo-server/internal/userstore"
 )
@@ -194,15 +195,38 @@ func (h *CollectionHandler) PreviewPersonalCollection(ctx context.Context, req P
 		return none, apiError(http.StatusBadRequest, "bad_request", err.Error())
 	}
 
+	var posters map[string]string
+	if req.WithPosters {
+		posters = h.previewPosterURLs(ctx, items)
+	}
 	resp := PersonalCollectionPreviewView{Items: make([]PersonalCollectionPreviewItemView, 0, len(items)), Total: total}
 	for _, item := range items {
 		resp.Items = append(resp.Items, PersonalCollectionPreviewItemView{
 			ContentID: item.ContentID,
 			Title:     item.Title,
 			Type:      item.Type,
+			PosterURL: posters[item.PosterPath],
 		})
 	}
 	return resp, nil
+}
+
+// previewPosterURLs signs the card-size posters of the previewed items in one
+// batch, keyed by poster path. Items without a poster are not looked up.
+func (h *CollectionHandler) previewPosterURLs(ctx context.Context, items []*models.MediaItem) map[string]string {
+	if h.ItemPosters == nil {
+		return nil
+	}
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.PosterPath != "" {
+			paths = append(paths, item.PosterPath)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return h.ItemPosters.PresignImageURLs(ctx, paths, "poster", "small")
 }
 
 func (h *CollectionHandler) DeletePersonalCollection(ctx context.Context, userID int, profileID, collectionID string) error {

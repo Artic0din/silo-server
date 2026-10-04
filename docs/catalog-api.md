@@ -110,6 +110,31 @@ from (`mdblist`, `tmdb`, `tmdb_list`); it is empty when `imports` is false. Chec
 which follows a public TMDB list. The administrator capability document
 (`getAdminCollectionCapabilities`) carries the same field for `importAdminTMDBList`.
 
+## Personal collection descriptions
+
+`createCollection` (`POST /api/v2/collections`) accepts an optional `description`, stored
+with the new collection and returned as `description` on collection reads. Omitting it stores
+an empty description; `null` is a validation failure. Check `create_description` in the
+`getCollectionCapabilities` document before sending it: a server without that flag rejects the
+member as unknown, and an account whose user store does not keep descriptions (the SQLite
+store) reports `false` and answers a non-empty `description` with `501 capability_unsupported`.
+`updateCollection` changes the description of an existing collection.
+
+The frozen `/api/v1/collections` create ignores a `description` member, in a JSON body and in
+the multipart `data` field alike; the collection is created with an empty description.
+
+## Personal smart previews
+
+`previewCollection` (`POST /api/v2/collections/preview`) returns the first titles a smart query
+matches within the acting profile's access. Each item carries `poster_url`, a card-size poster URL,
+when the title has a poster, and omits the member when it has none. A missing `poster_url` alone
+does not show whether the server returns posters: check `preview_posters` in the
+`getCollectionCapabilities` document. The URL can be signed and expire, like other artwork URLs,
+so read a fresh preview rather than storing it.
+`previewAdminCollection` items carry the same field.
+
+The frozen `/api/v1/collections/preview` response is unchanged and carries no poster.
+
 ## Personal collection imports
 
 A personal collection imported with `importMDBListCollection`, `importTMDBCollection`,
@@ -371,6 +396,24 @@ fall back to the ID when the title is absent. Personal membership pages hydrate
 titles through the existing viewer access filter; admin pages require acting
 administrator access. Membership identity, ordering and cursor revision checks
 are unchanged. Frozen v1 membership responses do not expose this field.
+
+## Template bundle summaries
+
+`listAdminCollectionTemplateBundles` (`GET /api/v2/admin/collections/template-bundles`) returns
+each bundle with `templates`, a summary of every template in `template_ids` order: `id`, `title`,
+`source`, `media_kind`, `featured`, `poster_path` (omitted when the template has no poster) and
+`needs_setup`. The list covers every source a bundle uses, including `tmdb_discover` and
+`tmdb_collection` templates, so a client can describe a bundle without the template catalog.
+Check `template_summaries` in the `getAdminCollectionCapabilities` document before relying on
+`templates`; a server without it returns bundles without summaries.
+
+`featured` is the pinned-first flag a collection created from the template starts with.
+`needs_setup` is true for a template whose collection is created empty and cannot sync until an
+administrator sets its source; today that is the `tmdb_franchise_placeholder` template, which has
+no TMDB collection ID. Applying the bundle still creates that collection.
+
+The route requires acting administrator access. The frozen
+`/api/v1/admin/collections/template-bundles` response is unchanged and carries no `templates`.
 
 ## Advisory age
 
