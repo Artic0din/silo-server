@@ -58,12 +58,6 @@ export function matchRecipePreset(
   return best ?? def.presets[0];
 }
 
-export interface Candidate {
-  value: string;
-  display_name: string;
-  subtitle?: string;
-}
-
 export interface PreviewRequest {
   section_type: string;
   config: Record<string, unknown>;
@@ -110,17 +104,6 @@ export function recipeCatalogFromV2(
     }));
   }
   return { categories };
-}
-
-export async function fetchCandidates(recipeType: string): Promise<Candidate[]> {
-  const body = await v2("GET /api/v2/sections/recipes/{type}/candidates", {
-    path: { type: recipeType },
-  });
-  return body.candidates.map((candidate) => ({
-    value: candidate.value,
-    display_name: candidate.display_name,
-    ...(candidate.subtitle ? { subtitle: candidate.subtitle } : {}),
-  }));
 }
 
 export async function previewSection(

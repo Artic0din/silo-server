@@ -420,7 +420,7 @@ describe("admin bulk create", () => {
       );
       const bulk = await sent(() =>
         bulkCreateAdminSections(
-          buildGalleryBulkCreateRequest(buildGalleryAddPayload(fields, [3, 5]), [3, 5]),
+          buildGalleryBulkCreateRequest(buildGalleryAddPayload(fields), [3, 5]),
         ),
       );
       const { library_id: singleLibrary, ...singleRest } = single.body as Record<string, unknown>;
@@ -482,16 +482,6 @@ describe("admin bulk create", () => {
         enabled: false,
         config: { window: "7d" },
       },
-    });
-  });
-
-  it("marks the confirmation payload as applied to all chosen libraries", () => {
-    const fields = galleryFields("recently_added", "Recently Added", {});
-    expect(buildGalleryAddPayload(fields)).toMatchObject({ apply_to_all_libraries: false });
-    expect(buildGalleryAddPayload(fields)).not.toHaveProperty("library_ids");
-    expect(buildGalleryAddPayload(fields, [3, 5])).toMatchObject({
-      apply_to_all_libraries: true,
-      library_ids: [3, 5],
     });
   });
 });

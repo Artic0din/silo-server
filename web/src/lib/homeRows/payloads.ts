@@ -11,13 +11,14 @@ import {
   finalizeSectionLibraryFilter,
   LIBRARY_FILTER_SECTION_TYPES,
 } from "@/lib/sectionLibraryFilter";
-import { FILTER_SECTION_TYPES, sectionTypeLabel } from "@/lib/sectionTypes";
+import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { randomUUID } from "@/lib/uuid";
+import { rowKindLabel } from "./catalog";
 import type { RowDraft } from "./rowDraft";
 import { stableJson } from "./stableJson";
 import type { PageRef } from "./types";
 
-/** What the recipe gallery's config drawer hands its owner when the user adds a row. */
+/** A new row's fields, before they become an admin create or a profile row. */
 export interface AddPayload {
   section_type: string;
   title: string;
@@ -25,8 +26,6 @@ export interface AddPayload {
   featured: boolean;
   enabled: boolean;
   config: Record<string, unknown>;
-  apply_to_all_libraries?: boolean;
-  library_ids?: number[];
 }
 
 interface BuildGalleryAddPayloadInput {
@@ -38,15 +37,16 @@ interface BuildGalleryAddPayloadInput {
   config: Record<string, unknown>;
 }
 
-/**
- * The gallery drawer's add payload. With `bulkLibraryIds` it is the payload
- * the "Apply to all libraries" confirmation sends.
- */
-export function buildGalleryAddPayload(
-  { sectionType, title, itemLimit, featured, enabled, config }: BuildGalleryAddPayloadInput,
-  bulkLibraryIds?: number[],
-): AddPayload {
-  const payload = {
+/** A new row from a preset or an Add row draft: the fields as given, config untouched. */
+export function buildGalleryAddPayload({
+  sectionType,
+  title,
+  itemLimit,
+  featured,
+  enabled,
+  config,
+}: BuildGalleryAddPayloadInput): AddPayload {
+  return {
     section_type: sectionType,
     title,
     item_limit: itemLimit,
@@ -54,12 +54,9 @@ export function buildGalleryAddPayload(
     enabled,
     config,
   };
-  return bulkLibraryIds
-    ? { ...payload, apply_to_all_libraries: true, library_ids: bulkLibraryIds }
-    : { ...payload, apply_to_all_libraries: false };
 }
 
-/** The admin create request for one gallery add on the page the admin has open. */
+/** The admin create request for one new row on the page the admin has open. */
 export function buildGalleryCreateRequest(
   payload: AddPayload,
   scope: string,
@@ -77,7 +74,7 @@ export function buildGalleryCreateRequest(
   };
 }
 
-/** The admin bulk create request for a gallery add applied to several library pages. */
+/** The admin bulk create request that adds one row to several library pages. */
 export function buildGalleryBulkCreateRequest(
   payload: AddPayload,
   libraryIds: number[],
@@ -94,7 +91,7 @@ export function buildGalleryBulkCreateRequest(
   };
 }
 
-/** A gallery add on Settings > Home Screen, as a new profile-owned row. */
+/** A new row on Settings > Home Screen, as a profile-owned row. */
 export function buildProfileGallerySection(
   payload: AddPayload,
   position: number,
@@ -244,7 +241,7 @@ export function buildProfileSectionSaveEntry({
   return {
     id: section?.id ?? randomUUID(),
     section_type: sectionType,
-    title: title || sectionTypeLabel(sectionType),
+    title: title || rowKindLabel(sectionType),
     featured,
     item_limit: itemLimit,
     hidden: section?.hidden ?? false,
@@ -305,7 +302,7 @@ export function buildAdminSectionPayload({
     config = { ...base, ...recipeParams };
   }
 
-  const safeTitle = title.trim() || sectionTypeLabel(sectionType);
+  const safeTitle = title.trim() || rowKindLabel(sectionType);
 
   return {
     ...(section ? { id: section.id } : {}),
@@ -374,10 +371,7 @@ export function buildBulkCopyPayload(
   libraryIds: number[],
 ): BulkCreateAdminSections {
   return buildGalleryBulkCreateRequest(
-    buildGalleryAddPayload(
-      { sectionType, title, itemLimit, featured: false, enabled, config },
-      libraryIds,
-    ),
+    buildGalleryAddPayload({ sectionType, title, itemLimit, featured: false, enabled, config }),
     libraryIds,
   );
 }
@@ -419,7 +413,7 @@ export function buildRowUpdateRequest(
     : request;
 }
 
-/** A row added on Settings > Home Screen: the gallery's row, as this profile's own. */
+/** A row added on Settings > Home Screen, as this profile's own. */
 export function buildProfileRowCreate(
   draft: RowDraft,
   title: string,
