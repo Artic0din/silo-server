@@ -124,8 +124,8 @@ Both collection capability documents, `getCollectionCapabilities` and
   environment variable names, or `UTC` when `TZ` is empty or names no known zone. It is
   omitted when the node uses its system default zone or a `TZ` file path. Each node reports its own zone, and the
   offset changes with daylight saving time, so read it with the schedule rather than
-  storing it. A schedule cannot name its own zone: operations that accept a cron
-  `sync_schedule` reject a `TZ=` or `CRON_TZ=` prefix with `400`.
+  storing it. A cron `sync_schedule` with a `TZ=` or `CRON_TZ=` prefix runs in the zone
+  the prefix names instead.
 
 `getCollectionCapabilities` also reports `sync_schedule_editable`, `true` when `updateCollection`
 accepts `sync_schedule`; see [Personal sync schedules](#personal-sync-schedules).
