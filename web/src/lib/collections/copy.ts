@@ -199,9 +199,9 @@ export const DISCOVER_LOCKED = "Made by a starter pack. Its rules can't be chang
 export const DISCOVER_STILL_EDITABLE =
   "You can still change its name, artwork, max titles, schedule and where it shows.";
 export const TRAKT_LOCKED =
-  "Silo no longer syncs Trakt lists. This one keeps its source and libraries.";
+  "New Trakt lists aren't supported. This one keeps its source and libraries.";
 export const TRAKT_STILL_EDITABLE =
-  "You can still change its name, artwork, order and where it shows.";
+  "You can still change its name, artwork, order, schedule and where it shows.";
 export const TRAKT_SCHEDULE_STOPPED = "A stopped Trakt list can't be scheduled again.";
 export const PERSONAL_SCHEDULE_LOCKED =
   "This server doesn't let profiles change a list's schedule.";
@@ -231,10 +231,15 @@ export function titlesSkipped(count: number): string {
 }
 
 /** Why a synced list skips titles, and what brings them in. */
-export function skippedExplanation(count: number | undefined, libraryNames: readonly string[]) {
+export function skippedExplanation(
+  count: number | undefined,
+  libraryNames: readonly string[],
+  canSync = true,
+) {
   const where = libraryNames.length > 0 ? joinNames(libraryNames) : "your libraries";
   if (count === undefined) {
-    return `Titles on the list that aren't in ${where} are skipped. Sync now to count them.`;
+    const skipped = `Titles on the list that aren't in ${where} are skipped.`;
+    return canSync ? `${skipped} Sync now to count them.` : skipped;
   }
   const verb = count === 1 ? "isn't" : "aren't";
   return `${plural(count, "title")} on the list ${verb} in ${where}, so they're skipped. Add them to one of those libraries and they join at the next sync.`;

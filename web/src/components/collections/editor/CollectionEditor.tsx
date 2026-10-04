@@ -246,8 +246,16 @@ export function CollectionEditor<Raw extends WireCollection>({
   // How many titles the last sync run here skipped; the collection doesn't carry it.
   const [skipped, setSkipped] = useState<number>();
   const syncing = syncList.isPending || view?.sync?.status === "running";
-  // A profile syncs its lists only while the server takes personal imports.
-  const canSync = created && Boolean(view?.source) && capabilities?.imports !== false;
+  // Spec §3.1: only server lists offer Sync now here; a profile syncs its
+  // lists from their cards on the Collections page.
+  const canSync = created && isServer && Boolean(view?.source);
+  // Discards put the list's source card back.
+  const [discards, setDiscards] = useState(0);
+
+  /** Reads the collection again; a failed read keeps the old token, and Save's 412 merges. */
+  function reread() {
+    editor.syncWithServer().catch(() => {});
+  }
 
   function syncNow() {
     if (!editor.id || syncing) return;
@@ -255,7 +263,7 @@ export function CollectionEditor<Raw extends WireCollection>({
       onSuccess: (run) => {
         setSkipped(run.itemsUnmatched);
         // The sync moved the collection's revision: read it so Save sends the new token.
-        void editor.syncWithServer();
+        reread();
       },
     });
   }
@@ -362,7 +370,10 @@ export function CollectionEditor<Raw extends WireCollection>({
         draft.name.trim() !== "" && !needsLibraries && !listProblem && editor.conflicts.length === 0
       }
       onSave={() => void editor.save()}
-      onDiscard={editor.discard}
+      onDiscard={() => {
+        editor.discard();
+        setDiscards((count) => count + 1);
+      }}
       message={
         editor.saveError ? (
           `${SAVE_FAILED} · ${editor.saveError}`
@@ -416,7 +427,7 @@ export function CollectionEditor<Raw extends WireCollection>({
     panel = {
       ...common,
       draft: { ...draft, list: draft.list },
-      saved: { view, syncing, skipped, onSyncNow: canSync ? syncNow : undefined },
+      saved: { view, syncing, skipped, onSyncNow: canSync ? syncNow : undefined, discards },
     };
   }
   if (panel) {
@@ -475,7 +486,7 @@ export function CollectionEditor<Raw extends WireCollection>({
         onStagedChange={(stagedItems) => editor.setDraft((next) => ({ ...next, stagedItems }))}
         onRetryStaged={(position) => void editor.retryStagedItems(position)}
         itemCount={view?.itemCount}
-        onItemsChanged={() => void editor.syncWithServer()}
+        onItemsChanged={reread}
       />
     );
   }

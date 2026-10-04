@@ -448,6 +448,53 @@ describe("server Synced list editor", () => {
     expect(saveButton()).toBeDisabled();
   });
 
+  it("saves a new max titles on a franchise list that has no ID yet", async () => {
+    serverList("tmdb", {
+      source_url: "tmdb://collection/0",
+      source_config: { mode: "tmdb_collection" },
+    });
+    showPage(SERVER_EDIT);
+    await setMaxTitles("30");
+    await save(ADMIN_PATCH);
+    expect(patches(ADMIN_PATCH)[0]!.source_config).toEqual({ mode: "tmdb_collection", limit: 30 });
+    expect(patches(ADMIN_PATCH)[0]).not.toHaveProperty("source_url");
+  });
+
+  it("unticks a library that can't hold a newly picked chart's titles, and says why", async () => {
+    serverList(
+      "tmdb",
+      {
+        source_url: "tmdb://popular/movie",
+        source_config: { mode: "tmdb_preset", preset: "popular", media_type: "movie" },
+      },
+      { library_ids: ["1", "2"] },
+    );
+    showPage(SERVER_EDIT);
+    fireEvent.click(await screen.findByRole("button", { name: "Change chart" }));
+    const charts = screen.getByRole("radiogroup", { name: "Chart" });
+    fireEvent.click(within(charts).getByRole("radio", { name: /^Airing today/ }));
+    expect(
+      screen.getByText("This list only has TV shows, so Movies isn't offered."),
+    ).toBeInTheDocument();
+    await save(ADMIN_PATCH);
+    expect(patches(ADMIN_PATCH)[0]).toMatchObject({
+      library_ids: ["2"],
+      source_config: { mode: "tmdb_preset", preset: "airing_today", media_type: "tv" },
+    });
+  });
+
+  it("puts the source card back on Discard, and focuses the field Change link opens", async () => {
+    serverList("mdblist", MDBLIST);
+    showPage(SERVER_EDIT);
+    fireEvent.click(await screen.findByRole("button", { name: "Change link" }));
+    const link = screen.getByRole("textbox", { name: "MDBList link" });
+    await vi.waitFor(() => expect(link).toHaveFocus());
+    fireEvent.change(link, { target: { value: "https://mdblist.com/lists/u/top" } });
+    fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+    expect(await screen.findByRole("button", { name: "Change link" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "MDBList link" })).toBeNull();
+  });
+
   it("shows a Discover list's rules read-only and saves without its source", async () => {
     serverList("tmdb", {
       source_url: "tmdb://discover/movie",
@@ -501,7 +548,16 @@ describe("server Synced list editor", () => {
     it("shows its source read-only, locks libraries and max titles, and sends no source", async () => {
       serverList("trakt", TRAKT);
       showPage(SERVER_EDIT);
-      expect(await screen.findByText(/Silo no longer syncs Trakt lists/)).toBeInTheDocument();
+      expect(
+        await screen.findByText(
+          "New Trakt lists aren't supported. This one keeps its source and libraries.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "You can still change its name, artwork, order, schedule and where it shows.",
+        ),
+      ).toBeInTheDocument();
       expect(screen.getByRole("spinbutton", { name: "Max titles" })).toBeDisabled();
       expect(screen.getByRole("spinbutton", { name: "Max titles" })).toHaveValue(40);
       expect(screen.getByRole("button", { name: /Match into/ })).toBeDisabled();
@@ -663,19 +719,25 @@ describe("personal Synced list editor", () => {
     expect(screen.queryByRole("button", { name: /^Change (link|chart)/ })).toBeNull();
   });
 
-  it("offers Sync now in More actions", async () => {
+  // Spec §3.1: personal editors have no Sync now; the Collections page card has it.
+  it("has no Sync now in More actions", async () => {
     personalList("mdblist", PERSONAL_MDBLIST, {});
-    v2Recorder.answer("POST /api/v2/collections/{id}/sync", {
-      status: "success",
-      message: "",
-      items_matched: 9,
-      items_unmatched: 2,
-      started_at: "2026-01-02T03:04:05Z",
-      completed_at: "2026-01-02T03:04:06Z",
-    });
     showPage(PERSONAL_EDIT);
     const menu = await openMoreActions();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
-    expect(await within(statusStrip()).findByText("2 titles skipped")).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /Sync/ })).toBeNull();
+    fireEvent.click(within(statusStrip()).getByRole("button", { name: "Why titles are skipped" }));
+    expect(screen.queryByText(/Sync now to count them/)).toBeNull();
+  });
+
+  it("shows a failed sync's reason without Sync now", async () => {
+    personalList("mdblist", PERSONAL_MDBLIST, {
+      last_sync_status: "failed",
+      last_sync_message: "MDBList didn't answer.",
+    });
+    showPage(PERSONAL_EDIT);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("MDBList didn't answer.");
+    expect(within(alert).queryByRole("button")).toBeNull();
   });
 });

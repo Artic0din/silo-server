@@ -55,6 +55,7 @@ export function SyncStatusBlock({
   syncing,
   skipped,
   libraryNames,
+  canSync = true,
 }: {
   sync: SyncState;
   itemCount: number;
@@ -62,6 +63,8 @@ export function SyncStatusBlock({
   /** Titles the last sync run here skipped; unknown until one runs. */
   skipped?: number;
   libraryNames: readonly string[];
+  /** Whether this page offers Sync now, which counts the skipped titles. */
+  canSync?: boolean;
 }) {
   const id = useId();
   const [explaining, setExplaining] = useState(false);
@@ -119,7 +122,7 @@ export function SyncStatusBlock({
         hidden={!explaining}
         className="bg-muted/50 rounded-xl px-3 py-2.5 text-[13px]"
       >
-        {skippedExplanation(skipped, libraryNames)}
+        {skippedExplanation(skipped, libraryNames, canSync)}
       </p>
     </div>
   );

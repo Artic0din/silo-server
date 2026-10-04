@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Info, Lock } from "lucide-react";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
@@ -96,6 +96,18 @@ interface LibraryOption {
 /** Whether a library can hold the list's titles; mixed and untyped libraries hold anything. */
 function fits(library: LibraryOption, kinds: readonly string[] | undefined) {
   return !kinds || !library.type || library.type === "mixed" || kinds.includes(library.type);
+}
+
+/** The ticked libraries that can hold titles of `kinds`; unknown ids stay. */
+function fittingLibraryIds(
+  libraryIds: number[],
+  libraries: readonly LibraryOption[],
+  kinds: readonly string[] | undefined,
+) {
+  return libraryIds.filter((libraryId) => {
+    const library = libraries.find((entry) => entry.id === libraryId);
+    return !library || fits(library, kinds);
+  });
 }
 
 /** A row of mutually exclusive choices, as in Show: Movies / TV shows / Both. */
@@ -279,10 +291,7 @@ function NewListContents({
       const applied = applyPick(current, pick);
       return {
         ...applied,
-        libraryIds: applied.libraryIds.filter((libraryId) => {
-          const library = libraries.find((entry) => entry.id === libraryId);
-          return !library || fits(library, pickKinds);
-        }),
+        libraryIds: fittingLibraryIds(applied.libraryIds, libraries, pickKinds),
         synced: { ...applied.synced!, ...links },
       };
     });
@@ -524,6 +533,11 @@ function LinkSource({
 }) {
   const id = useId();
   const [changing, setChanging] = useState(false);
+  const fieldId = `${id}-${source === "tmdb_list" ? "tmdb-list" : "mdblist"}`;
+  // Change link moves focus into the field it opens.
+  useEffect(() => {
+    if (changing) document.getElementById(fieldId)?.focus();
+  }, [changing, fieldId]);
   if (!changing) {
     return (
       <SourceCard
@@ -537,7 +551,7 @@ function LinkSource({
   if (source === "tmdb_list") {
     return (
       <TMDBListURLField
-        id={`${id}-tmdb-list`}
+        id={fieldId}
         label={TMDB_LIST_LINK}
         help={LINK_CHANGES_AT_NEXT_SYNC}
         value={link}
@@ -548,9 +562,9 @@ function LinkSource({
   const invalid = link.trim() !== "" && !isMDBListLink(cleanMDBListLink(link));
   return (
     <div className="grid gap-2">
-      <Label htmlFor={`${id}-mdblist`}>{MDBLIST_LINK}</Label>
+      <Label htmlFor={fieldId}>{MDBLIST_LINK}</Label>
       <Input
-        id={`${id}-mdblist`}
+        id={fieldId}
         value={link}
         placeholder="https://mdblist.com/lists/…"
         aria-invalid={invalid || undefined}
@@ -581,6 +595,14 @@ function TMDBSource({
   const id = useId();
   const [changing, setChanging] = useState(false);
   const isList = list.source === "tmdb_list";
+  // Change moves focus to the chosen tab of what it opens.
+  useEffect(() => {
+    if (!changing) return;
+    document
+      .getElementById(`${id}-tabs`)
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.focus();
+  }, [changing, id]);
   if (!changing) {
     let detail = shownLink(list.link);
     if (!isList) detail = list.chart ? chartSummary(list.chart) : "";
@@ -598,7 +620,11 @@ function TMDBSource({
       value={isList ? "tmdb_list" : "tmdb_chart"}
       onValueChange={(next) => onChange({ source: next as "tmdb_chart" | "tmdb_list" })}
     >
-      <TabsList aria-label="Where the list comes from" className="h-11 w-full sm:w-fit">
+      <TabsList
+        id={`${id}-tabs`}
+        aria-label="Where the list comes from"
+        className="h-11 w-full sm:w-fit"
+      >
         <TabsTrigger value="tmdb_chart" className="px-3.5">
           {TAB_LABEL.tmdb_chart}
         </TabsTrigger>
@@ -692,6 +718,8 @@ export interface SavedListSync {
   /** Titles the last sync run here skipped. */
   skipped?: number;
   onSyncNow?: () => void;
+  /** Counts Discards; each puts the source card back. */
+  discards?: number;
 }
 
 /**
@@ -711,7 +739,10 @@ function SavedListContents({
   const { list } = draft;
   const { view, syncing } = saved;
   const sync = view.sync ?? { status: "", message: "", schedule: "" };
-  const kinds = eligibleLibraryKinds(savedListMediaKind(list));
+  const mediaKind = savedListMediaKind(list);
+  const kinds = eligibleLibraryKinds(mediaKind);
+  const only = mediaKind === "movie" || mediaKind === "tv" ? mediaKind : null;
+  const left = libraries.filter((library) => !fits(library, kinds)).map((library) => library.name);
   const trakt = list.source === "trakt";
   const chosen = libraries.filter((library) => draft.libraryIds.includes(library.id));
   // The server won't restart a stopped Trakt schedule, and a profile's
@@ -723,8 +754,18 @@ function SavedListContents({
   }
   const scheduleLocked =
     Boolean(scheduleLockedReason) || (!isServer && !capabilities?.sync_schedule_editable);
+  // A new source unticks libraries that can't hold its titles, as on create.
   const updateList = (fields: Partial<ListDraft>) =>
-    onChange((current) => ({ ...current, list: { ...current.list!, ...fields } }));
+    onChange((current) => {
+      const next = { ...current.list!, ...fields };
+      if (!("chart" in fields || "source" in fields)) return { ...current, list: next };
+      const nextKinds = eligibleLibraryKinds(savedListMediaKind(next));
+      return {
+        ...current,
+        list: next,
+        libraryIds: fittingLibraryIds(current.libraryIds, libraries, nextKinds),
+      };
+    });
   return (
     <>
       {sync.status === "failed" && !syncing ? (
@@ -741,8 +782,10 @@ function SavedListContents({
         syncing={syncing}
         skipped={saved.skipped}
         libraryNames={chosen.map((library) => library.name)}
+        canSync={Boolean(saved.onSyncNow)}
       />
       <SavedSource
+        key={saved.discards}
         isServer={isServer}
         list={list}
         name={view.name}
@@ -754,6 +797,7 @@ function SavedListContents({
         draft={draft}
         onChange={onChange}
         libraries={libraries}
+        librariesNote={only && left.length > 0 ? ineligibleLibrariesLine(only, left) : undefined}
         librariesLocked={trakt}
         eligibleKinds={kinds}
         limit={list.limit}

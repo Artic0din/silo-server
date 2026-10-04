@@ -520,11 +520,18 @@ function listDraftOf(view: CollectionView, schedule: string): ListDraft | undefi
   };
 }
 
+/** A list's stored config with a changed Max titles; nothing when it didn't change. */
+function storedWithLimit(list: ListDraft): Partial<StoredSource> {
+  if (list.limit === positiveLimit(list.stored.limit)) return {};
+  const { limit: _limit, ...rest } = list.stored;
+  return { source_config: withLimit(rest, list.limit) };
+}
+
 /**
  * What a saved list's PATCH sends for its source. MDBList, chart, TMDB list
- * and franchise sources are rebuilt whole; a Discover list sends its stored
- * rules only when Max titles changed; a Trakt list never sends its source,
- * which the server keeps as it is.
+ * and franchise sources are rebuilt whole; a Discover list, and a franchise
+ * list with no ID yet, send their stored config only when Max titles changed;
+ * a Trakt list never sends its source, which the server keeps as it is.
  */
 function editedSource(list: ListDraft, linkChanged: boolean): Partial<StoredSource> {
   switch (list.source) {
@@ -542,13 +549,10 @@ function editedSource(list: ListDraft, linkChanged: boolean): Partial<StoredSour
       return tmdbListSource(list.link, list.limit);
     case "tmdb_franchise": {
       const id = franchiseIdOf(list.franchiseId);
-      return id ? franchiseSource(id, list.limit) : {};
+      return id ? franchiseSource(id, list.limit) : storedWithLimit(list);
     }
-    case "tmdb_discover": {
-      if (list.limit === positiveLimit(list.stored.limit)) return {};
-      const { limit: _limit, ...rules } = list.stored;
-      return { source_config: withLimit(rules, list.limit) };
-    }
+    case "tmdb_discover":
+      return storedWithLimit(list);
     case "trakt":
       return {};
   }
