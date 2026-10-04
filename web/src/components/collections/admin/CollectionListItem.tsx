@@ -55,6 +55,9 @@ function SyncStatus({ collection, syncing }: { collection: LibraryCollection; sy
         className="text-destructive font-medium"
       >
         Sync failed{when ? ` ${when}` : ""}
+        {collection.last_sync_message ? (
+          <span className="sr-only">: {collection.last_sync_message}</span>
+        ) : null}
       </span>
     </>
   );

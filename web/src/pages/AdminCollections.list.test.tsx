@@ -248,6 +248,8 @@ describe("AdminCollections List", () => {
     await screen.findByText("IMDb Top 250 Shows");
     const failed = within(rowOf("IMDb Top 250 Shows")).getByText("Sync failed 6h ago");
     expect(failed).toHaveAttribute("title", "TMDB answered 401");
+    // The reason is read out too, not only shown on hover.
+    expect(failed).toHaveTextContent("Sync failed 6h ago: TMDB answered 401");
     expect(rowOf("Trending This Week")).toHaveTextContent("Syncing now");
     expect(rowOf("Studio Ghibli")).not.toHaveTextContent("Sync");
   });
@@ -427,6 +429,34 @@ describe("AdminCollections List switch", () => {
       }),
     );
   });
+
+  it("frees every row's switch when changes to two rows answer out of order", async () => {
+    const answers = new Map<string, () => void>();
+    v2Recorder.answer(
+      "PATCH /api/v2/admin/collections/{id}",
+      (call: RecordedCall) =>
+        new Promise<undefined>((resolve) => answers.set(call.path, () => resolve(undefined))),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Christmas Classics");
+    const first = screen.getByRole("switch", {
+      name: "Show Christmas Classics on the Movies Collections tab",
+    });
+    const second = screen.getByRole("switch", {
+      name: "Show Studio Ghibli on the Movies and Kids Collections tabs",
+    });
+    await user.click(first);
+    await user.click(second);
+    await waitFor(() => expect(answers.size).toBe(2));
+    expect(first).toBeDisabled();
+    expect(second).toBeDisabled();
+
+    await act(async () => answers.get("/api/v2/admin/collections/studio-ghibli")!());
+    await waitFor(() => expect(second).toBeEnabled());
+    await act(async () => answers.get("/api/v2/admin/collections/christmas-classics")!());
+    await waitFor(() => expect(first).toBeEnabled());
+  });
 });
 
 describe("AdminCollections List row menu", () => {
@@ -446,6 +476,33 @@ describe("AdminCollections List row menu", () => {
         "/api/v2/admin/collections/best-picture-winners/sync",
       ),
     );
+  });
+
+  it("clears Syncing now on each list when two syncs answer out of order", async () => {
+    const answers = new Map<string, () => void>();
+    v2Recorder.answer(
+      "POST /api/v2/admin/collections/{id}/sync",
+      (call: RecordedCall) =>
+        new Promise((resolve) =>
+          answers.set(call.path, () =>
+            resolve({ status: "success", message: "", items_matched: 3 }),
+          ),
+        ),
+    );
+    renderPage();
+    await screen.findByText("Best Picture Winners");
+    let opened = await openMenu("Best Picture Winners");
+    await opened.user.click(within(opened.menu).getByRole("menuitem", { name: "Sync now" }));
+    opened = await openMenu("IMDb Top 250 Shows");
+    await opened.user.click(within(opened.menu).getByRole("menuitem", { name: "Sync now" }));
+    await waitFor(() => expect(answers.size).toBe(2));
+    expect(rowOf("Best Picture Winners")).toHaveTextContent("Syncing now");
+    expect(rowOf("IMDb Top 250 Shows")).toHaveTextContent("Syncing now");
+
+    await act(async () => answers.get("/api/v2/admin/collections/imdb-top-250-shows/sync")!());
+    await waitFor(() => expect(rowOf("IMDb Top 250 Shows")).not.toHaveTextContent("Syncing now"));
+    await act(async () => answers.get("/api/v2/admin/collections/best-picture-winners/sync")!());
+    await waitFor(() => expect(rowOf("Best Picture Winners")).not.toHaveTextContent("Syncing now"));
   });
 
   it("opens a collection in one of its libraries from a submenu", async () => {
@@ -483,6 +540,25 @@ describe("AdminCollections List row menu", () => {
     const [remove] = v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}");
     expect(remove!.path).toBe("/api/v2/admin/collections/studio-ghibli");
     expect(remove!.headers["If-Match"]).toBe('"/api/v2/admin/collections/studio-ghibli#1"');
+  });
+
+  it("reads the collection again when it changed under the dialog, so the next Delete goes through", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Studio Ghibli");
+    const { menu } = await openMenu("Studio Ghibli");
+    await user.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Studio Ghibli?" });
+    v2Recorder.bump("/api/v2/admin/collections/studio-ghibli");
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "It changed since you opened this. Check it, then delete again.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    const removes = v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}");
+    expect(removes).toHaveLength(2);
+    expect(removes[1]!.headers["If-Match"]).toBe('"/api/v2/admin/collections/studio-ghibli#2"');
   });
 
   it("keeps the collection and says why when rows still use it", async () => {

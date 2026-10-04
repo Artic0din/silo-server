@@ -160,7 +160,7 @@ describe("AdminCollections Arrange actions", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete all in this view…" }));
 
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Delete all 1 collections in this view?",
+      "Delete the 1 collection in this view?",
     );
     expect(state.prepareDeletes).toHaveBeenCalledWith(["Top Rated"]);
   });

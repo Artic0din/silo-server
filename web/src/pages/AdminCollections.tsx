@@ -108,6 +108,8 @@ interface PendingDelete {
   error: string | null;
 }
 
+const DELETE_CHANGED = "It changed since you opened this. Check it, then delete again.";
+
 function deleteErrorMessage(error: unknown): string {
   if (
     error instanceof V2ProblemError &&
@@ -130,7 +132,7 @@ export default function AdminCollections() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const state = readAdminListState(searchParams);
+  const state = useMemo(() => readAdminListState(searchParams), [searchParams]);
   const narrow = useMediaQuery(NARROW_QUERY);
   const libraries = useAdminLibraries();
   const libraryList = useMemo(() => libraries.data ?? [], [libraries.data]);
@@ -269,19 +271,21 @@ export default function AdminCollections() {
     return visibilityOverrides.get(collection.id) ?? collection.visibility !== "hidden";
   }
 
+  // Per-row cleanup chains on the promise: `mutate`'s own callbacks fire only
+  // for the latest call, so a second row's change would strand the first.
+  // The hooks report failures.
   function saveVisible(collection: LibraryCollection, visible: boolean) {
     setVisibilityOverrides((current) => new Map(current).set(collection.id, visible));
-    setVisibility.mutate(
-      { id: collection.id, visible },
-      {
-        onSettled: () =>
-          setVisibilityOverrides((current) => {
-            const next = new Map(current);
-            next.delete(collection.id);
-            return next;
-          }),
-      },
-    );
+    void setVisibility
+      .mutateAsync({ id: collection.id, visible })
+      .catch(() => undefined)
+      .finally(() =>
+        setVisibilityOverrides((current) => {
+          const next = new Map(current);
+          next.delete(collection.id);
+          return next;
+        }),
+      );
   }
 
   function changeVisible(collection: LibraryCollection, visible: boolean) {
@@ -292,14 +296,16 @@ export default function AdminCollections() {
 
   function syncNow(collection: LibraryCollection) {
     setSyncingIds((current) => new Set(current).add(collection.id));
-    sync.mutate(collection.id, {
-      onSettled: () =>
+    void sync
+      .mutateAsync(collection.id)
+      .catch(() => undefined)
+      .finally(() =>
         setSyncingIds((current) => {
           const next = new Set(current);
           next.delete(collection.id);
           return next;
         }),
-    });
+      );
   }
 
   async function prepareDelete(collection: LibraryCollection) {
@@ -321,15 +327,30 @@ export default function AdminCollections() {
           toast.success("Collection deleted");
           setPendingDelete(null);
         },
-        onError: (error) =>
-          setPendingDelete((current) =>
-            current ? { ...current, error: deleteErrorMessage(error) } : current,
-          ),
+        onError: (error) => void showDeleteError(error),
         onSettled: () => {
           holdDeleteOpen.current = false;
           void SERVER_SCOPE.invalidate(queryClient);
         },
       },
+    );
+  }
+
+  /** A 412 means it changed under the dialog: read it again so the next Delete sends its ETag. */
+  async function showDeleteError(error: unknown) {
+    const id = pendingDelete?.collection.id;
+    let fresh: Pick<PendingDelete, "collection" | "etag"> | null = null;
+    if (id && error instanceof V2ProblemError && error.status === 412) {
+      fresh = await fetchAdminCollectionSnapshot(id).catch(() => null);
+    }
+    setPendingDelete((current) =>
+      current && current.collection.id === id
+        ? {
+            ...current,
+            ...fresh,
+            error: fresh ? DELETE_CHANGED : deleteErrorMessage(error),
+          }
+        : current,
     );
   }
 
@@ -366,11 +387,13 @@ export default function AdminCollections() {
     "Silo will keep collections that are still used by home or library sections. This action cannot be undone.";
   const sharedDeletionNotice =
     "Shared collections will also be removed from their other libraries.";
+  const deleteCount = deleteSnapshots.length === 1 ? "the 1" : `all ${deleteSnapshots.length}`;
+  const deleteNoun = deleteSnapshots.length === 1 ? "collection" : "collections";
   const deleteAllDescription = activeLibrary
-    ? `Delete all ${deleteSnapshots.length} collections shown for ${activeLibrary.name}? ${sharedDeletionNotice} ${collectionDeletionNotice}`
+    ? `Delete ${deleteCount} ${deleteNoun} shown for ${activeLibrary.name}? ${sharedDeletionNotice} ${collectionDeletionNotice}`
     : filtered
-      ? `Delete all ${deleteSnapshots.length} collections in this view? ${collectionDeletionNotice}`
-      : `Delete all ${deleteSnapshots.length} server collections? ${collectionDeletionNotice}`;
+      ? `Delete ${deleteCount} ${deleteNoun} in this view? ${collectionDeletionNotice}`
+      : `Delete ${deleteCount} server ${deleteNoun}? ${collectionDeletionNotice}`;
   // Read library membership from the snapshots the delete will use, not the
   // board, which can be stale.
   const selectedIncludesShared = deleteSnapshots.some(
