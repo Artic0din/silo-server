@@ -31,7 +31,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import CollectionAccessEditor from "@/components/collections/CollectionAccessEditor";
+import { ReadOnlyCollectionNotice } from "@/components/collections/ReadOnlyCollectionNotice";
+import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
+import { ownerName } from "@/lib/collections/personalOwnership";
 import { ImageUploadField } from "@/components/ImageUploadField";
 import {
   useDeleteCollection,
@@ -140,9 +142,6 @@ export function ImportedCollectionEditor({
   const [mediaFilter, setMediaFilter] = useState<UserCollectionMediaFilter>(initialMediaFilter);
   const [defaultSort, setDefaultSort] = useState<string>(initialDefaultSort);
   const [isShared, setIsShared] = useState(collection.is_shared);
-  const [allowedProfileIds, setAllowedProfileIds] = useState<string[]>(
-    collection.allowed_profile_ids ?? [],
-  );
   const [includeOnServer, setIncludeOnServer] = useState(
     collection.include_in_server_collections ?? false,
   );
@@ -200,7 +199,6 @@ export function ImportedCollectionEditor({
     mediaFilter !== initialMediaFilter,
     defaultSort !== initialDefaultSort,
     isShared !== collection.is_shared,
-    !arraysEqual(allowedProfileIds, collection.allowed_profile_ids ?? []),
     includeOnServer !== (collection.include_in_server_collections ?? false),
     sourceUrlDirty,
     maxItemsDirty,
@@ -219,7 +217,6 @@ export function ImportedCollectionEditor({
     const body: UpdateCollectionRequest = {
       name: name.trim() || collection.name,
       is_shared: isShared,
-      allowed_profile_ids: allowedProfileIds,
       library_ids: libraryIds,
       display_query_definition: displayFiltersToQueryDefinition(watchFilter, mediaFilter),
       include_in_server_collections: includeOnServer,
@@ -257,7 +254,6 @@ export function ImportedCollectionEditor({
     setMediaFilter(initialMediaFilter);
     setDefaultSort(initialDefaultSort);
     setIsShared(collection.is_shared);
-    setAllowedProfileIds(collection.allowed_profile_ids ?? []);
     setIncludeOnServer(collection.include_in_server_collections ?? false);
     setSourceUrlInput(initialSourceUrl);
     setMaxItemsInput(initialMaxItems != null ? String(initialMaxItems) : "");
@@ -509,24 +505,24 @@ export function ImportedCollectionEditor({
           <FormSection
             number="03"
             title="Sharing"
-            description="Decide which profiles on this account can browse the collection."
+            description="Decide whether the other profiles on this login can browse the collection."
           >
-            <CollectionAccessEditor
-              value={{ is_shared: isShared, allowed_profile_ids: allowedProfileIds }}
-              onChange={(next) => {
-                setIsShared(next.is_shared);
-                setAllowedProfileIds(next.allowed_profile_ids);
-              }}
-              profiles={profiles.map((entry) => ({ id: entry.id, name: entry.name }))}
-              readOnly={readOnly}
-              creatorProfileId={collection.creator_profile_id}
+            {readOnly ? (
+              <ReadOnlyCollectionNotice
+                ownerName={ownerName(profiles, collection.creator_profile_id)}
+              />
+            ) : null}
+            <ShowToOtherProfilesField
+              checked={isShared}
+              onCheckedChange={setIsShared}
+              disabled={readOnly}
             />
           </FormSection>
 
           <FormSection
             number="04"
             title="Library visibility"
-            description="Pin this collection to your library's Collections tab. Only you see it — personal collections are private to your user."
+            description="Pin this collection to your library's Collections tab. Profiles that can see this collection see it there too."
           >
             <ToggleRow
               title="Show in my library Collections tab"

@@ -85,6 +85,46 @@ describe("CollectionBuilder", () => {
     expect(markup).not.toContain("Genres");
   });
 
+  it("offers one sharing switch and no profile picker on a personal collection", () => {
+    const queryClient = new QueryClient();
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CollectionBuilder
+          mode="user"
+          value={createCollectionBuilderValue({ is_shared: true })}
+          onChange={() => {}}
+          onSubmit={() => {}}
+          allowAccessControls
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(markup).toContain("Show to other profiles");
+    expect(markup).not.toContain("Share with this account");
+    expect(markup).not.toContain("Allowed Profiles");
+    expect(markup).toContain("Profiles that can see this collection see it there too.");
+    expect(markup).not.toContain("Only you see it");
+  });
+
+  it("keeps another profile's collection read-only and names its owner", () => {
+    const queryClient = new QueryClient();
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <CollectionBuilder
+          mode="user"
+          value={createCollectionBuilderValue({ is_shared: true })}
+          onChange={() => {}}
+          onSubmit={() => {}}
+          allowAccessControls
+          readOnly
+          ownerName="Parent"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(markup).toContain("Only Parent can edit this collection.");
+  });
+
   it("builds a preview request for smart collections", () => {
     const request = buildCollectionBuilderPreviewRequest(
       createCollectionBuilderValue({
