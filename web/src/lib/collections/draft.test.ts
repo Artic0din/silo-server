@@ -152,3 +152,38 @@ describe("clearDefaultSort", () => {
     expect(clearDefaultSort(undefined)).toEqual({});
   });
 });
+
+describe("a saved Synced list's fields", () => {
+  const synced: CollectionDraft = {
+    ...base,
+    kind: "synced",
+    list: {
+      source: "mdblist",
+      link: "https://mdblist.com/lists/u/top",
+      franchiseId: "",
+      limit: 50,
+      schedule: "0 3 * * *",
+      stored: { mode: "mdblist_json", url: "https://mdblist.com/lists/u/top", limit: 50 },
+    },
+  };
+
+  it("names the list, max titles and the schedule as separate fields", () => {
+    expect(
+      changedFields(synced, {
+        ...synced,
+        list: { ...synced.list!, link: "https://mdblist.com/lists/u/new", limit: 10, schedule: "" },
+      }),
+    ).toEqual(["list", "limit", "schedule"]);
+  });
+
+  it("takes a new schedule from the server while keeping a typed link", () => {
+    const mine = { ...synced, list: { ...synced.list!, link: "https://mdblist.com/lists/u/new" } };
+    const theirs = { ...synced, list: { ...synced.list!, schedule: "0 4 * * *" } };
+    const merged = mergeDraft(synced, mine, theirs);
+    expect(merged.conflicts).toEqual([]);
+    expect(merged.draft.list).toMatchObject({
+      link: "https://mdblist.com/lists/u/new",
+      schedule: "0 4 * * *",
+    });
+  });
+});

@@ -655,7 +655,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin source editor, MDBList: the whole `source_config` is rebuilt and sent. */
+  /** Admin Synced list editor, MDBList: the whole `source_config` is rebuilt and sent; never `featured`. */
   adminEditMDBList: [
     {
       operation: "PATCH /api/v2/admin/collections/{id}",
@@ -666,7 +666,6 @@ export const goldens = {
       body: {
         title: "Original",
         description: "",
-        featured: false,
         visibility: "visible",
         collection_type: "mdblist",
         source_url: "https://mdblist.com/lists/user/top-watched/json",
@@ -681,7 +680,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin source editor, TMDB chart: the whole `source_config` is rebuilt and sent. */
+  /** Admin Synced list editor, TMDB chart: the whole `source_config` is rebuilt and sent; never `featured`. */
   adminEditTMDBChart: [
     {
       operation: "PATCH /api/v2/admin/collections/{id}",
@@ -692,7 +691,6 @@ export const goldens = {
       body: {
         title: "Trending This Week",
         description: "",
-        featured: false,
         visibility: "visible",
         collection_type: "tmdb",
         source_url: "tmdb://trending/movie/week",
@@ -709,7 +707,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin source editor, TMDB list: the whole `source_config` is rebuilt and sent. */
+  /** Admin Synced list editor, TMDB list: the whole `source_config` is rebuilt and sent; never `featured`. */
   adminEditTMDBList: [
     {
       operation: "PATCH /api/v2/admin/collections/{id}",
@@ -720,7 +718,6 @@ export const goldens = {
       body: {
         title: "Festival Picks",
         description: "",
-        featured: false,
         visibility: "visible",
         collection_type: "tmdb",
         source_url: "https://www.themoviedb.org/list/310",
@@ -734,7 +731,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin source editor, legacy Trakt: the stored `source_config` goes back unchanged and no `source_url` is sent. */
+  /** Admin Synced list editor, legacy Trakt: the source can't change, so neither `source_url` nor `source_config` is sent. */
   adminEditTrakt: [
     {
       operation: "PATCH /api/v2/admin/collections/{id}",
@@ -745,23 +742,15 @@ export const goldens = {
       body: {
         title: "For you",
         description: "",
-        featured: false,
         visibility: "visible",
         collection_type: "trakt",
-        source_config: {
-          mode: "trakt_preset",
-          preset: "recommended",
-          media_type: "movie",
-          profile_id: "p-owner",
-          limit: 40,
-        },
         sync_schedule: "",
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Personal synced-list editor: optional fields go only when changed; name, sharing, libraries and the tab switch always go. */
+  /** Personal Synced list editor: optional fields go only when changed; name, sharing, libraries and the tab switch always go. */
   personalSyncedRename: [
     {
       operation: "PATCH /api/v2/collections/{id}",
@@ -777,7 +766,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal synced-list editor, poster removed: the DELETE follows the PATCH on Save. */
+  /** Personal Synced list editor, poster removed: the DELETE follows the PATCH on Save. */
   personalSyncedStagedPosterRemoval: [
     {
       operation: "PATCH /api/v2/collections/{id}",
@@ -794,7 +783,7 @@ export const goldens = {
     },
     personalPosterDelete,
   ] satisfies Writes,
-  /** Personal synced-list editor: clearing Max items sends `max_items: 0`. */
+  /** Personal Synced list editor: clearing Max titles sends `max_items: 0`. */
   personalSyncedClearLimit: [
     {
       operation: "PATCH /api/v2/collections/{id}",

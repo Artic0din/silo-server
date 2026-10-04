@@ -472,9 +472,9 @@ export function useCollectionDraft<Raw extends WireCollection>(
         if (conflicts.length > 0) return false;
       }
       for (let attempt = 0; ; attempt++) {
-        const { draft, etag } = current.current;
+        const { draft, etag, base } = current.current;
         try {
-          const outcome = await scope.update({ id, etag: etag ?? "" }, draft as SavableDraft);
+          const outcome = await scope.update({ id, etag: etag ?? "" }, draft as SavableDraft, base);
           await rebase(id, draft, outcome.failedArtwork, outcome.warnings);
           return true;
         } catch (error) {

@@ -75,12 +75,15 @@ export type ScheduleFieldProps =
       onChange: (value: string) => void;
       /** The answering server's zone, from the collections capabilities. */
       timeZone?: { utc_offset: string; name?: string };
+      /** Shown as it is; the panel says why next to it. */
+      disabled?: boolean;
     }
   | {
       scope: "personal";
       /** "", "daily", "weekly", "monthly", or "custom" for a schedule kept until changed. */
       value: string;
       onChange: (value: string) => void;
+      disabled?: boolean;
     };
 
 /**
@@ -92,11 +95,15 @@ export type ScheduleFieldProps =
 export function ScheduleField(props: ScheduleFieldProps) {
   const id = useId();
   const [customOpen, setCustomOpen] = useState(false);
-  const { value, onChange } = props;
+  const { value, onChange, disabled } = props;
 
   if (props.scope === "personal") {
     return (
-      <Select value={value || NONE} onValueChange={(next) => onChange(next === NONE ? "" : next)}>
+      <Select
+        value={value || NONE}
+        disabled={disabled}
+        onValueChange={(next) => onChange(next === NONE ? "" : next)}
+      >
         <SelectTrigger aria-label="Sync schedule" className="h-11 w-full sm:w-[280px]">
           <SelectValue />
         </SelectTrigger>
@@ -122,6 +129,7 @@ export function ScheduleField(props: ScheduleFieldProps) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Select
           value={selected}
+          disabled={disabled}
           onValueChange={(next) => {
             setCustomOpen(next === CUSTOM);
             if (next === CUSTOM) {

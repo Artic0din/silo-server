@@ -4,11 +4,12 @@
  * person typed (a three-way merge against the copy the draft started from).
  *
  * Artwork is staged separately and is not a draft field; `kind` is fixed once
- * the collection exists.
+ * the collection exists. A saved synced list's stored source config is not a
+ * field either: it is what the list read last.
  */
 import { normalizeQueryDefinition, type QueryDefinition } from "@/api/types";
 
-import type { CollectionDraft } from "./scope";
+import type { CollectionDraft, ListDraft } from "./scope";
 
 export type DraftField =
   | "name"
@@ -19,11 +20,19 @@ export type DraftField =
   | "showOnly"
   | "visibility"
   | "shared"
-  | "inLibraryTabs";
+  | "inLibraryTabs"
+  | "list"
+  | "limit"
+  | "schedule";
 
 interface FieldAccess {
   get(draft: CollectionDraft): unknown;
   set(draft: CollectionDraft, value: unknown): CollectionDraft;
+}
+
+/** A saved synced list's draft with `fields` replaced; a draft with no list stays as it is. */
+function withList(draft: CollectionDraft, fields: Partial<ListDraft>): CollectionDraft {
+  return draft.list ? { ...draft, list: { ...draft.list, ...fields } } : draft;
 }
 
 const FIELDS: Record<DraftField, FieldAccess> = {
@@ -68,6 +77,25 @@ const FIELDS: Record<DraftField, FieldAccess> = {
     get: (d) => d.personal?.inLibraryTabs,
     set: (d, v) =>
       d.personal ? { ...d, personal: { ...d.personal, inLibraryTabs: v as boolean } } : d,
+  },
+  // A saved synced list: what it follows counts once, as the list.
+  list: {
+    get: (d) =>
+      d.list && {
+        source: d.list.source,
+        link: d.list.link,
+        chart: d.list.chart,
+        franchiseId: d.list.franchiseId,
+      },
+    set: (d, v) => withList(d, v as Partial<ListDraft>),
+  },
+  limit: {
+    get: (d) => d.list?.limit,
+    set: (d, v) => withList(d, { limit: v as number | undefined }),
+  },
+  schedule: {
+    get: (d) => d.list?.schedule,
+    set: (d, v) => withList(d, { schedule: v as string }),
   },
 };
 

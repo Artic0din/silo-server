@@ -5,7 +5,7 @@ import getAdminCollectionOk from "../../../../contracts/api/v2/fixtures/get_admi
 import getCollectionOk from "../../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import { adminCollectionFromV2 } from "@/api/adminCollections";
 import { collectionFromV2 } from "@/api/personalCollections";
-import type { Collection } from "@/api/types";
+import type { Collection, LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import {
   adminCollection,
@@ -18,10 +18,11 @@ import {
 import { goldens } from "@/test/fixtures/collectionBodies";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import {
+  collectionsInAdminScope,
   PERSONAL_SCOPE,
   SERVER_SCOPE,
   type CollectionScope,
-  type SavableDraft,
+  type ManualOrSmartDraft,
   type WireCollection,
 } from "./scope";
 
@@ -43,8 +44,8 @@ function storedQuery(limit: number | undefined) {
 }
 
 function savable<T extends { kind: string }>(draft: T) {
-  if (draft.kind === "synced") throw new Error("synced drafts are not savable");
-  return draft as T & SavableDraft;
+  if (draft.kind === "synced") throw new Error("only Manual and Smart drafts here");
+  return draft as T & ManualOrSmartDraft;
 }
 
 /** Load through the scope, as an editor does, and return the draft it would start from. */
@@ -490,6 +491,7 @@ describe("remove, sync and preview", () => {
       status: "warning",
       message: "1 unmatched",
       itemsMatched: 9,
+      itemsUnmatched: 1,
     });
   });
 
@@ -534,5 +536,98 @@ describe("invalidate", () => {
       ["admin", "collections"],
       ["admin", "collectionGroups"],
     ]);
+  });
+});
+
+describe("saved Synced lists", () => {
+  it("reads what a server list follows into the draft", () => {
+    const chart = SERVER_SCOPE.toView(
+      adminCollectionFromV2({
+        ...adminSyncedCollection("tmdb", {
+          source_url: "tmdb://trending/movie/week",
+          source_config: {
+            mode: "tmdb_preset",
+            preset: "trending",
+            media_type: "movie",
+            time_window: "week",
+            limit: 40,
+          },
+        }),
+        sync_schedule: "0 3 * * *",
+      } as never),
+    );
+    expect(SERVER_SCOPE.toDraft(chart, { kind: "manual" }).list).toMatchObject({
+      source: "tmdb_chart",
+      link: "",
+      chart: { preset: "trending", mediaType: "movie", timeWindow: "week" },
+      limit: 40,
+      schedule: "0 3 * * *",
+    });
+    const franchise = SERVER_SCOPE.toView(
+      adminCollectionFromV2(
+        adminSyncedCollection("tmdb", {
+          source_url: "tmdb://collection/119",
+          source_config: { mode: "tmdb_collection", collection_id: 119 },
+        }) as never,
+      ),
+    );
+    expect(SERVER_SCOPE.toDraft(franchise, { kind: "manual" }).list).toMatchObject({
+      source: "tmdb_franchise",
+      franchiseId: "119",
+      limit: undefined,
+      schedule: "",
+    });
+  });
+
+  it("reads a personal list's schedule by its cadence name", () => {
+    const view = PERSONAL_SCOPE.toView(
+      collectionFromV2({
+        ...personalSyncedCollection("mdblist", {
+          source_url: "https://mdblist.com/lists/user/top-watched",
+          source_config: { limit: 50 },
+        }),
+        sync_schedule: "17 4 * * 1",
+        sync_cadence: "weekly",
+      } as never),
+    );
+    expect(PERSONAL_SCOPE.toDraft(view, { kind: "manual" }).list).toMatchObject({
+      source: "mdblist",
+      link: "https://mdblist.com/lists/user/top-watched",
+      limit: 50,
+      schedule: "weekly",
+    });
+  });
+
+  it("starts manual and smart drafts with no list", () => {
+    expect(SERVER_SCOPE.toDraft(null, { kind: "manual", libraryId: 1 }).list).toBeUndefined();
+  });
+});
+
+describe("collectionsInAdminScope", () => {
+  it("uses the rendered board as the destructive scope for one library", () => {
+    const allCollections = [
+      { id: "all-only" },
+      { id: "ungrouped" },
+      { id: "grouped" },
+    ] as LibraryCollection[];
+    const grouped = { id: "grouped" } as LibraryCollection;
+    const ungrouped = { id: "ungrouped" } as LibraryCollection;
+
+    expect(
+      collectionsInAdminScope(
+        allCollections,
+        {
+          groups: [{ collections: [grouped] }, { collections: [grouped] }],
+          ungrouped: [ungrouped],
+        },
+        7,
+      ).map((collection) => collection.id),
+    ).toEqual(["ungrouped", "grouped"]);
+  });
+
+  it("uses the unscoped collection list when all libraries are selected", () => {
+    const allCollections = [{ id: "one" }, { id: "two" }] as LibraryCollection[];
+
+    expect(collectionsInAdminScope(allCollections, undefined, null)).toEqual(allCollections);
   });
 });

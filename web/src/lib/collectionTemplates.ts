@@ -223,26 +223,3 @@ export function mediaKindLabel(kind: CollectionTemplateMediaKind): string {
       return "Movies + TV";
   }
 }
-
-export interface LibraryEligibility {
-  kinds?: string[];
-  hint?: string;
-}
-
-export function libraryEligibilityForMediaKind(
-  kind: "movie" | "tv" | "all" | "mixed",
-): LibraryEligibility {
-  if (kind === "movie") {
-    return {
-      kinds: ["movies"],
-      hint: "Movie-only source — TV-only libraries are disabled. Mixed libraries always work.",
-    };
-  }
-  if (kind === "tv") {
-    return {
-      kinds: ["series"],
-      hint: "TV-only source — movie-only libraries are disabled. Mixed libraries always work.",
-    };
-  }
-  return {};
-}

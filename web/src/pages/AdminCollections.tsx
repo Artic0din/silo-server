@@ -55,9 +55,8 @@ import {
 } from "lucide-react";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
-import { SERVER_SCOPE } from "@/lib/collections/scope";
+import { collectionsInAdminScope, SERVER_SCOPE } from "@/lib/collections/scope";
 import { isListBackedCollectionType } from "@/lib/collections/types";
-import { buildAdminCollectionEditorPath, collectionsInAdminScope } from "./adminCollectionsShared";
 
 export default function AdminCollections() {
   const queryClient = useQueryClient();
@@ -361,7 +360,7 @@ export default function AdminCollections() {
           ) : null}
           <Button
             size="sm"
-            onClick={() => navigate(buildAdminCollectionEditorPath("new", selectedLibraryId))}
+            onClick={() => navigate(SERVER_SCOPE.paths.create({ libraryId: selectedLibraryId }))}
           >
             <Plus className="mr-1 h-4 w-4" /> Add Collection
           </Button>
@@ -379,7 +378,7 @@ export default function AdminCollections() {
           setSelectedIds={setSelectedCollectionIds}
           syncingCollectionID={syncCollection.variables?.id ?? null}
           onEdit={(collection, libraryId) =>
-            navigate(buildAdminCollectionEditorPath(collection.id, libraryId))
+            navigate(SERVER_SCOPE.paths.edit(collection.id, { libraryId }))
           }
           onDelete={(collection) => void prepareDelete(collection)}
           onSync={(collection, libraryId) =>
@@ -388,7 +387,7 @@ export default function AdminCollections() {
               libraryId,
             })
           }
-          onCreate={() => navigate(buildAdminCollectionEditorPath("new", null))}
+          onCreate={() => navigate(SERVER_SCOPE.paths.create())}
           onOpenTemplates={capabilities?.imports ? () => openTemplates(null) : undefined}
         />
       ) : null}
@@ -409,7 +408,7 @@ export default function AdminCollections() {
           ungroupedSortOrder={board.data.ungroupedSortOrder}
           onEditGroup={(id) => void prepareGroupEdit(id)}
           onEditCollection={(collection) =>
-            navigate(buildAdminCollectionEditorPath(collection.id, selectedLibraryId))
+            navigate(SERVER_SCOPE.paths.edit(collection.id, { libraryId: selectedLibraryId }))
           }
           onDeleteCollection={(collection) => void prepareDelete(collection)}
           onSyncCollection={(collection) =>
@@ -444,7 +443,7 @@ export default function AdminCollections() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate(buildAdminCollectionEditorPath("new", selectedLibraryId))}
+              onClick={() => navigate(SERVER_SCOPE.paths.create({ libraryId: selectedLibraryId }))}
             >
               <Plus className="mr-1 h-4 w-4" /> Create from scratch
             </Button>

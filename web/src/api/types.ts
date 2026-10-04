@@ -1337,6 +1337,8 @@ export interface Collection {
   source_url?: string;
   source_config?: Record<string, unknown>;
   sync_schedule?: string;
+  /** The cadence `sync_schedule` names; "custom" for a schedule no name produces. */
+  sync_cadence?: UserCollectionSyncCadence;
   next_sync_at?: string;
   last_sync_at?: string;
   last_sync_status?: UserCollectionSyncStatus;
@@ -1513,6 +1515,8 @@ export interface UpdateCollectionRequest {
   include_in_server_collections?: boolean;
   poster_source_url?: string;
   group_id?: string | null;
+  /** A synced list's cadence; "" stops scheduled syncs. */
+  sync_schedule?: UserCollectionSyncSchedule;
 }
 
 export interface LibraryCollection {
@@ -1749,6 +1753,7 @@ export interface ImportTraktCollectionResponse {
 // concerns). sync_schedule is restricted to a fixed set so we can guarantee
 // the >=24h minimum interval without parsing user-supplied cron.
 export type UserCollectionSyncSchedule = "" | "daily" | "weekly" | "monthly";
+export type UserCollectionSyncCadence = UserCollectionSyncSchedule | "custom";
 
 export interface UserImportSharedFields {
   title: string;

@@ -153,7 +153,7 @@ beforeEach(() => {
     configured: true,
     items: [HIT],
   });
-  // After Create the page opens the new list, which the earlier synced editors edit.
+  // After Create the page opens the new list in the same editor.
   const source = {
     source_url: "https://mdblist.com/lists/linaspurinis/top-watched-movies/json",
     source_config: { url: "https://mdblist.com/lists/linaspurinis/top-watched-movies/json" },

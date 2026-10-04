@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import { Link } from "react-router";
 import {
   ChevronDown,
   ChevronLeft,
   Eye,
   ListOrdered,
+  Loader2,
   RefreshCw,
   Trash2,
   Users,
@@ -12,7 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { ActionMenu } from "@/components/calm/ActionMenu";
+import { ActionMenu, type ActionMenuAction } from "@/components/calm/ActionMenu";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -20,7 +21,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { NOT_CREATED_YET } from "@/lib/collections/copy";
+import { NOT_CREATED_YET, SYNC_NOW, SYNCING_NOW } from "@/lib/collections/copy";
+import { cn } from "@/lib/utils";
 import { COLLECTION_KIND_LABEL, type CollectionKind } from "@/lib/collections/types";
 
 const KIND_ICON: Record<CollectionKind, LucideIcon> = {
@@ -28,6 +30,14 @@ const KIND_ICON: Record<CollectionKind, LucideIcon> = {
   smart: WandSparkles,
   synced: RefreshCw,
 };
+
+/** The menu's spinner while a sync runs. */
+const Spinner = forwardRef<SVGSVGElement, { className?: string }>(function Spinner(
+  { className, ...props },
+  ref,
+) {
+  return <Loader2 ref={ref} {...props} className={cn(className, "animate-spin")} />;
+}) as unknown as LucideIcon;
 
 export interface OpenTarget {
   label: string;
@@ -83,7 +93,8 @@ function OpenButton({ targets }: { targets: readonly OpenTarget[] }) {
 
 /**
  * The editor's header: back link, cover, type tag, name (two lines at most),
- * meta line, and once the collection exists Open ▾ and ⋯ (Delete…).
+ * meta line, and once the collection exists Open ▾ and ⋯ (Sync now for a
+ * synced list, then Delete…).
  */
 export function EditorHeader({
   back,
@@ -94,6 +105,7 @@ export function EditorHeader({
   posterUrl,
   meta,
   open,
+  sync,
   onDelete,
 }: {
   back: { label: string; href: string };
@@ -104,9 +116,31 @@ export function EditorHeader({
   posterUrl?: string;
   meta?: ReactNode;
   open: readonly OpenTarget[];
+  /** A synced list's Sync now, disabled while a sync runs. */
+  sync?: { syncing: boolean; onSyncNow: () => void };
   onDelete?: () => void;
 }) {
   const KindIcon = KIND_ICON[kind];
+  const actions: ActionMenuAction[] = [];
+  if (sync) {
+    actions.push({
+      key: "sync",
+      label: sync.syncing ? SYNCING_NOW : SYNC_NOW,
+      icon: sync.syncing ? Spinner : RefreshCw,
+      disabled: sync.syncing,
+      onSelect: sync.onSyncNow,
+    });
+  }
+  if (onDelete) {
+    actions.push({
+      key: "delete",
+      label: "Delete…",
+      icon: Trash2,
+      destructive: true,
+      group: Boolean(sync),
+      onSelect: onDelete,
+    });
+  }
   return (
     <div className="grid gap-4">
       <Link
@@ -146,20 +180,7 @@ export function EditorHeader({
         {created ? (
           <div className="col-span-2 flex items-center gap-2 sm:col-span-1">
             {open.length > 0 ? <OpenButton targets={open} /> : null}
-            {onDelete ? (
-              <ActionMenu
-                label="More actions"
-                items={[
-                  {
-                    key: "delete",
-                    label: "Delete…",
-                    icon: Trash2,
-                    destructive: true,
-                    onSelect: onDelete,
-                  },
-                ]}
-              />
-            ) : null}
+            {actions.length > 0 ? <ActionMenu label="More actions" items={actions} /> : null}
           </div>
         ) : null}
       </header>

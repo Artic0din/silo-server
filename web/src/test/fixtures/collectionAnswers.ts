@@ -41,6 +41,7 @@ export const personalCapabilities = {
   collection_sort_preferences: true,
   effective_collection_sort: true,
   sort_preference_kinds: [],
+  sync_schedule_editable: true,
 };
 
 /**
