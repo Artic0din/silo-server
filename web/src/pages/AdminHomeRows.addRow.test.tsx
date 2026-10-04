@@ -230,7 +230,13 @@ describe("Add row", () => {
       within(form).getByText("Follows the time window until you type your own name."),
     ).toBeInTheDocument();
 
-    await userEvent.dblClick(within(form).getByRole("button", { name: "Add row" }));
+    // Two clicks in one tick, before React re-renders the button as disabled:
+    // only the dialog's own guard can stop the second.
+    const addButton = within(form).getByRole("button", { name: "Add row" });
+    act(() => {
+      addButton.click();
+      addButton.click();
+    });
     await waitFor(() => expect(creates()).toHaveLength(1));
     const { position, ...body } = creates()[0]!.args.body!;
     expect(JSON.parse(JSON.stringify(body))).toEqual(
