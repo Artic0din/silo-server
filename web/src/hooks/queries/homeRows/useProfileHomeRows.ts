@@ -108,11 +108,13 @@ export interface ProfileHomeRows {
  * them. A save replaces the page's whole override set and the server checks no
  * version, so saves go out one at a time: changes made while one is in flight
  * merge into a single next save that carries every row they touched, and the
- * newest state wins. A failed save puts the last saved state back unless a
- * newer change is still to be sent, which then also carries the failed save's
- * rows. A change is written only as the profile that made it: one still queued
- * when another profile is picked is dropped. The page can't be switched until
- * its saves and the refetch after them land.
+ * newest state wins, naming the rows of the saves before it. A failed save
+ * puts the last saved state back unless a newer change is still to be sent,
+ * and edits then wait for the refetch, since the save may have landed. A
+ * change is written only as the profile that made it: one still queued when
+ * another profile is picked is dropped, and that profile's first change starts
+ * from its own rows. The page can't be switched until its saves and the
+ * refetch after them land.
  */
 export function useProfileHomeRows(): ProfileHomeRows {
   const queryClient = useQueryClient();
@@ -124,18 +126,22 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const [draft, setDraftState] = useState<PageState | null>(null);
   // Mirrors `draft` so changes made in one event build on each other.
   const draftRef = useRef<PageState | null>(null);
+  // The profile whose changes the draft holds; another profile's change starts over.
+  const draftProfile = useRef<ProfileRequestContextSnapshot | null>(null);
   // The page as read when the draft was started. A refetch between saves may
   // bring an admin's edit; comparing the draft to it would pin the old value.
   const draftBaseline = useRef<SettingsSectionEntry[]>(NO_SECTIONS);
   const [pending, setPending] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  // Edits wait for the read after a reset or a failed save: until then they
+  // would be built on rows and overrides the server may already have changed.
+  const [editsHeld, setEditsHeld] = useState(false);
   const queue = useRef<SaveQueue>({ running: false, next: null });
   // New override IDs for admin rows on this page, reused until the page changes.
   const newOverrideId = useRef(createOverrideIdSource());
   const writes = useRef(new Map<string, number>());
 
   const ready = canMutateSectionSettings(settingsQuery, rawOverridesQuery);
-  const canEdit = ready && !resetting;
+  const canEdit = ready && !editsHeld;
 
   const setDraft = useCallback((next: PageState | null) => {
     draftRef.current = next;
@@ -198,23 +204,33 @@ export function useProfileHomeRows(): ProfileHomeRows {
           toast.error("Could not reset your rows");
         } else {
           toast.error(sectionSaveErrorMessage(error));
-          // A newer change still to be sent carries the user's latest state, this
-          // save's edits included; keep it, and name this save's rows in it.
-          // Read through the ref: that change arrived during the await.
-          const newer = queue.current.next;
-          if (newer?.kind === "save") {
-            for (const id of entry.changedIds) newer.changedIds.add(id);
-          } else if (!newer) {
+          // With no newer change to send, show the last saved state again. A
+          // failed save may still have landed, so edits wait for the refetch.
+          // Read through the ref: a newer change may have arrived during the await.
+          if (!queue.current.next) {
             setDraft(null);
+            setEditsHeld(true);
           }
         }
       }
       // A failed save may still have landed, so refetch after every attempt.
       await queryClient.invalidateQueries({ queryKey: sectionKeys.all });
+      // A newer change by the same profile carries the user's latest state,
+      // this save's edits included, so it names this save's rows too: the
+      // overrides it builds on may not hold them yet if the save failed or
+      // the refetch did. Read through the ref, as above.
+      const newer = queue.current.next;
+      if (
+        entry.kind === "save" &&
+        newer?.kind === "save" &&
+        newer.profile.profileId === entry.profile.profileId
+      ) {
+        for (const id of entry.changedIds) newer.changedIds.add(id);
+      }
     }
     q.running = false;
     setDraft(null);
-    setResetting(false);
+    setEditsHeld(false);
     setPending(false);
   }, [queryClient, send, setDraft]);
 
@@ -223,7 +239,10 @@ export function useProfileHomeRows(): ProfileHomeRows {
       if (!canEdit) return;
       const profile = captureProfileRequestContext();
       if (!profile) return;
-      const current = draftRef.current;
+      const current =
+        draftProfile.current && isCapturedProfileAuthorityActive(draftProfile.current)
+          ? draftRef.current
+          : null;
       const baseline = current ? draftBaseline.current : (serverSections ?? []);
       const base = current ?? {
         sections: baseline,
@@ -232,6 +251,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
       const next = edit(base);
       if (!next) return;
       setDraft(next);
+      draftProfile.current = profile;
       draftBaseline.current = baseline;
       const q = queue.current;
       const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
@@ -297,7 +317,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
     if (!profile) return;
     // Edits wait for the reset: until the page refetches they would be built on
     // the overrides it drops and save them again.
-    setResetting(true);
+    setEditsHeld(true);
     queue.current.next = { kind: "reset", page, profile };
     void drain();
   }, [canEdit, drain, page]);
