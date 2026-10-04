@@ -1,14 +1,14 @@
 /**
- * Goldens: what today's Add to collection dialog lists and which route an add
- * takes. An acting admin also gets every library's server manual collections
- * (the group a later change removes); a profile's own manual collections add
- * through the personal route.
+ * Goldens: what the Add to collection dialog lists, what it reads and which
+ * route an add takes. It lists only the profile's own manual collections, for
+ * an acting admin too: the server collections group acting admins used to get
+ * is gone (they add titles to a server collection from its editor).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import getLibraryCollectionsOk from "../../../contracts/api/v2/fixtures/get_library_collections_ok.json";
 import { goldens } from "@/test/fixtures/collectionBodies";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import AddToCollectionDialog from "./AddToCollectionDialog";
@@ -31,15 +31,9 @@ installV2Recorder();
 
 beforeEach(() => {
   account.actingAdmin = false;
-  // The fixture's server collection shares its id with the personal fixture.
-  v2Recorder.answer("GET /api/v2/library/{id}/collections", {
-    ...getLibraryCollectionsOk,
-    collections: getLibraryCollectionsOk.collections.map((entry) => ({ ...entry, id: "lc1" })),
-  });
 });
 
 function show() {
-  const onOpenChange = vi.fn();
   render(
     <QueryClientProvider
       client={
@@ -48,61 +42,44 @@ function show() {
         })
       }
     >
-      <AddToCollectionDialog
-        open
-        onOpenChange={onOpenChange}
-        mediaItemId="movie:heat-1995"
-        itemTitle="Heat"
-      />
+      <MemoryRouter>
+        <AddToCollectionDialog
+          open
+          onOpenChange={vi.fn()}
+          mediaItemId="movie:heat-1995"
+          itemTitle="Heat"
+        />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
-  return onOpenChange;
 }
 
-/** Each group heading with the collection names under it, as the dialog lists them. */
-function listedGroups() {
+/** The collections the dialog offers, by the name on each checkbox. */
+function listedChoices() {
   return within(screen.getByRole("dialog"))
-    .getAllByRole("listitem")
-    .map((group) => {
-      const [heading, ...rows] = Array.from(group.children);
-      const label = (row: Element) =>
-        Array.from(row.querySelectorAll("span"), (part) => part.textContent).join(" · ");
-      return { group: heading!.textContent, collections: rows.map(label) };
-    });
-}
-
-async function add(title: string, onOpenChange: ReturnType<typeof vi.fn>) {
-  fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${title}`) }));
-  fireEvent.click(screen.getByRole("button", { name: "Add" }));
-  await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    .getAllByRole("checkbox")
+    .map((box) => box.getAttribute("aria-label"));
 }
 
 describe("Add to collection", () => {
   it("lists only the profile's own manual collections for a regular profile", async () => {
     show();
-    await screen.findByRole("button", { name: /^Rainy days/ });
-    expect(listedGroups()).toEqual(goldens.addToCollectionGroups.profile);
-    expect(v2Recorder.operations()).toEqual(goldens.addToCollectionReads.profile);
+    await screen.findByRole("checkbox", { name: "Rainy days" });
+    expect(listedChoices()).toEqual(goldens.addToCollectionChoices);
+    expect(v2Recorder.calls).toEqual(goldens.addToCollectionReads);
+  });
+
+  it("lists the same for an acting admin and reads no library's collections", async () => {
+    account.actingAdmin = true;
+    show();
+    await screen.findByRole("checkbox", { name: "Rainy days" });
+    expect(listedChoices()).toEqual(goldens.addToCollectionChoices);
+    expect(v2Recorder.calls).toEqual(goldens.addToCollectionReads);
   });
 
   it("adds a title to a personal collection through the personal route", async () => {
-    const onOpenChange = show();
-    await add("Rainy days", onOpenChange);
-    expect(v2Recorder.writes()).toEqual(goldens.addToPersonalCollection);
-  });
-
-  it("also lists every library's server manual collections for an acting admin", async () => {
-    account.actingAdmin = true;
     show();
-    await screen.findByRole("button", { name: /^Oscar Winners/ });
-    expect(listedGroups()).toEqual(goldens.addToCollectionGroups.actingAdmin);
-    expect(v2Recorder.operations()).toEqual(goldens.addToCollectionReads.actingAdmin);
-  });
-
-  it("adds a title to a server collection through the admin route", async () => {
-    account.actingAdmin = true;
-    const onOpenChange = show();
-    await add("Oscar Winners", onOpenChange);
-    expect(v2Recorder.writes()).toEqual(goldens.addToServerCollection);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Rainy days" }));
+    await waitFor(() => expect(v2Recorder.writes()).toEqual(goldens.addToPersonalCollection));
   });
 });

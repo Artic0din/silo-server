@@ -4,7 +4,7 @@ import { PERSONAL_SCOPE, SERVER_SCOPE, type ScopeKind } from "./scope";
 export const NEW_COLLECTION_DIALOG = "new";
 
 /** `?dialog=starter-packs` on the server list opens Starter packs. */
-const STARTER_PACKS_DIALOG = "starter-packs";
+export const STARTER_PACKS_DIALOG = "starter-packs";
 
 function withDialog(path: string, dialog: string) {
   return `${path}${path.includes("?") ? "&" : "?"}dialog=${dialog}`;

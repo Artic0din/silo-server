@@ -1099,7 +1099,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** List supported collection templates. */
+    /** List the collection templates with an mdblist, tmdb or tmdb_list source. */
     get: operations["listAdminCollectionTemplates"];
     put?: never;
     post?: never;

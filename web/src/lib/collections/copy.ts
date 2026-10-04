@@ -1,6 +1,6 @@
 import type { DraftField } from "./draft";
 import type { ArtworkSlot, ScopeKind } from "./scope";
-import type { CollectionKind } from "./types";
+import { COLLECTION_KIND_LABEL, type CollectionKind } from "./types";
 
 /**
  * Words every collections surface shares, so the editor, lists and dialogs
@@ -293,6 +293,26 @@ export function syncFailedLead(lastAt: string | undefined): string {
 
 export function keepsTitles(count: number): string {
   return `The collection keeps its ${plural(count, "title")}.`;
+}
+
+// --- Add to collection -----------------------------------------------------
+
+export const ADD_TO_COLLECTION_FOOTNOTE =
+  "Only manual collections take titles by hand. Ticking saves right away.";
+
+/** "Manual · 15 titles": a manual collection's line in a picker. */
+export function manualTitleCount(count: number): string {
+  return `${COLLECTION_KIND_LABEL.manual} · ${plural(count, "title")}`;
+}
+
+/** The Add to collection footer: how many of the profile's collections hold the title. */
+export function inCollections(count: number): string {
+  return count === 0 ? "Not in a collection yet" : `In ${plural(count, "collection")}`;
+}
+
+/** The new collection was kept, but the title it was made for didn't go in. */
+export function madeButNotAdded(collection: string, title: string): string {
+  return `Made ${collection}, but couldn't add ${title}`;
 }
 
 // --- Save bar ---------------------------------------------------------------

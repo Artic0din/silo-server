@@ -32,7 +32,7 @@ import { useEventChannel } from "@/components/realtimeEventsContext";
 import { GroupsBoard } from "@/components/collections/admin/GroupsBoard";
 import { GroupEditDialog } from "@/components/collections/admin/GroupEditDialog";
 import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
-import { NEW_COLLECTION_DIALOG } from "@/lib/collections/dialogs";
+import { NEW_COLLECTION_DIALOG, STARTER_PACKS_DIALOG } from "@/lib/collections/dialogs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,6 +47,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   AlertCircle,
   CheckCircle2,
+  Layers3,
   Library as LibraryIcon,
   Loader2,
   Pencil,
@@ -54,6 +55,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
+import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { useDialogSearchParam } from "@/hooks/useDialogSearchParam";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
@@ -70,6 +72,7 @@ export default function AdminCollections() {
     Number.isFinite(requestedLibraryId) && requestedLibraryId > 0 ? requestedLibraryId : null;
   const selectedLibraryId = initialLibraryId;
   const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
+  const [starterPacksOpen, setStarterPacksOpen] = useDialogSearchParam(STARTER_PACKS_DIALOG);
   const [editingGroup, setEditingGroup] = useState<{
     mode: "create" | "edit";
     id?: string;
@@ -319,6 +322,14 @@ export default function AdminCollections() {
               <Plus className="mr-1 h-4 w-4" /> New Group
             </Button>
           ) : null}
+          <Button
+            disabled={!capabilities?.imports}
+            size="sm"
+            variant="outline"
+            onClick={() => setStarterPacksOpen(true)}
+          >
+            <Layers3 className="mr-1 h-4 w-4" /> Starter packs…
+          </Button>
           {selectedCollections.length > 0 ? (
             <>
               <Badge variant="secondary">{selectedCollections.length} selected</Badge>
@@ -365,6 +376,14 @@ export default function AdminCollections() {
       ) : null}
 
       <CollectionApplyJobBanner job={latestApplyJob} />
+
+      {starterPacksOpen ? (
+        <StarterPacksDialog
+          libraries={libraries}
+          initialLibraryId={selectedLibraryId}
+          onClose={() => setStarterPacksOpen(false)}
+        />
+      ) : null}
 
       {isAllLibraries ? (
         <AllLibraryCollectionsOverview
@@ -493,7 +512,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults apply failed</p>
+            <p className="text-sm font-medium">Couldn't add the starter pack</p>
             <p className="text-xs">{job.error_message || job.message || "The job failed."}</p>
           </div>
         </div>
@@ -507,7 +526,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults applied</p>
+            <p className="text-sm font-medium">Starter pack added</p>
             <p className="text-muted-foreground text-xs">{templateBundleApplySummary(job)}</p>
           </div>
         </div>
@@ -521,7 +540,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <Loader2 className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0 animate-spin" />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">Applying collection defaults</p>
+            <p className="text-sm font-medium">Adding a starter pack</p>
             <p className="text-muted-foreground text-xs">{job.message || "Working..."}</p>
           </div>
           <div className="progress-bar">
