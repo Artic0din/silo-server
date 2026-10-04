@@ -6,7 +6,6 @@ import type {
   DisplayQueryDefinition,
   QueryDefinition,
   QueryDefinitionInput,
-  SmartCollectionAccess,
   UserCollectionMediaFilter,
   UserCollectionWatchFilter,
 } from "@/api/types";
@@ -34,7 +33,9 @@ import {
   useUserCollectionPreview,
 } from "@/hooks/queries/collectionPreviews";
 
-import CollectionAccessEditor from "./CollectionAccessEditor";
+import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/personalCollectionCopy";
+import { ReadOnlyCollectionNotice } from "./ReadOnlyCollectionNotice";
+import { ShowToOtherProfilesField } from "./ShowToOtherProfilesField";
 import CollectionGuidedRulesEditor from "./CollectionGuidedRulesEditor";
 import CollectionOrderingEditor from "./CollectionOrderingEditor";
 import CollectionPreviewPane from "./CollectionPreviewPane";
@@ -50,7 +51,8 @@ export interface CollectionBuilderValue {
   featured: boolean;
   query_definition: QueryDefinition;
   sort_config: Record<string, unknown>;
-  access: SmartCollectionAccess;
+  /** Personal collections: show to every profile on the login. */
+  is_shared: boolean;
   include_in_server_collections: boolean;
   /** Filter-only QueryDefinition fragment for the display presets; undefined = no filter. */
   display_query_definition?: DisplayQueryDefinition;
@@ -63,13 +65,13 @@ export interface CollectionBuilderProps {
   onSubmit: () => void;
   submitLabel?: string;
   libraries?: Array<{ id: number; name: string }>;
-  profiles?: Array<{ id: string; name: string }>;
   isPending?: boolean;
   readOnly?: boolean;
   lockCollectionType?: boolean;
   allowLibrarySelection?: boolean;
   allowAccessControls?: boolean;
-  creatorProfileId?: string | null;
+  /** Names the owner in the read-only notice on another profile's collection. */
+  ownerName?: string | null;
   defaultAdvanced?: boolean;
   previewLayout?: "stacked" | "sidebar";
   sidebarContent?: ReactNode;
@@ -95,7 +97,7 @@ export function createCollectionBuilderValue(
     query_definition:
       collectionType === "smart" ? normalizeSmartCollectionLimit(queryDefinition) : queryDefinition,
     sort_config: overrides?.sort_config ?? {},
-    access: overrides?.access ?? { is_shared: false, allowed_profile_ids: [] },
+    is_shared: overrides?.is_shared ?? false,
     include_in_server_collections: overrides?.include_in_server_collections ?? false,
     display_query_definition: overrides?.display_query_definition,
   };
@@ -118,13 +120,12 @@ export default function CollectionBuilder({
   onSubmit,
   submitLabel = "Save Collection",
   libraries = [],
-  profiles = [],
   isPending = false,
   readOnly = false,
   lockCollectionType = false,
   allowLibrarySelection = true,
   allowAccessControls = false,
-  creatorProfileId,
+  ownerName,
   defaultAdvanced = false,
   previewLayout = "stacked",
   sidebarContent,
@@ -332,13 +333,12 @@ export default function CollectionBuilder({
 
       {allowAccessControls ? (
         <section className="space-y-4">
-          <h2 className="text-lg font-semibold">Access</h2>
-          <CollectionAccessEditor
-            value={value.access}
-            onChange={(access) => onChange({ ...value, access })}
-            profiles={profiles}
-            readOnly={readOnly}
-            creatorProfileId={creatorProfileId}
+          <h2 className="text-lg font-semibold">Sharing</h2>
+          {readOnly ? <ReadOnlyCollectionNotice ownerName={ownerName} /> : null}
+          <ShowToOtherProfilesField
+            checked={value.is_shared}
+            onCheckedChange={(is_shared) => onChange({ ...value, is_shared })}
+            disabled={readOnly}
           />
         </section>
       ) : null}
@@ -348,7 +348,7 @@ export default function CollectionBuilder({
           <h2 className="text-lg font-semibold">Library Collections tab</h2>
           <ToggleRow
             title="Show in my library Collections tab"
-            description="Pin this collection to your library's Collections tab alongside the admin shelves. Only you see it — personal collections are private to your user."
+            description={LIBRARY_TAB_DESCRIPTION}
             checked={value.include_in_server_collections}
             onCheckedChange={(checked) =>
               onChange({ ...value, include_in_server_collections: checked })

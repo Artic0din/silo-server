@@ -1,8 +1,6 @@
 import {
   fetchCollectionEditSnapshot,
   fetchCollectionOrderSnapshot,
-  fetchGroupOrderSnapshot,
-  fetchGroupSnapshot,
   type CollectionEditSnapshot,
 } from "@/api/personalCollections";
 import { toast } from "sonner";
@@ -20,24 +18,37 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { CSS } from "@dnd-kit/utilities";
 
 import type { Collection, ServerCollectionsLibrary, UserCollectionType } from "@/api/types";
 import {
-  useCollectionGroups,
   useCollectionCapabilities,
   useCollections,
-  useCreateCollectionGroup,
   useDeleteCollection,
-  useDeleteCollectionGroup,
-  useReorderCollectionGroups,
   useReorderCollections,
   useServerCollections,
-  useUpdateCollection,
-  useUpdateCollectionGroup,
 } from "@/hooks/queries/collections";
+import { useProfiles } from "@/hooks/queries/profiles";
+import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { partitionPersonalCollections } from "@/lib/collections/personalOwnership";
 import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
 import MediaCarousel from "@/components/MediaCarousel";
 import { useSyncUserCollection } from "@/hooks/queries/userCollectionImports";
@@ -47,11 +58,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
-import {
-  GroupedCollectionsBoard,
-  useGroupedCollectionCard,
-} from "@/components/collections/GroupedCollectionsBoard";
-import { slugifyGroupSlug } from "@/lib/collectionGroups";
 import { useUICustomization } from "@/hooks/useUICustomization";
 import { carouselCardWidthClasses } from "@/lib/uiCustomization";
 
@@ -67,71 +73,50 @@ function isImportedType(t: UserCollectionType): t is ImportedCollectionType {
   return SYNCABLE_TYPES.has(t as ImportedCollectionType);
 }
 
+const COLLECTION_GRID = "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
+
 export default function Collections() {
   return <CollectionList />;
 }
 
 function CollectionList() {
   const { data, isLoading } = useCollections();
-  const { data: groupsData } = useCollectionGroups();
   const { data: capabilities } = useCollectionCapabilities();
-  const collections = useMemo(() => data ?? [], [data]);
-  const groups = useMemo(() => groupsData ?? [], [groupsData]);
+  const { data: profiles = [] } = useProfiles();
+  const { profile } = useCurrentProfile();
+  const { own, shared } = useMemo(
+    () => partitionPersonalCollections(data ?? [], profile?.id, profiles),
+    [data, profile?.id, profiles],
+  );
   const [confirmDeleteCollection, setConfirmDeleteCollection] =
     useState<CollectionEditSnapshot | null>(null);
-  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<Awaited<
-    ReturnType<typeof fetchGroupSnapshot>
-  > | null>(null);
-  const dragSnapshot =
-    useRef<Promise<{ etag: string; collection?: CollectionEditSnapshot }>>(undefined);
+  const dragSnapshot = useRef<Promise<string>>(undefined);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const navigate = useNavigate();
   const deleteMutation = useDeleteCollection();
   const syncMutation = useSyncUserCollection();
   const reorderMutation = useReorderCollections();
-  const updateMutation = useUpdateCollection();
-  const createGroupMutation = useCreateCollectionGroup();
-  const renameGroupMutation = useUpdateCollectionGroup();
-  const deleteGroupMutation = useDeleteCollectionGroup();
-  const reorderGroupsMutation = useReorderCollectionGroups();
+  const canReorder = capabilities?.item_reorder === true;
+  const ownIDs = own.map((collection) => collection.id);
 
-  function beginDrag(id: string) {
-    const dragged = collections.find((item) => item.id === id);
-    const sameIDs = (left: string[], right: string[]) =>
-      left.length === right.length && left.every((value, index) => value === right[index]);
-    dragSnapshot.current = dragged
-      ? Promise.all([
-          fetchCollectionOrderSnapshot(dragged.group_id ?? null),
-          fetchCollectionEditSnapshot(id),
-        ]).then(([order, collection]) => {
-          const visible = collections
-            .filter((item) => (item.group_id ?? null) === (dragged.group_id ?? null))
-            .map((item) => item.id);
-          if (
-            !sameIDs(order.ordered_ids, visible) ||
-            (collection.collection.group_id ?? null) !== (dragged.group_id ?? null)
-          )
-            throw new Error("Collection order changed. Reload before moving collections.");
-          return { etag: order.etag, collection };
-        })
-      : fetchGroupOrderSnapshot().then((order) => {
-          if (
-            !sameIDs(
-              order.ordered_ids,
-              groups.map((group) => group.id),
-            )
-          )
-            throw new Error("Group order changed. Reload before moving groups.");
-          return { etag: order.etag };
-        });
+  // A drag reads the server's order validator as it starts, and refuses to
+  // reorder when the server's own-collection order differs from the page.
+  function beginDrag() {
+    dragSnapshot.current = fetchCollectionOrderSnapshot().then((order) => {
+      const same =
+        order.ordered_ids.length === ownIDs.length &&
+        order.ordered_ids.every((id, index) => id === ownIDs[index]);
+      if (!same) throw new Error("Collection order changed. Reload before moving collections.");
+      return order.etag;
+    });
     // A cancelled drag may never consume its snapshot.
     void dragSnapshot.current.catch(() => undefined);
   }
-  function withDragSnapshot(
-    action: (snapshot: { etag: string; collection?: CollectionEditSnapshot }) => void,
-  ) {
+  function reorder(orderedIds: string[]) {
     if (!dragSnapshot.current) return;
-    void dragSnapshot.current.then(action).catch((error) => toast.error(error.message));
+    void dragSnapshot.current
+      .then((etag) => reorderMutation.mutate({ orderedIds, etag }))
+      .catch((error) => toast.error(error.message));
   }
 
   useDocumentTitle("Collections");
@@ -139,7 +124,7 @@ function CollectionList() {
   if (isLoading)
     return (
       <div className="page-shell space-y-4 py-4 sm:py-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className={COLLECTION_GRID}>
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-24 rounded-[1.6rem]" />
           ))}
@@ -149,25 +134,6 @@ function CollectionList() {
 
   return (
     <div className="page-shell space-y-6 py-4 sm:py-6">
-      <ConfirmDialog
-        open={confirmDeleteGroup !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmDeleteGroup(null);
-        }}
-        title="Delete group"
-        description={`Delete group "${confirmDeleteGroup?.group.name}"? Collections will become ungrouped.`}
-        confirmLabel="Delete"
-        variant="destructive"
-        onConfirm={() => {
-          if (confirmDeleteGroup)
-            deleteGroupMutation.mutate({
-              id: confirmDeleteGroup.group.id,
-              etag: confirmDeleteGroup.etag,
-            });
-          setConfirmDeleteGroup(null);
-        }}
-      />
-
       <ConfirmDialog
         open={confirmDeleteCollection !== null}
         onOpenChange={(open) => {
@@ -211,9 +177,11 @@ function CollectionList() {
         </div>
       </div>
 
-      <section className="space-y-4">
-        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Your collections</h2>
-        {collections.length === 0 ? (
+      <section className="space-y-4" aria-labelledby="your-collections">
+        <h2 id="your-collections" className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          Your collections
+        </h2>
+        {own.length === 0 ? (
           <div className="surface-panel flex flex-col items-center justify-center gap-3 rounded-[2rem] py-16 text-center">
             <Library className="text-muted-foreground/50 h-10 w-10" />
             <div className="space-y-1">
@@ -238,77 +206,98 @@ function CollectionList() {
             </div>
           </div>
         ) : (
-          <GroupedCollectionsBoard
+          <SortableCollectionGrid
+            ids={ownIDs}
+            disabled={!canReorder}
             onBeginDrag={beginDrag}
-            readOnly={!capabilities?.groups}
-            items={collections}
-            groups={groups}
-            renderItem={(collection) => {
-              const syncable =
-                capabilities?.imports === true && isImportedType(collection.collection_type);
+            onReorder={reorder}
+          >
+            {own.map((collection) => {
               const isSyncing = syncMutation.isPending && syncMutation.variables === collection.id;
               return (
                 <SortableCollectionCard
+                  key={collection.id}
                   collection={collection}
-                  canReorder={capabilities?.groups === true}
-                  syncable={syncable}
-                  isSyncing={isSyncing}
-                  onSync={() => syncMutation.mutate(collection.id)}
-                  onEdit={() => navigate(buildUserCollectionEditorPath(collection.id))}
-                  onDelete={() => {
-                    void fetchCollectionEditSnapshot(collection.id)
-                      .then(setConfirmDeleteCollection)
-                      .catch((error) => toast.error(error.message));
+                  canReorder={canReorder}
+                  actions={{
+                    syncable:
+                      capabilities?.imports === true && isImportedType(collection.collection_type),
+                    isSyncing,
+                    onSync: () => syncMutation.mutate(collection.id),
+                    onEdit: () => navigate(buildUserCollectionEditorPath(collection.id)),
+                    onDelete: () => {
+                      void fetchCollectionEditSnapshot(collection.id)
+                        .then(setConfirmDeleteCollection)
+                        .catch((error) => toast.error(error.message));
+                    },
                   }}
                 />
               );
-            }}
-            onReorderInGroup={(groupId, orderedIds) =>
-              withDragSnapshot((snapshot) =>
-                reorderMutation.mutate({ orderedIds, groupId, etag: snapshot.etag }),
-              )
-            }
-            onMoveItemAcross={(itemId, toGroupId) =>
-              withDragSnapshot((snapshot) => {
-                if (snapshot.collection?.collection.id === itemId)
-                  updateMutation.mutate({
-                    id: itemId,
-                    etag: snapshot.collection.etag,
-                    body: { group_id: toGroupId },
-                  });
-              })
-            }
-            onReorderGroups={(orderedIds) =>
-              withDragSnapshot((snapshot) =>
-                reorderGroupsMutation.mutate({ orderedIds, etag: snapshot.etag }),
-              )
-            }
-            onAddGroup={(title) =>
-              createGroupMutation.mutate({ slug: slugifyGroupSlug(title), name: title })
-            }
-            onPrepareRenameGroup={async (id) => {
-              try {
-                const snapshot = await fetchGroupSnapshot(id);
-                return {
-                  title: snapshot.group.name,
-                  commit: (name: string) =>
-                    renameGroupMutation.mutate({ id, name, etag: snapshot.etag }),
-                };
-              } catch (error) {
-                toast.error(error instanceof Error ? error.message : "Could not load group");
-              }
-            }}
-            onDeleteGroup={(id) => {
-              void fetchGroupSnapshot(id)
-                .then(setConfirmDeleteGroup)
-                .catch((error) => toast.error(error.message));
-            }}
-          />
+            })}
+          </SortableCollectionGrid>
         )}
       </section>
 
+      {shared.length > 0 ? (
+        <section className="space-y-4" aria-labelledby="shared-with-me">
+          <h2 id="shared-with-me" className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Shared with me
+          </h2>
+          {shared.map((group) => (
+            <div key={group.owner.id} className="space-y-3">
+              <h3 className="text-muted-foreground text-sm font-medium">by {group.owner.name}</h3>
+              <div className={COLLECTION_GRID}>
+                {group.collections.map((collection) => (
+                  <CollectionCard key={collection.id} collection={collection} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
       <ServerCollectionsSection />
     </div>
+  );
+}
+
+// SortableCollectionGrid is the profile's own collections as one flat,
+// drag-sortable grid. It reports the new full order of ids.
+function SortableCollectionGrid({
+  ids,
+  disabled,
+  onBeginDrag,
+  onReorder,
+  children,
+}: {
+  ids: string[];
+  disabled: boolean;
+  onBeginDrag: () => void;
+  onReorder: (orderedIds: string[]) => void;
+  children: React.ReactNode;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  function handleDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    onReorder(arrayMove(ids, from, to));
+  }
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={onBeginDrag}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext items={ids} strategy={rectSortingStrategy} disabled={disabled}>
+        <div className={COLLECTION_GRID}>{children}</div>
+      </SortableContext>
+    </DndContext>
   );
 }
 
@@ -402,50 +391,80 @@ function ServerLibraryRow({ library }: { library: ServerCollectionsLibrary }) {
   );
 }
 
-function SortableCollectionCard({
-  collection,
-  syncable,
-  canReorder,
-  isSyncing,
-  onSync,
-  onEdit,
-  onDelete,
-}: {
-  collection: Collection;
+interface CollectionCardActions {
   syncable: boolean;
-  canReorder: boolean;
   isSyncing: boolean;
   onSync: () => void;
   onEdit: () => void;
   onDelete: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useGroupedCollectionCard(collection.id, !canReorder);
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
+}
 
+// SortableCollectionCard is one of the profile's own collections, with its
+// management actions and, when the store supports it, a drag handle.
+function SortableCollectionCard({
+  collection,
+  canReorder,
+  actions,
+}: {
+  collection: Collection;
+  canReorder: boolean;
+  actions: CollectionCardActions;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: collection.id,
+    disabled: !canReorder,
+  });
+  return (
+    <CollectionCard
+      collection={collection}
+      actions={actions}
+      cardRef={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+      }}
+      dragHandle={
+        canReorder ? (
+          <button
+            type="button"
+            aria-label={`Drag ${collection.name}`}
+            className="hover:bg-surface-hover relative z-10 -ml-1 cursor-grab touch-none rounded-md p-1 opacity-0 transition group-focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="text-muted-foreground h-4 w-4" />
+          </button>
+        ) : null
+      }
+    />
+  );
+}
+
+// CollectionCard renders one personal collection. Without actions it is
+// another profile's shared collection: read-only, opening its catalog view.
+function CollectionCard({
+  collection,
+  actions,
+  cardRef,
+  style,
+  dragHandle,
+}: {
+  collection: Collection;
+  actions?: CollectionCardActions;
+  cardRef?: (node: HTMLElement | null) => void;
+  style?: React.CSSProperties;
+  dragHandle?: React.ReactNode;
+}) {
   return (
     <Card
-      ref={setNodeRef}
+      ref={cardRef}
       style={style}
       className="surface-panel hover:border-primary group relative rounded-[1.6rem] border-0 transition-all hover:-translate-y-1"
     >
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <div className="flex min-w-0 items-center gap-2">
-          {canReorder && (
-            <button
-              type="button"
-              aria-label={`Drag ${collection.name}`}
-              className="hover:bg-surface-hover relative z-10 -ml-1 cursor-grab touch-none rounded-md p-1 opacity-0 transition group-focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical className="text-muted-foreground h-4 w-4" />
-            </button>
-          )}
+          {dragHandle}
           <div className="min-w-0 space-y-2">
             <CardTitle className="text-base">
               <Link
@@ -455,50 +474,52 @@ function SortableCollectionCard({
                 {collection.name}
               </Link>
             </CardTitle>
-            <CollectionBadges collection={collection} />
+            <CollectionBadges collection={collection} showShared={actions !== undefined} />
           </div>
         </div>
-        <div className="relative z-10 flex gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100">
-          {syncable ? (
+        {actions ? (
+          <div className="relative z-10 flex gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100">
+            {actions.syncable ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Sync collection"
+                disabled={actions.isSyncing}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  actions.onSync();
+                }}
+              >
+                <RefreshCw className={`h-3 w-3 ${actions.isSyncing ? "animate-spin" : ""}`} />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
               className="h-9 w-9"
-              aria-label="Sync collection"
-              disabled={isSyncing}
+              aria-label="Edit collection"
               onClick={(event) => {
                 event.stopPropagation();
-                onSync();
+                actions.onEdit();
               }}
             >
-              <RefreshCw className={`h-3 w-3 ${isSyncing ? "animate-spin" : ""}`} />
+              <Pencil className="h-3 w-3" />
             </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9"
-            aria-label="Edit collection"
-            onClick={(event) => {
-              event.stopPropagation();
-              onEdit();
-            }}
-          >
-            <Pencil className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9"
-            aria-label="Delete collection"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete();
-            }}
-          >
-            <Trash2 className="h-3 w-3" />
-          </Button>
-        </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              aria-label="Delete collection"
+              onClick={(event) => {
+                event.stopPropagation();
+                actions.onDelete();
+              }}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        ) : null}
       </CardHeader>
     </Card>
   );
@@ -530,7 +551,14 @@ const SYNC_STATUS_BADGES: Partial<
   failed: { variant: "destructive", label: "Sync failed" },
 };
 
-function CollectionBadges({ collection }: { collection: Collection }) {
+function CollectionBadges({
+  collection,
+  showShared,
+}: {
+  collection: Collection;
+  /** The Shared badge marks the profile's own shared collections. */
+  showShared: boolean;
+}) {
   const TypeIcon = TYPE_ICONS[collection.collection_type] ?? Film;
   const typeLabel = TYPE_LABELS[collection.collection_type] ?? collection.collection_type;
   const statusBadge = collection.last_sync_status
@@ -543,7 +571,7 @@ function CollectionBadges({ collection }: { collection: Collection }) {
         <TypeIcon className="mr-1 h-3 w-3" />
         {typeLabel}
       </Badge>
-      {collection.is_shared ? <Badge variant="outline">Shared</Badge> : null}
+      {showShared && collection.is_shared ? <Badge variant="outline">Shared</Badge> : null}
       {collection.sync_schedule ? (
         <Badge variant="outline">
           <Calendar className="mr-1 h-3 w-3" />
