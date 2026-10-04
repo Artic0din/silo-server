@@ -39,7 +39,7 @@ export const LIBRARY_TAB_DESCRIPTION =
 
 export const SHOW_TO_OTHER_PROFILES_LABEL = "Show to other profiles";
 export const SHOW_TO_OTHER_PROFILES_HELP =
-  "Every profile on this account sees it, minus titles it can't access.";
+  "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.";
 
 /** Shown when sharing is turned off on a saved collection. */
 export function unshareWarning(profileNames: readonly string[]): string {
@@ -91,6 +91,9 @@ export const ARTWORK_SLOT_LABEL: Readonly<Record<ArtworkSlot, string>> = {
 export const NOT_CREATED_YET = "Not created yet";
 export const TITLES_ALREADY_SAVED = "Titles are already saved.";
 export const SAVE_FAILED = "Couldn't save";
+
+/** Why Create waits on a server collection with no library yet. */
+export const PICK_LIBRARIES_FIRST = "Pick its libraries, then create it.";
 
 export function titlesReadyToAdd(count: number): string {
   return count === 0 ? "Name it, then create it." : `${plural(count, "title")} ready to add`;

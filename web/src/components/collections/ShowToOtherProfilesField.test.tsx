@@ -10,7 +10,7 @@ describe("ShowToOtherProfilesField", () => {
     const toggle = screen.getByRole("switch", { name: "Show to other profiles" });
     expect(
       screen.getByText(
-        "Every profile on this login will see this collection. Titles a profile can't access stay hidden from it. Nobody else on the server can see it.",
+        "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/Allowed Profiles/)).toBeNull();

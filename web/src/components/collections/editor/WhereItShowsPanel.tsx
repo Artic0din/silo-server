@@ -8,14 +8,13 @@ import { adminKeys } from "@/hooks/queries/keys";
 import {
   PERSONAL_TAB_HELP,
   SHOW_ON_TAB_LABEL,
-  SHOW_TO_OTHER_PROFILES_HELP,
-  SHOW_TO_OTHER_PROFILES_LABEL,
   serverTabHelp,
   unshareWarning,
 } from "@/lib/collections/copy";
 import { SERVER_SCOPE, type CollectionDraft } from "@/lib/collections/scope";
 
 import { focusLibrariesLine } from "../fields/librariesLineFocus";
+import { ShowToOtherProfilesField } from "../ShowToOtherProfilesField";
 import { ToggleRow } from "../fields/ToggleRow";
 
 interface NamedLibrary {
@@ -138,9 +137,7 @@ export function WhereItShowsPanel({
       {scopeKind === "personal" && draft.personal ? (
         <>
           {otherProfileNames.length > 0 ? (
-            <ToggleRow
-              label={SHOW_TO_OTHER_PROFILES_LABEL}
-              help={SHOW_TO_OTHER_PROFILES_HELP}
+            <ShowToOtherProfilesField
               checked={draft.personal.shared}
               onCheckedChange={(shared) =>
                 onChange((current) => ({
@@ -158,7 +155,7 @@ export function WhereItShowsPanel({
                   {unshareWarning(otherProfileNames)}
                 </p>
               ) : null}
-            </ToggleRow>
+            </ShowToOtherProfilesField>
           ) : null}
           <ToggleRow
             label={SHOW_ON_TAB_LABEL}
