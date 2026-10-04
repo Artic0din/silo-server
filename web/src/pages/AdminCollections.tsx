@@ -61,6 +61,7 @@ import {
   CheckCircle2,
   Info,
   Layers,
+  Layers3,
   LayoutGrid,
   Library as LibraryIcon,
   List,
@@ -71,6 +72,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
+import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import {
   collectionLibraryIds,
   countByLibrary,
@@ -93,6 +95,8 @@ import { collectionsInAdminScope } from "./adminCollectionsShared";
 /** Under this width More and New collection move to a bar docked at the bottom. */
 const NARROW_QUERY = "(max-width: 1023px)";
 const ALL_LIBRARIES = "all";
+/** `?dialog=starter-packs` opens Starter packs, so a link can open it. */
+const STARTER_PACKS_DIALOG = "starter-packs";
 
 const KIND_OPTIONS: ReadonlyArray<{ value: KindFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -146,6 +150,18 @@ export default function AdminCollections() {
   const listHref = `${location.pathname}${location.search}`;
 
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const starterPacksOpen = searchParams.get("dialog") === STARTER_PACKS_DIALOG;
+  // Replace, not push: Back should leave the page, not reopen a closed dialog.
+  const setStarterPacksOpen = (open: boolean) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) next.set("dialog", STARTER_PACKS_DIALOG);
+        else next.delete("dialog");
+        return next;
+      },
+      { replace: true },
+    );
   const [editingGroup, setEditingGroup] = useState<{
     mode: "create" | "edit";
     id?: string;
@@ -415,8 +431,17 @@ export default function AdminCollections() {
       deleteCollections.mutate(deleteSnapshots, { onSuccess: () => setConfirmDeleteAll(false) });
   }
 
-  // Until Starter packs and Select collections arrive, More holds today's page actions.
+  // Until Select collections arrives, More holds today's page actions.
   const moreItems: PageMoreMenuItem[] = [
+    {
+      key: "starter-packs",
+      label: "Starter packs…",
+      help: "Add a ready-made set of collections to a library.",
+      icon: Layers3,
+      disabled: !capabilities?.imports,
+      opensDialog: true,
+      onSelect: () => setStarterPacksOpen(true),
+    },
     {
       key: "templates",
       label: "Browse templates…",
@@ -537,8 +562,8 @@ export default function AdminCollections() {
             ) : inLibrary.length === 0 ? (
               <EmptyLibrary
                 libraryName={activeLibrary?.name ?? null}
-                canBrowseTemplates={Boolean(capabilities?.imports)}
-                onBrowseTemplates={() => setGalleryOpen(true)}
+                canAddStarterPack={Boolean(capabilities?.imports)}
+                onAddStarterPack={() => setStarterPacksOpen(true)}
                 newCollection={newCollection}
               />
             ) : (
@@ -650,7 +675,7 @@ export default function AdminCollections() {
             syncingCollectionID={[...syncingIds][0] ?? null}
             busy={bulkBusy}
             newCollection={newCollection}
-            onBrowseTemplates={() => setGalleryOpen(true)}
+            onAddStarterPack={() => setStarterPacksOpen(true)}
             onEditGroup={(id) => void prepareGroupEdit(id)}
             onEditCollection={(collection) => openEditor(collection, arrangeLibraryId)}
             onDeleteCollection={(collection) => void prepareDelete(collection)}
@@ -668,6 +693,14 @@ export default function AdminCollections() {
         libraries={libraryList}
         initialLibraryId={activeLibraryId}
       />
+
+      {starterPacksOpen ? (
+        <StarterPacksDialog
+          libraries={libraryList}
+          initialLibraryId={activeLibraryId}
+          onClose={() => setStarterPacksOpen(false)}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -876,13 +909,13 @@ function ListSkeleton() {
 /** A library, or the server, with no collections yet: both ways to make some. */
 function EmptyLibrary({
   libraryName,
-  canBrowseTemplates,
-  onBrowseTemplates,
+  canAddStarterPack,
+  onAddStarterPack,
   newCollection,
 }: {
   libraryName: string | null;
-  canBrowseTemplates: boolean;
-  onBrowseTemplates: () => void;
+  canAddStarterPack: boolean;
+  onAddStarterPack: () => void;
   newCollection: ReactNode;
 }) {
   return (
@@ -900,10 +933,10 @@ function EmptyLibrary({
         <Button
           variant="outline"
           size="sm"
-          disabled={!canBrowseTemplates}
-          onClick={onBrowseTemplates}
+          disabled={!canAddStarterPack}
+          onClick={onAddStarterPack}
         >
-          <Sparkles aria-hidden /> Browse templates
+          <Layers3 aria-hidden /> Add a starter pack
         </Button>
         {newCollection}
       </div>
@@ -922,7 +955,7 @@ function ArrangeView({
   syncingCollectionID,
   busy,
   newCollection,
-  onBrowseTemplates,
+  onAddStarterPack,
   onEditGroup,
   onEditCollection,
   onDeleteCollection,
@@ -938,7 +971,7 @@ function ArrangeView({
   syncingCollectionID: string | null;
   busy: boolean;
   newCollection: ReactNode;
-  onBrowseTemplates: () => void;
+  onAddStarterPack: () => void;
   onEditGroup: (id: string) => void;
   onEditCollection: (collection: LibraryCollection) => void;
   onDeleteCollection: (collection: LibraryCollection) => void;
@@ -964,8 +997,8 @@ function ArrangeView({
       <div className="surface-panel rounded-[26px] p-1.5">
         <EmptyLibrary
           libraryName={libraryName}
-          canBrowseTemplates={Boolean(capabilities?.imports)}
-          onBrowseTemplates={onBrowseTemplates}
+          canAddStarterPack={Boolean(capabilities?.imports)}
+          onAddStarterPack={onAddStarterPack}
           newCollection={newCollection}
         />
       </div>
@@ -1017,7 +1050,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults apply failed</p>
+            <p className="text-sm font-medium">Couldn't add the starter pack</p>
             <p className="text-xs">{job.error_message || job.message || "The job failed."}</p>
           </div>
         </div>
@@ -1031,7 +1064,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults applied</p>
+            <p className="text-sm font-medium">Starter pack added</p>
             <p className="text-muted-foreground text-xs">{templateBundleApplySummary(job)}</p>
           </div>
         </div>
@@ -1045,7 +1078,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <Loader2 className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0 animate-spin" />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">Applying collection defaults</p>
+            <p className="text-sm font-medium">Adding a starter pack</p>
             <p className="text-muted-foreground text-xs">{job.message || "Working..."}</p>
           </div>
           <div className="progress-bar">

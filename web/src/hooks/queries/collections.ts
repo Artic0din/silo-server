@@ -39,7 +39,7 @@ export function useCollections() {
   });
 }
 
-export function useCollectionCapabilities() {
+export function useCollectionCapabilities(enabled = true) {
   return useQuery({
     queryKey: PERSONAL_SCOPE.keys.capabilities,
     queryFn: () =>
@@ -48,6 +48,7 @@ export function useCollectionCapabilities() {
         display_filter_presets:
           value.display_filter_presets as CollectionCapabilitiesResponse["display_filter_presets"],
       })),
+    enabled,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

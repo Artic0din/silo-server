@@ -302,7 +302,7 @@ describe("AdminCollections List", () => {
     renderPage("/admin/collections?view=list&libraryId=3");
     const region = screen.getByRole("region", { name: "Collections" });
     expect(await within(region).findByText("No collections in TV Shows yet")).toBeInTheDocument();
-    expect(within(region).getByRole("button", { name: "Browse templates" })).toBeEnabled();
+    expect(within(region).getByRole("button", { name: "Add a starter pack" })).toBeEnabled();
     expect(within(region).getByRole("link", { name: "New collection" })).toHaveAttribute(
       "href",
       "/admin/collections/new?libraryId=3",

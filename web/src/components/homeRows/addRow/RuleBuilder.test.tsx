@@ -62,6 +62,13 @@ function Harness({ initial }: { initial: QueryDefinition }) {
   );
 }
 
+/** The sentence's words and control values, in reading order. */
+function sentencePieces(sentence: HTMLElement): string[] {
+  return Array.from(sentence.children)
+    .filter((child) => child.getAttribute("aria-hidden") !== "true")
+    .map((child) => child.textContent?.trim() ?? "");
+}
+
 function choose(combobox: HTMLElement, option: string) {
   fireEvent.pointerDown(combobox, { button: 0, ctrlKey: false, pointerType: "mouse" });
   fireEvent.click(screen.getByRole("option", { name: option }));
@@ -71,30 +78,102 @@ describe("RuleBuilder", () => {
   it("reads as a sentence: show what, from which libraries, matching all or any", () => {
     render(<Harness initial={query()} />);
     const sentence = screen.getByRole("group", { name: "What the row shows" });
-    expect(sentence).toHaveTextContent("Show");
-    expect(within(sentence).getByRole("combobox", { name: "Kind of titles" })).toHaveTextContent(
-      "Movies",
-    );
-    expect(within(sentence).getByRole("button", { name: /Libraries/ })).toHaveTextContent(
-      "All libraries",
-    );
+    expect(sentencePieces(sentence)).toEqual([
+      "Show",
+      "movies",
+      "from",
+      "Libraries: all libraries",
+      "that match",
+      "all",
+      "of these:",
+    ]);
+    expect(within(sentence).getByRole("combobox", { name: "Kind of titles" })).toBeInTheDocument();
     expect(
       within(sentence).getByRole("combobox", { name: "How the rules combine" }),
-    ).toHaveTextContent("all");
-    expect(sentence).toHaveTextContent("of these:");
+    ).toBeInTheDocument();
     expect(screen.getAllByRole("combobox", { name: "Field" })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Easy" })).toBeNull();
   });
 
+  it("names one chosen library as “the … library”", () => {
+    render(<Harness initial={query({ library_ids: [1] })} />);
+    expect(sentencePieces(screen.getByRole("group", { name: "What the row shows" }))).toEqual([
+      "Show",
+      "movies",
+      "from the",
+      "Libraries: Movies",
+      "library",
+      "that match",
+      "all",
+      "of these:",
+    ]);
+  });
+
+  it("names several chosen libraries as “the … libraries”", () => {
+    render(<Harness initial={query({ library_ids: [1, 2], groups: [] })} />);
+    expect(sentencePieces(screen.getByRole("group", { name: "What the row shows" }))).toEqual([
+      "Show",
+      "movies",
+      "from the",
+      "Libraries: Movies, TV",
+      "libraries",
+    ]);
+  });
+
+  it("doesn't repeat “libraries” while the chosen libraries' names are unknown", () => {
+    render(<Harness initial={query({ library_ids: [8, 9] })} />);
+    expect(
+      sentencePieces(screen.getByRole("group", { name: "What the row shows" })).slice(2, 5),
+    ).toEqual(["from the", "Libraries: 2 libraries", "that match"]);
+  });
+
+  it("reads one chosen library whose name is unknown as “1 library”", () => {
+    render(<Harness initial={query({ library_ids: [9] })} />);
+    expect(
+      sentencePieces(screen.getByRole("group", { name: "What the row shows" })).slice(2, 5),
+    ).toEqual(["from the", "Libraries: 1 library", "that match"]);
+  });
+
+  it("counts chosen libraries whose names are unknown alongside the named ones", () => {
+    render(<Harness initial={query({ library_ids: [1, 9] })} />);
+    expect(
+      sentencePieces(screen.getByRole("group", { name: "What the row shows" })).slice(2, 5),
+    ).toEqual(["from the", "Libraries: Movies +1 more", "libraries"]);
+  });
+
+  it("starts “that match …” on a second line, as the mockup lays it out", () => {
+    render(<Harness initial={query({ library_ids: [1, 2] })} />);
+    const sentence = screen.getByRole("group", { name: "What the row shows" });
+    const clause = within(sentence).getByText("that match");
+    const lineBreak = clause.previousElementSibling;
+    expect(lineBreak).toHaveAttribute("aria-hidden", "true");
+    expect(lineBreak).toHaveClass("basis-full");
+    expect(lineBreak).toBeEmptyDOMElement();
+  });
+
+  it("keeps the picker's reset item capitalized while the sentence reads “all libraries”", async () => {
+    const { unmount } = render(<Harness initial={query({ library_ids: [1] })} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Libraries:\s*Movies$/ }));
+    expect(screen.getByRole("menuitem", { name: "All libraries" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "All libraries" }));
+    expect(latest?.library_ids).toEqual([]);
+    unmount();
+
+    render(<Harness initial={query()} />);
+    expect(
+      screen.getByRole("button", { name: /^Libraries:\s*all libraries$/ }),
+    ).toBeInTheDocument();
+  });
+
   it("offers movies and shows together as one kind, and shows it when stored", () => {
     const { unmount } = render(<Harness initial={query()} />);
-    choose(screen.getByRole("combobox", { name: "Kind of titles" }), "Movies & shows");
+    choose(screen.getByRole("combobox", { name: "Kind of titles" }), "movies and shows");
     expect(latest?.media_scope).toBe("video");
     unmount();
 
     render(<Harness initial={query({ media_scope: "video" })} />);
     expect(screen.getByRole("combobox", { name: "Kind of titles" })).toHaveTextContent(
-      "Movies & shows",
+      "movies and shows",
     );
   });
 

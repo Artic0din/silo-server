@@ -49,43 +49,69 @@ export function canCopyToLibraries(row: {
   );
 }
 
-function libraryTypeOf(page: LibraryPage | undefined): string | undefined {
-  return page?.libraryType?.trim().toLowerCase() || undefined;
+/** Spellings of a library type, by the kind they name (as in internal/librarykind). */
+const LIBRARY_KINDS: Record<string, string> = {
+  movie: "movie",
+  movies: "movie",
+  series: "tv",
+  tv: "tv",
+  show: "tv",
+  tvshows: "tv",
+  audiobook: "audiobook",
+  audiobooks: "audiobook",
+  ebook: "ebook",
+  ebooks: "ebook",
+  podcast: "podcast",
+  podcasts: "podcast",
+};
+
+function libraryKindOf(page: LibraryPage | undefined): string | undefined {
+  const type = page?.libraryType?.trim().toLowerCase();
+  return type ? (LIBRARY_KINDS[type] ?? type) : undefined;
 }
 
-/** Book kinds a Continue row's legacy filter_type names. */
-const BOOK_FILTER_TYPES: ReadonlySet<string> = new Set(["audiobook", "ebook"]);
-
 /**
- * Whether a row shows one kind of title only: one set to a media scope (a
- * default "Recently Added Movies" row), a Continue Listening or Continue
- * Reading row, or Next in Series, which follows audiobook series.
+ * The library kind a row's titles come from: "page" for a row set to a media
+ * scope (a default "Recently Added Movies" row), which fits its own page's
+ * kind; the book kind for Continue Listening, Continue Reading, and Next in
+ * Series, which follows audiobook series; undefined for a row that fits any
+ * library.
  */
-function showsOneKind(row: { sectionType: string; config: Record<string, unknown> }): boolean {
+function rowLibraryKind(row: {
+  sectionType: string;
+  config: Record<string, unknown>;
+}): "page" | "audiobook" | "ebook" | undefined {
   const { config } = row;
-  if (typeof config.media_scope === "string" && config.media_scope !== "") return true;
-  if (row.sectionType === "next_in_series") return true;
-  if (row.sectionType !== "continue_watching") return false;
+  if (typeof config.media_scope === "string" && config.media_scope !== "") return "page";
+  if (row.sectionType === "next_in_series") return "audiobook";
+  if (row.sectionType !== "continue_watching") return undefined;
   const lower = (value: unknown) => (typeof value === "string" ? value.trim().toLowerCase() : "");
   const continueType = lower(config.continue_type);
-  if (continueType !== "") return continueType !== "watching";
-  return BOOK_FILTER_TYPES.has(lower(config.filter_type));
+  if (continueType === "listening") return "audiobook";
+  if (continueType === "reading") return "ebook";
+  if (continueType !== "") return undefined;
+  const filterType = lower(config.filter_type);
+  return filterType === "audiobook" || filterType === "ebook" ? filterType : undefined;
 }
 
 /**
  * The library pages a row on page `currentId` can go to, that page included.
  * A row that shows one kind of title would be empty or wrong in another kind
- * of library, so it only goes to pages of this page's library type.
+ * of library, so it only goes to pages of that kind. The kind comes from the
+ * row where it says one, so a book row left on a movie page still reaches
+ * the book libraries.
  */
 export function copyTargetPages(
   row: { sectionType: string; config: Record<string, unknown> },
   pages: readonly LibraryPage[],
   currentId: number,
 ): LibraryPage[] {
-  if (!showsOneKind(row)) return [...pages];
-  const here = libraryTypeOf(pages.find((page) => page.id === currentId));
+  const rowKind = rowLibraryKind(row);
+  if (rowKind === undefined) return [...pages];
+  const kind =
+    rowKind === "page" ? libraryKindOf(pages.find((page) => page.id === currentId)) : rowKind;
   return pages.filter(
-    (page) => page.id === currentId || (here !== undefined && libraryTypeOf(page) === here),
+    (page) => page.id === currentId || (kind !== undefined && libraryKindOf(page) === kind),
   );
 }
 

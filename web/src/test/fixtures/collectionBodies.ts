@@ -19,6 +19,21 @@ const personalPosterDelete: RecordedCall = {
   },
 };
 
+/** The default heroes for the Core pack on Movies (1) and TV Shows (2). */
+const starterPackHeroes = {
+  home: { library_id: "1", template_id: "tmdb_trending_movies_week" },
+  libraries: { "1": "tmdb_trending_movies_week", "2": "tmdb_trending_tv_week" },
+};
+
+function starterPackDryRun(featured?: typeof starterPackHeroes): RecordedCall {
+  return {
+    operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
+    path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
+    headers: {},
+    body: { library_ids: ["1", "2"], dry_run: true, delete_existing: false, featured },
+  };
+}
+
 export const goldens = {
   /** Admin manual create from the editor page: the POST, then the poster file, then the backdrop URL. */
   adminManualCreate: [
@@ -809,101 +824,41 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Bundle preview with the default hero sections. */
-  bundleDryRunWithHeroes: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        dry_run: true,
-        delete_existing: false,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
-    },
-  ] satisfies Writes,
-  /** Bundle preview with every hero off and Delete Existing on: no `featured` member. */
-  bundleDryRunNoHeroesDeleteExisting: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        dry_run: true,
-        delete_existing: true,
-      },
-    },
-  ] satisfies Writes,
-  /** Bundle apply job with the default hero sections. */
-  bundleJobWithHeroes: [
+  /**
+   * Starter packs, hero switch off: the dry run when the pack opens, the same
+   * dry run again right before Add, the job, and one more dry run once the job
+   * ends so the table shows what is there now. No `featured` member, so the
+   * server never touches existing hero rows; `delete_existing` is always false.
+   */
+  starterPackApply: [
+    starterPackDryRun(),
+    starterPackDryRun(),
     {
       operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
       path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
       headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: false,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
+      body: { library_ids: ["1", "2"], delete_existing: false },
     },
-  ] satisfies Writes,
-  /** Bundle apply job with every hero off: no `featured` member. */
-  bundleJobNoHeroes: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: false,
-      },
-    },
+    starterPackDryRun(),
   ] satisfies Writes,
   /**
-   * Bundle apply job with the default hero sections and Delete Existing on.
-   * This is the request that deletes server collections; today it is sent
-   * with no confirmation step.
+   * Starter packs, hero switch turned on with the default heroes: the first
+   * dry run has no heroes; the rest, the job included, carry the same `featured`.
+   * When the job ends the switch turns back off, so after the refresh of the
+   * open check comes one more dry run without heroes.
    */
-  bundleJobDeleteExisting: [
+  starterPackApplyWithHeroes: [
+    starterPackDryRun(),
+    starterPackDryRun(starterPackHeroes),
+    starterPackDryRun(starterPackHeroes),
     {
       operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
       path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
       headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: true,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
+      body: { library_ids: ["1", "2"], delete_existing: false, featured: starterPackHeroes },
     },
+    starterPackDryRun(starterPackHeroes),
+    starterPackDryRun(),
   ] satisfies Writes,
   /** Add to collection, own manual collection: the personal item route. */
   addToPersonalCollection: [
