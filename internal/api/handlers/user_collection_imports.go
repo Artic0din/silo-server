@@ -431,15 +431,19 @@ type MDBListDiscoveryView struct {
 	Lists      []mdblist.ListSummary `json:"lists"`
 }
 
-// mdblistConfigured returns true when the discovery client is usable. When
-// false it has already written a "not configured" 200 response so callers
-// can simply early-return.
+// MDBListConfigured reports whether MDBList search and top lists can answer,
+// which needs an MDBList API key. v2 collection capabilities report it as
+// mdblist_search.
+func (h *UserCollectionImportHandler) MDBListConfigured() bool {
+	return h.mdblist != nil && h.mdblist.Configured()
+}
+
 // SearchMDBList answers the MDBList lists matching query. An unconfigured
 // MDBList client answers configured=false and no lists rather than an error,
 // so clients can hide the search box. v1 GET /collections/import/mdblist/search
 // and v2 searchMDBListLists both call it.
 func (h *UserCollectionImportHandler) SearchMDBList(ctx context.Context, query string) (MDBListDiscoveryView, error) {
-	if h.mdblist == nil || !h.mdblist.Configured() {
+	if !h.MDBListConfigured() {
 		return MDBListDiscoveryView{Configured: false, Lists: []mdblist.ListSummary{}}, nil
 	}
 	query = strings.TrimSpace(query)
@@ -456,7 +460,7 @@ func (h *UserCollectionImportHandler) SearchMDBList(ctx context.Context, query s
 // TopMDBList answers MDBList's most-liked lists; see SearchMDBList for the
 // unconfigured answer.
 func (h *UserCollectionImportHandler) TopMDBList(ctx context.Context) (MDBListDiscoveryView, error) {
-	if h.mdblist == nil || !h.mdblist.Configured() {
+	if !h.MDBListConfigured() {
 		return MDBListDiscoveryView{Configured: false, Lists: []mdblist.ListSummary{}}, nil
 	}
 	lists, err := h.mdblist.Top(ctx)

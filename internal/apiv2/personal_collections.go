@@ -87,6 +87,7 @@ type PersonalCollectionCreatedOutput struct {
 // PersonalCollectionCreate is the createCollection body.
 type PersonalCollectionCreate struct {
 	Name                       string          `json:"name" minLength:"1" example:"Rainy days"`
+	Description                *string         `json:"description,omitempty" nullable:"false" doc:"Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails" example:"For wet afternoons"`
 	CollectionType             *string         `json:"collection_type,omitempty" nullable:"false" enum:"manual,smart" doc:"Defaults to manual" example:"manual"`
 	IsShared                   *bool           `json:"is_shared,omitempty" nullable:"false" doc:"Show the collection to every profile on the login; defaults to false" example:"false"`
 	QueryDefinition            json.RawMessage `json:"query_definition,omitempty" doc:"Smart-collection query document; required to be valid when collection_type is smart"`
@@ -131,6 +132,10 @@ type CollectionCapabilities struct {
 	CollectionSortPreferences bool                           `json:"collection_sort_preferences" example:"true"`
 	EffectiveCollectionSort   bool                           `json:"effective_collection_sort" example:"true"`
 	SortPreferenceKinds       []string                       `json:"sort_preference_kinds" doc:"collection_kind values the sort-preference operations accept" example:"[\"library\",\"user\",\"watchlist\",\"favorites\"]"`
+	CreateDescription         bool                           `json:"create_description" doc:"createCollection stores a description for the acting account" example:"true"`
+	MDBListSearch             bool                           `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
+	ScheduleTimeZone          CollectionScheduleTimeZone     `json:"schedule_time_zone"`
+	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
 // importableCollectionSources are the import sources a new collection can be
@@ -366,6 +371,7 @@ type CollectionImportService interface {
 	ImportTrakt(ctx context.Context, userID int, profileID string, req handlers.UserImportTraktRequest) (handlers.UserImportView, error)
 	SearchMDBList(ctx context.Context, query string) (handlers.MDBListDiscoveryView, error)
 	TopMDBList(ctx context.Context) (handlers.MDBListDiscoveryView, error)
+	MDBListConfigured() bool
 }
 
 // groupsRemovedSummary describes each personal collection group operation,
@@ -399,7 +405,10 @@ func registerPersonalCollections(reg *Registry) {
 	create := humaOp(http.MethodPost, Prefix+"/collections", "createCollection", "collections",
 		"Create a manual or smart collection for the acting profile. Not idempotent: a retry after a lost response creates a second collection.")
 	create.DefaultStatus = http.StatusCreated
-	Register(reg, write(create), reg.createCollection)
+	createOp := write(create)
+	// A description or poster the acting account's store cannot keep.
+	createOp.Errors = append(createOp.Errors, http.StatusNotImplemented)
+	Register(reg, createOp, reg.createCollection)
 
 	Register(reg, read(humaOp(http.MethodGet, Prefix+"/collections/capabilities", "getCollectionCapabilities", "collections",
 		"The collection features this server supports.")), reg.getCollectionCapabilities)
@@ -577,7 +586,7 @@ func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*Persona
 func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *CapabilityInput) (*CollectionCapabilitiesOutput, error) {
 	svc := reg.deps.PersonalCollections
 	if svc == nil {
-		return &CollectionCapabilitiesOutput{Body: CollectionCapabilities{Capability: Capability{State: StateNotConfigured}, DisplayFilterFields: []string{}, DisplayFilterPresets: CollectionDisplayFilterPresets{Watched: []string{}, Media: []string{}}, SortPreferenceKinds: []string{}}}, nil
+		return &CollectionCapabilitiesOutput{Body: CollectionCapabilities{Capability: Capability{State: StateNotConfigured}, DisplayFilterFields: []string{}, DisplayFilterPresets: CollectionDisplayFilterPresets{Watched: []string{}, Media: []string{}}, SortPreferenceKinds: []string{}, MDBListSearch: reg.mdblistSearch(), ScheduleTimeZone: reg.scheduleTimeZone()}}, nil
 	}
 	v := svc.Capabilities()
 	features := userstore.CollectionFeatures{}
@@ -605,6 +614,10 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		CollectionSortPreferences: v.CollectionSortPreferences,
 		EffectiveCollectionSort:   v.EffectiveCollectionSort,
 		SortPreferenceKinds:       NonNil(v.SortPreferenceKinds),
+		CreateDescription:         features.Description,
+		MDBListSearch:             reg.mdblistSearch(),
+		ScheduleTimeZone:          reg.scheduleTimeZone(),
+		PreviewPosters:            true,
 	}}, nil
 }
 
@@ -630,6 +643,9 @@ func (reg *Registry) createCollection(ctx context.Context, in *PersonalCollectio
 		QueryDefinition:        b.QueryDefinition,
 		SortConfig:             b.SortConfig,
 		DisplayQueryDefinition: b.DisplayQueryDefinition,
+	}
+	if b.Description != nil {
+		req.Description = *b.Description
 	}
 	if b.CollectionType != nil {
 		req.CollectionType = *b.CollectionType
