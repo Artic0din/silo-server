@@ -19,7 +19,7 @@ import {
   profilePeekSeed,
   type PeekRequest,
 } from "@/lib/homeRows/peek";
-import type { RowDraft } from "@/lib/homeRows/rowDraft";
+import { draftFromRow, mergeReloadedDraft, type RowDraft } from "@/lib/homeRows/rowDraft";
 import { ruleRowKinds } from "@/lib/homeRows/ruleRows";
 import type {
   EditSession,
@@ -229,12 +229,21 @@ export function useProfileHomeRowsAdapter(): ProfileHomeRowsAdapter {
   const save = useCallback(
     async (session: EditSession, draft: RowDraft) => {
       assertEditable();
-      // Built on the row as it is now, so a switch or hero change made since
-      // the dialog opened stays.
-      const section = sectionFor(session.row.id) ?? (session.token as SettingsSectionEntry);
-      saveSection(buildProfileRowUpdate(section, draft, draft.title));
+      // Built on the row as it is now: fields the user left as the dialog
+      // opened them take the row's current values, so a switch, hero or
+      // server change made meanwhile stays and isn't pinned.
+      const current = sectionFor(session.row.id);
+      const section = current ?? (session.token as SettingsSectionEntry);
+      const merged = current
+        ? mergeReloadedDraft(
+            draftFromRow(session.row, catalog),
+            draft,
+            draftFromRow(toHomeRow(current), catalog),
+          ).draft
+        : draft;
+      saveSection(buildProfileRowUpdate(section, merged, merged.title));
     },
-    [assertEditable, saveSection, sectionFor],
+    [assertEditable, catalog, saveSection, sectionFor],
   );
 
   const setHero = useCallback(

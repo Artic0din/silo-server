@@ -302,6 +302,24 @@ describe("Settings > Home Screen", () => {
     expect(await screen.findByText(/^Renamed from/)).toBeInTheDocument();
   });
 
+  it("keeps following the server's size and hero for a row renamed while they changed", async () => {
+    const client = await renderPage();
+    await chooseFromMenu("Row a", "Edit row…");
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    // An administrator changes the row in another tab while Edit row is open.
+    serverRows.home![0] = { ...serverRows.home![0]!, item_limit: 30, featured: true };
+    await act(async () => client.invalidateQueries({ queryKey: sectionKeys.all }));
+    const name = within(dialog).getByLabelText("Row name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Fresh Movies");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.overrides).toEqual([
+      { section_id: "a", id: expect.any(String), hidden: false, title: "Fresh Movies" },
+    ]);
+  });
+
   it("doesn't offer to change a server row's collection, rules or picked titles", async () => {
     serverRows.home = [
       entry("c", 0, {
