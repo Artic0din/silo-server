@@ -7,16 +7,12 @@ const capability = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/queries/collections", () => ({
   useCollectionCapabilities: capability,
   useCollections: () => ({ data: [], isLoading: false }),
-  useCollectionGroups: () => ({ data: [] }),
   useServerCollections: () => ({ data: [] }),
-  useCreateCollectionGroup: () => ({}),
   useDeleteCollection: () => ({}),
-  useDeleteCollectionGroup: () => ({}),
-  useReorderCollectionGroups: () => ({}),
   useReorderCollections: () => ({}),
-  useUpdateCollection: () => ({}),
-  useUpdateCollectionGroup: () => ({}),
 }));
+vi.mock("@/hooks/queries/profiles", () => ({ useProfiles: () => ({ data: [] }) }));
+vi.mock("@/hooks/useCurrentProfile", () => ({ useCurrentProfile: () => ({ profile: null }) }));
 vi.mock("@/hooks/queries/userCollectionImports", () => ({ useSyncUserCollection: () => ({}) }));
 vi.mock("@/hooks/useUICustomization", () => ({
   useUICustomization: () => ({ cardPresentation: { poster_size: "medium" } }),
@@ -38,7 +34,7 @@ describe("collection capability controls", () => {
   beforeEach(() => vi.clearAllMocks());
   it("keeps manual creation while hiding unsupported imports", () => {
     capability.mockReturnValue({
-      data: { imports: false, groups: false, artwork: false, item_reorder: false },
+      data: { imports: false, artwork: false, item_reorder: false },
     });
     show();
     expect(screen.getByRole("button", { name: "New Collection" })).toBeTruthy();
@@ -47,7 +43,7 @@ describe("collection capability controls", () => {
   });
   it("shows import entry points when the store supports them", () => {
     capability.mockReturnValue({
-      data: { imports: true, groups: true, artwork: true, item_reorder: true },
+      data: { imports: true, artwork: true, item_reorder: true },
     });
     show();
     expect(screen.getByRole("button", { name: "Browse Templates" })).toBeTruthy();

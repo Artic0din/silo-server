@@ -17,6 +17,8 @@ import {
   libraryCollectionsQueryOptions,
 } from "@/hooks/queries/libraryCollections";
 import { useIsActingAdmin } from "@/hooks/useIsActingAdmin";
+import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { isOwnCollection } from "@/lib/collections/personalOwnership";
 
 interface AddToCollectionDialogProps {
   open: boolean;
@@ -34,8 +36,8 @@ interface CollectionPick {
 }
 
 /**
- * Add-to-collection picker. Lists the caller's manual user collections
- * plus — for admins — every manual library collection grouped by library.
+ * Add-to-collection picker. Lists the profile's own manual collections (another
+ * profile's shared collection is read-only for it) plus — for admins — every manual library collection grouped by library.
  * Synced/smart collections are excluded since they overwrite manual edits
  * on the next sync. Selecting a row commits the add via the existing
  * PUT collections/{id}/items/{itemId} endpoint (or the /admin variant).
@@ -47,6 +49,8 @@ export default function AddToCollectionDialog({
   itemTitle,
 }: AddToCollectionDialogProps) {
   const isAdmin = useIsActingAdmin();
+  const { profile } = useCurrentProfile();
+  const profileId = profile?.id;
   const { data: userCollections, isLoading: userLoading } = useCollections();
   const { data: libraries } = useUserLibraries();
   const addItem = useAddItemToCollection();
@@ -65,7 +69,7 @@ export default function AddToCollectionDialog({
   const picks = useMemo<CollectionPick[]>(() => {
     const out: CollectionPick[] = [];
     for (const c of userCollections ?? []) {
-      if (c.collection_type === "manual") {
+      if (c.collection_type === "manual" && isOwnCollection(c, profileId)) {
         out.push({ id: c.id, title: c.name, source: "user", group: "My Collections" });
       }
     }
@@ -82,7 +86,7 @@ export default function AddToCollectionDialog({
       }
     }
     return out;
-  }, [userCollections, libraries, libraryQueries, isAdmin]);
+  }, [userCollections, profileId, libraries, libraryQueries, isAdmin]);
 
   const groups = useMemo(() => {
     const m = new Map<string, CollectionPick[]>();
