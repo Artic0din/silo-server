@@ -113,7 +113,7 @@ const AdminDevices = lazy(() => import("@/pages/AdminDevices"));
 const AdminLibraries = lazy(() => import("@/pages/AdminLibraries"));
 const AdminSettingsLayout = lazy(() => import("@/pages/admin-settings/AdminSettingsLayout"));
 const AdminNodes = lazy(() => import("@/pages/AdminNodes"));
-const AdminSections = lazy(() => import("@/pages/AdminSections"));
+const AdminHomeRows = lazy(() => import("@/pages/AdminHomeRows"));
 const AdminCollections = lazy(() => import("@/pages/AdminCollections"));
 const AdminCollectionEditor = lazy(() => import("@/pages/AdminCollectionEditor"));
 const AdminPlaybackHistory = lazy(() => import("@/pages/AdminPlaybackHistory"));
@@ -529,7 +529,7 @@ function AppRoutes() {
                   <Route path="devices" element={<AdminDevices />} />
                   <Route path="devices/:userId/:deviceId" element={<AdminDevices />} />
                   <Route path="nodes" element={<AdminNodes />} />
-                  <Route path="home-rows" element={<AdminSections />} />
+                  <Route path="home-rows" element={<AdminHomeRows />} />
                   <Route path="sections" element={<LegacyAdminSectionsRedirect />} />
                   <Route path="plugins" element={<AdminPlugins />} />
                   <Route path="plugins/:pluginId" element={<AdminPluginDetail />} />
