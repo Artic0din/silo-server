@@ -141,6 +141,7 @@ type CollectionCapabilities struct {
 	ScheduleTimeZone          CollectionScheduleTimeZone     `json:"schedule_time_zone"`
 	SyncScheduleEditable      bool                           `json:"sync_schedule_editable" doc:"updateCollection accepts sync_schedule on a synced list; false when imports is false" example:"true"`
 	ContainsItem              bool                           `json:"contains_item" doc:"listCollections accepts contains_item and marks the acting profile's own manual collections with contains" example:"true"`
+	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
 // importableCollectionSources are the import sources a new collection can be
@@ -635,6 +636,7 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		ScheduleTimeZone:          reg.scheduleTimeZone(),
 		SyncScheduleEditable:      features.Imports,
 		ContainsItem:              true,
+		PreviewPosters:            true,
 	}}, nil
 }
 

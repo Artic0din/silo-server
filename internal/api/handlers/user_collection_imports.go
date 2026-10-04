@@ -319,8 +319,10 @@ func (h *UserCollectionImportHandler) createImportedCollection(
 			LastSyncAt: time.Now().UTC(),
 			NextSyncAt: usercollections.InitialNextSyncAt(schedule),
 
-			// The sync started on the schedule the collection was created with.
-			ScheduleAtStart: schedule,
+			// The sync started on the schedule and next run the collection was
+			// created with.
+			ScheduleAtStart:   collection.SyncSchedule,
+			NextSyncAtAtStart: collection.NextSyncAt,
 		})
 		updated = collection
 		updated.LastSyncStatus = "failed"

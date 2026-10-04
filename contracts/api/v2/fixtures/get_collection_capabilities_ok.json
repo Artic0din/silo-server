@@ -1,5 +1,5 @@
 {
-  "revision": "2e438a1cc5921c05d1c9a75104bc008e9703704c2ed4fcd43c9b8efec5cfc13a",
+  "revision": "d2c716912f36b91792e0919af110bc5c5b953e55aa44c2296e21f6c7e7fbcd31",
   "state": "available",
   "allowed": true,
   "groups": false,
@@ -40,5 +40,6 @@
     "name": "America/Chicago"
   },
   "sync_schedule_editable": false,
-  "contains_item": true
+  "contains_item": true,
+  "preview_posters": true
 }

@@ -6126,7 +6126,7 @@
     {
       "name": "get_collection_capabilities_ok",
       "operation_id": "getCollectionCapabilities",
-      "scenario": "Personal collection features, including a description on create, MDBList search and the time zone the answering node runs cron schedules in.",
+      "scenario": "Personal collection features, including a description on create, MDBList search, the time zone the answering node runs cron schedules in, and preview posters.",
       "request": {
         "method": "GET",
         "path": "/api/v2/collections/capabilities",
@@ -6139,7 +6139,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"670491716ce8acf94b1f58ec8c2ee682d671a5239a07795cefab8b7e8d1a4d0d\""
+        "ETag": "\"6a581e373c29ffdbe5de7dfc0cc2773c4054da7ad58b412e9b102d64cd0d1876\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",
