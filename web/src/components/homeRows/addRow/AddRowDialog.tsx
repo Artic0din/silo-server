@@ -111,6 +111,7 @@ export function AddRowDialog({
 }: AddRowDialogProps) {
   const editing = initialSession !== null;
   const narrow = useMediaQuery("(max-width: 1023px)");
+  const phone = useMediaQuery("(max-width: 639px)");
   const page = labelOfPage(adapter.page, adapter.pages);
   const [step, setStep] = useState<"pick" | "form">(editing ? "form" : "pick");
   const [query, setQuery] = useState("");
@@ -268,7 +269,9 @@ export function AddRowDialog({
     title = changing ? "Change what this row shows" : `Add a row to ${page}`;
     description = changing
       ? "Pick another kind of row. Its settings start fresh; the name and More options stay."
-      : "Pick what the row shows. Next you'll see a preview and can name it.";
+      : phone
+        ? `Pick what it shows. It goes to the bottom of ${page}.`
+        : "Pick what the row shows. Next you'll see a preview and can name it.";
   } else if (editing) {
     title = "Edit row";
     description = `Changes apply to everyone on ${page} who hasn't changed this row.`;
@@ -358,7 +361,7 @@ export function AddRowDialog({
                 ref={searchRef}
                 type="search"
                 aria-label="Search rows"
-                placeholder="Search, e.g. trending, 4K, Ghibli, Christmas"
+                placeholder={phone ? "Search rows" : "Search, e.g. trending, 4K, Ghibli, Christmas"}
                 className="h-11 pl-10"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}

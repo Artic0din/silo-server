@@ -184,6 +184,27 @@ describe("Add row picker", () => {
       within(dialog).queryByRole("button", { name: "Trending on this server, 7 days" }),
     ).toBeNull();
   });
+
+  it("uses the phone sheet's short copy on phones", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      (query: string) =>
+        ({
+          matches: query === "(max-width: 1023px)" || query === "(max-width: 639px)",
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    const { dialog } = await open();
+    expect(
+      within(dialog).getByText("Pick what it shows. It goes to the bottom of Home."),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("searchbox", { name: "Search rows" })).toHaveAttribute(
+      "placeholder",
+      "Search rows",
+    );
+  });
 });
 
 describe("Add row form", () => {
@@ -217,6 +238,25 @@ describe("Add row form", () => {
       ),
     ).toBeInTheDocument();
     expect(within(form).getByLabelText("Longest runtime (minutes)")).toHaveValue(95);
+  });
+
+  it("lets Number of titles be cleared and retyped, and restores it when left blank", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Short & sweet" }));
+    const form = await screen.findByRole("dialog", { name: "Short & sweet" });
+    const more = within(form).getByRole("button", { name: /More options/ });
+    await userEvent.click(more);
+    const limit = within(form).getByLabelText("Number of titles");
+    await userEvent.clear(limit);
+    expect(limit).toHaveValue(null);
+    await userEvent.type(limit, "35");
+    expect(more).toHaveTextContent("35 titles");
+    await userEvent.clear(limit);
+    await userEvent.tab();
+    expect(limit).toHaveValue(35);
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0].itemLimit).toBe(35);
   });
 
   it("keeps Family movie night out of the holiday list and needs at least one holiday", async () => {

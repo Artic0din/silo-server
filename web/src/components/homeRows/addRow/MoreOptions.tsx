@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import {
   Accordion,
@@ -33,6 +33,9 @@ export function MoreOptions({
   children?: ReactNode;
 }) {
   const id = useId();
+  // What the box holds while it is being typed in; it may be blank or out of
+  // range for a moment. Only a whole number from 1 to 100 reaches the draft.
+  const [typedLimit, setTypedLimit] = useState<string | null>(null);
   return (
     <Accordion type="single" collapsible className="border-border rounded-[14px] border">
       <AccordionItem value="more" className="border-b-0">
@@ -67,12 +70,14 @@ export function MoreOptions({
               min={1}
               max={MAX_ITEM_LIMIT}
               className="w-24"
-              value={itemLimit}
+              value={typedLimit ?? itemLimit}
               onChange={(event) => {
+                setTypedLimit(event.target.value);
                 const value = Number(event.target.value);
                 if (Number.isInteger(value) && value >= 1 && value <= MAX_ITEM_LIMIT)
                   onItemLimitChange(value);
               }}
+              onBlur={() => setTypedLimit(null)}
             />
           </div>
           <div className="border-border/70 flex items-center justify-between gap-4 border-t pt-4">
