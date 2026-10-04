@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +40,18 @@ export function ConfirmDialog({
   bullets,
   irreversible = false,
 }: ConfirmDialogProps) {
+  const id = useId();
+  const items = bullets?.items ?? [];
+  const itemId = (index: number) => `${id}-item-${index}`;
+  const descriptionId = `${id}-description`;
+  const noteId = `${id}-note`;
+  // The list and the warning sit outside the description, so name them too:
+  // a screen reader then reads every consequence when the dialog opens.
+  const describedBy = [
+    descriptionId,
+    ...items.map((_, index) => itemId(index)),
+    ...(irreversible ? [noteId] : []),
+  ].join(" ");
   const buttons = (
     <>
       <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
@@ -60,21 +73,27 @@ export function ConfirmDialog({
   );
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent aria-describedby={describedBy}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          <AlertDialogDescription>
+            <span id={descriptionId}>{description}</span>
+          </AlertDialogDescription>
         </AlertDialogHeader>
-        {bullets && bullets.items.length > 0 ? (
-          <ul aria-label={bullets.label} className="m-0 grid list-disc gap-1 pl-5 text-sm">
-            {bullets.items.map((item, index) => (
-              <li key={`${item}-${index}`}>{item}</li>
+        {items.length > 0 ? (
+          <ul aria-label={bullets?.label} className="m-0 grid list-disc gap-1 pl-5 text-sm">
+            {items.map((item, index) => (
+              <li key={`${item}-${index}`} id={itemId(index)}>
+                {item}
+              </li>
             ))}
           </ul>
         ) : null}
         {irreversible ? (
           <AlertDialogFooter className="items-center sm:justify-between">
-            <p className="text-muted-foreground text-sm">This can&apos;t be undone.</p>
+            <p id={noteId} className="text-muted-foreground text-sm">
+              This can&apos;t be undone.
+            </p>
             <div className="flex gap-2">{buttons}</div>
           </AlertDialogFooter>
         ) : (

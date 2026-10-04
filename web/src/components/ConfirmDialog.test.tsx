@@ -33,6 +33,26 @@ describe("ConfirmDialog", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
+  it("reads the list and the warning as part of the dialog's description", () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={vi.fn()}
+        title="Delete Studio Ghibli?"
+        description="It goes away from every library's Collections tab."
+        bullets={{ label: "Rows that go too", items: ["Ghibli on Home", "Ghibli on Movies"] }}
+        irreversible
+        variant="destructive"
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("alertdialog", { name: "Delete Studio Ghibli?" }),
+    ).toHaveAccessibleDescription(
+      "It goes away from every library's Collections tab. Ghibli on Home Ghibli on Movies This can't be undone.",
+    );
+  });
+
   it("shows neither without them", () => {
     render(
       <ConfirmDialog
@@ -46,5 +66,6 @@ describe("ConfirmDialog", () => {
     const dialog = screen.getByRole("alertdialog", { name: "Sign out?" });
     expect(within(dialog).queryByRole("list")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("This can't be undone.")).not.toBeInTheDocument();
+    expect(dialog).toHaveAccessibleDescription("You'll need to sign in again.");
   });
 });
