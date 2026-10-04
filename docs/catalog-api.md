@@ -123,6 +123,9 @@ Both collection capability documents, `getCollectionCapabilities` and
 `getCollectionCapabilities` also reports `sync_schedule_editable`, `true` when `updateCollection`
 accepts `sync_schedule`; see [Personal sync schedules](#personal-sync-schedules).
 
+`getCollectionCapabilities` also reports `contains_item`, `true` when `listCollections` accepts
+`contains_item`; see [Collections that hold a title](#collections-that-hold-a-title).
+
 `getAdminCollectionCapabilities` also reports `section_references`, `true` when
 `listAdminCollectionSections` is available and `listAdminCollections` items carry row counts; see
 [Rows that show a server collection](#rows-that-show-a-server-collection).
@@ -203,6 +206,21 @@ when the schedule was not changed while it ran.
 
 The frozen `/api/v1/collections/{id}` update ignores a `sync_schedule` member, and `/api/v1`
 collection responses carry no `sync_cadence`.
+
+## Collections that hold a title
+
+`listCollections` (`GET /api/v2/collections`) accepts an optional `contains_item`, a title's
+content id. Each of the acting profile's own manual collections in the response then carries
+`contains`: `true` when the collection holds the title, `false` when it does not. No other
+collection carries the member: not a smart collection or synced list, and not a collection
+another profile shares with the acting profile. Without `contains_item`, no collection carries
+it. A title the acting profile cannot access, or one that does not exist, reports `false` on
+every collection, even a collection that still stores it. Check `contains_item` in the
+`getCollectionCapabilities` document before sending it: a server without that flag rejects the
+parameter as unknown.
+
+The frozen `/api/v1/collections` list ignores a `contains_item` parameter, and its collections
+carry no `contains`.
 
 ## Library-scoped version lists
 

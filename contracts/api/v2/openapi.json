@@ -22586,6 +22586,13 @@
             ],
             "type": "boolean"
           },
+          "contains_item": {
+            "description": "listCollections accepts contains_item and marks the acting profile's own manual collections with contains",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "create_description": {
             "description": "createCollection accepts description",
             "examples": [
@@ -22709,6 +22716,7 @@
           "mdblist_search",
           "schedule_time_zone",
           "sync_schedule_editable",
+          "contains_item",
           "revision",
           "state",
           "allowed"
@@ -34638,6 +34646,13 @@
               "manual"
             ],
             "type": "string"
+          },
+          "contains": {
+            "description": "Whether the collection holds the listCollections contains_item title. Present only when contains_item is sent, and then only on the acting profile's own manual collections; false for a title the profile cannot access",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           },
           "created_at": {
             "description": "RFC 3339 instant in UTC with millisecond precision",
@@ -129820,6 +129835,19 @@
             "schema": {
               "examples": [
                 "pvt_5f3a9c1e7b2d4e8fa0c6"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "A title's content id. Each of the acting profile's own manual collections then carries contains. Accepted when getCollectionCapabilities reports contains_item",
+            "explode": false,
+            "in": "query",
+            "name": "contains_item",
+            "schema": {
+              "description": "A title's content id. Each of the acting profile's own manual collections then carries contains. Accepted when getCollectionCapabilities reports contains_item",
+              "examples": [
+                "01J9Z8C3W4R5T6Y7U8I9O0P1Q5"
               ],
               "type": "string"
             }
