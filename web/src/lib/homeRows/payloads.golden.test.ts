@@ -26,6 +26,7 @@ import {
   buildGalleryCreateRequest,
   buildProfileGallerySection,
   buildProfileSectionSaveEntry,
+  collectionIdOf,
   type BuildAdminSectionPayloadInput,
   type BuildProfileSectionSaveEntryInput,
 } from "./payloads";
@@ -102,13 +103,6 @@ function profileRow(overrides: Partial<SettingsSectionEntry>): SettingsSectionEn
 }
 
 // The drawer's open effect: the draft starts from the row as stored.
-function collectionIdOf(config?: Record<string, unknown>): string {
-  const user = config?.user_collection_id;
-  if (typeof user === "string" && user) return user;
-  const library = config?.library_collection_id;
-  return typeof library === "string" ? library : "";
-}
-
 function draftOf(row: {
   section_type: string;
   title: string;
@@ -137,6 +131,7 @@ function editAdminRow(
     currentLibraryId: row.library_id,
     enabled: row.enabled,
     ...draftOf(row),
+    selectedCollectionId: collectionIdOf(row.config, "admin"),
     ...changes,
   });
 }
@@ -653,11 +648,28 @@ describe("profile entries", () => {
       expect(saved.config).toEqual({ user_collection_id: "user-1" });
     });
 
-    it("keeps an admin row's stored key when the selection is unchanged", () => {
-      const config = { user_collection_id: "legacy", sort_by: "title" };
+    it("keeps an admin row's stored config when the selection is unchanged", () => {
+      const config = { library_collection_id: "lib-gone", sort_by: "title" };
       const row = adminRow({ section_type: "collection", config });
       expect(editAdminRow(row, { title: "Renamed" }).config).toEqual(config);
       expect(editAdminRow(row, { featured: true, collections: [] }).config).toEqual(config);
+    });
+
+    // The admin endpoint rejects a collection row without library_collection_id,
+    // so a legacy user_collection_id is no selection there.
+    it("never sends a legacy personal collection key from an admin row", () => {
+      const row = adminRow({
+        section_type: "collection",
+        config: { user_collection_id: "legacy", sort_by: "title" },
+      });
+      expect(collectionIdOf(row.config, "admin")).toBe("");
+      expect(editAdminRow(row, { title: "Renamed" }).config).not.toHaveProperty(
+        "user_collection_id",
+      );
+      expect(editAdminRow(row, { selectedCollectionId: "legacy" }).config).toEqual({
+        library_collection_id: "legacy",
+        sort_by: "title",
+      });
     });
 
     it("writes a library key when an admin picks another collection", () => {
