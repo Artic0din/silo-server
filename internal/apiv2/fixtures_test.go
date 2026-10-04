@@ -1877,7 +1877,7 @@ func fixtureDeps() Dependencies {
 	deps.ProgressBootstrap = &fakeBootstrap{}
 	sharedCollection := fixtureCollectionView()
 	sharedCollection.ID, sharedCollection.ProfileID, sharedCollection.CreatorProfileID, sharedCollection.Name, sharedCollection.IsShared = "c2", "p-primary", "p-primary", "Family night", true
-	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, holding: map[string]bool{"c1": true}}, previewCollections: previewCollections{view: fixturePreviewView()}}
+	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, holding: map[string]bool{"c1": true}, features: userstore.CollectionFeatures{Description: true}}, previewCollections: previewCollections{view: fixturePreviewView()}}
 	deps.CollectionImports = &fakeCollectionImports{configured: true}
 	deps, _ = withLibraryAdmin(deps)
 	deps.LibraryMonitoring = &fakeLibraryMonitoring{snap: librarymonitor.StatusSnapshot{
