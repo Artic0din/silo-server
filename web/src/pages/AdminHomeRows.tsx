@@ -153,7 +153,7 @@ export default function AdminHomeRows() {
   const [turningRuleRowsOff, setTurningRuleRowsOff] = useState(false);
   /** The library pages a row on this page fits, this page included. */
   const copyPagesFor = (row: HomeRow) =>
-    activeLibraryId === null ? [] : copyTargetPages(row.config, libraryPages, activeLibraryId);
+    activeLibraryId === null ? [] : copyTargetPages(row, libraryPages, activeLibraryId);
 
   const rowIds = useMemo(() => adapter.rows.map((row) => row.id), [adapter.rows]);
   const selectedSections = useMemo(

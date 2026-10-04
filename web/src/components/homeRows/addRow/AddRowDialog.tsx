@@ -209,7 +209,7 @@ export function AddRowDialog({
     adapter.page.kind === "library" &&
     draft !== null &&
     canCopyToLibraries(draft)
-      ? copyTargetPages(draft.config, libraryPages, adapter.page.libraryId)
+      ? copyTargetPages(draft, libraryPages, adapter.page.libraryId)
       : [];
   const copyPages =
     adapter.page.kind === "library" && targetPages.length > 1

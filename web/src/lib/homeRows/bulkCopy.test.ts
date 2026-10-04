@@ -51,23 +51,66 @@ const PAGES = [
   { id: 10, label: "Unknown" },
 ];
 
+const recentlyAdded = (config: Record<string, unknown>) => ({
+  sectionType: "recently_added",
+  config,
+});
+
 describe("copyTargetPages", () => {
   it("offers every page for a row that isn't set to one kind of title", () => {
-    expect(copyTargetPages({ window: "7d" }, PAGES, 7)).toEqual(PAGES);
-    expect(copyTargetPages({ media_scope: "" }, PAGES, 7)).toEqual(PAGES);
+    expect(copyTargetPages(recentlyAdded({ window: "7d" }), PAGES, 7)).toEqual(PAGES);
+    expect(copyTargetPages(recentlyAdded({ media_scope: "" }), PAGES, 7)).toEqual(PAGES);
   });
 
   it("offers a row set to one kind of title only pages of this page's library type", () => {
-    expect(copyTargetPages({ media_scope: "movie" }, PAGES, 7).map((page) => page.id)).toEqual([
-      7, 9,
-    ]);
-    expect(copyTargetPages({ media_scope: "series" }, PAGES, 8).map((page) => page.id)).toEqual([
-      8,
-    ]);
+    expect(
+      copyTargetPages(recentlyAdded({ media_scope: "movie" }), PAGES, 7).map((page) => page.id),
+    ).toEqual([7, 9]);
+    expect(
+      copyTargetPages(recentlyAdded({ media_scope: "series" }), PAGES, 8).map((page) => page.id),
+    ).toEqual([8]);
     // A page whose library type is unknown matches nothing but itself.
-    expect(copyTargetPages({ media_scope: "movie" }, PAGES, 10).map((page) => page.id)).toEqual([
-      10,
-    ]);
+    expect(
+      copyTargetPages(recentlyAdded({ media_scope: "movie" }), PAGES, 10).map((page) => page.id),
+    ).toEqual([10]);
+  });
+});
+
+describe("copyTargetPages for rows that show one kind of library", () => {
+  const BOOK_PAGES = [
+    { id: 20, label: "Audiobooks", libraryType: "audiobooks" },
+    { id: 21, label: "More audiobooks", libraryType: "Audiobooks" },
+    { id: 22, label: "Ebooks", libraryType: "ebooks" },
+    ...PAGES,
+  ];
+  const ids = (row: { sectionType: string; config: Record<string, unknown> }, current = 20) =>
+    copyTargetPages(row, BOOK_PAGES, current).map((page) => page.id);
+
+  it.each([
+    [
+      "Continue Listening",
+      { sectionType: "continue_watching", config: { continue_type: "listening" } },
+    ],
+    [
+      "Continue Reading",
+      { sectionType: "continue_watching", config: { continue_type: "Reading" } },
+    ],
+    [
+      "a legacy audiobook filter",
+      { sectionType: "continue_watching", config: { filter_type: "audiobook" } },
+    ],
+    ["Next in Series", { sectionType: "next_in_series", config: {} }],
+  ])("offers %s only pages of this page's library type", (_name, row) => {
+    expect(ids(row)).toEqual([20, 21]);
+  });
+
+  it("offers Continue Watching and other rows every page", () => {
+    expect(
+      ids({ sectionType: "continue_watching", config: { continue_type: "watching" } }, 7),
+    ).toEqual(BOOK_PAGES.map((page) => page.id));
+    expect(ids({ sectionType: "continue_watching", config: {} }, 7)).toHaveLength(
+      BOOK_PAGES.length,
+    );
   });
 });
 

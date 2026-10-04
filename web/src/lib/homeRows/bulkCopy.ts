@@ -53,18 +53,36 @@ function libraryTypeOf(page: LibraryPage | undefined): string | undefined {
   return page?.libraryType?.trim().toLowerCase() || undefined;
 }
 
+/** Book kinds a Continue row's legacy filter_type names. */
+const BOOK_FILTER_TYPES: ReadonlySet<string> = new Set(["audiobook", "ebook"]);
+
+/**
+ * Whether a row shows one kind of title only: one set to a media scope (a
+ * default "Recently Added Movies" row), a Continue Listening or Continue
+ * Reading row, or Next in Series, which follows audiobook series.
+ */
+function showsOneKind(row: { sectionType: string; config: Record<string, unknown> }): boolean {
+  const { config } = row;
+  if (typeof config.media_scope === "string" && config.media_scope !== "") return true;
+  if (row.sectionType === "next_in_series") return true;
+  if (row.sectionType !== "continue_watching") return false;
+  const lower = (value: unknown) => (typeof value === "string" ? value.trim().toLowerCase() : "");
+  const continueType = lower(config.continue_type);
+  if (continueType !== "") return continueType !== "watching";
+  return BOOK_FILTER_TYPES.has(lower(config.filter_type));
+}
+
 /**
  * The library pages a row on page `currentId` can go to, that page included.
- * A row set to one kind of title, like a default "Recently Added Movies" row
- * with media_scope "movie", would be empty or wrong in another kind of
- * library, so it only goes to pages of this page's library type.
+ * A row that shows one kind of title would be empty or wrong in another kind
+ * of library, so it only goes to pages of this page's library type.
  */
 export function copyTargetPages(
-  config: Record<string, unknown>,
+  row: { sectionType: string; config: Record<string, unknown> },
   pages: readonly LibraryPage[],
   currentId: number,
 ): LibraryPage[] {
-  if (typeof config.media_scope !== "string" || config.media_scope === "") return [...pages];
+  if (!showsOneKind(row)) return [...pages];
   const here = libraryTypeOf(pages.find((page) => page.id === currentId));
   return pages.filter(
     (page) => page.id === currentId || (here !== undefined && libraryTypeOf(page) === here),
@@ -82,7 +100,7 @@ export function libraryCopyIds(
   pages: readonly LibraryPage[],
 ): number[] {
   if (page.kind !== "library" || draft.hero || !canCopyToLibraries(draft)) return [];
-  const fits = new Set(copyTargetPages(draft.config, pages, page.libraryId).map((p) => p.id));
+  const fits = new Set(copyTargetPages(draft, pages, page.libraryId).map((p) => p.id));
   return [...new Set(draft.extraLibraryIds ?? [])].filter(
     (id) => id !== page.libraryId && fits.has(id),
   );
