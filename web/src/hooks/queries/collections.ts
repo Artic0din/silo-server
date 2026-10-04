@@ -128,21 +128,27 @@ export function useUpdateCollection() {
       id,
       body,
       poster,
+      removePoster,
       etag,
     }: {
       id: string;
       etag: string;
       body: UpdateCollectionRequest;
       poster?: File | null;
+      /** A poster removal staged in the editor; a new file or URL in the same save wins. */
+      removePoster?: boolean;
     }) =>
       v2("PATCH /api/v2/collections/{id}", {
         path: { id },
         headers: { "If-Match": requiredETag(etag) },
         body: collectionUpdateToV2(body),
-      }).then((collection) => saveCollectionPoster(collection, poster, body.poster_source_url)),
+      }).then((collection) =>
+        saveCollectionPoster(collection, poster, body.poster_source_url, removePoster),
+      ),
     onSuccess: ({ posterError }, { id }) => {
       toast.success("Collection updated");
-      if (posterError) toast.error(`Collection saved, but poster upload failed: ${posterError}`);
+      if (posterError)
+        toast.error(`Collection saved, but the poster wasn't updated: ${posterError}`);
       return PERSONAL_SCOPE.invalidate(queryClient, id);
     },
     onError: (err) => {
@@ -323,24 +329,6 @@ export function useReorderCollectionItems(
       source === "user"
         ? PERSONAL_SCOPE.invalidate(queryClient, collectionId)
         : invalidateAdminCollectionQueries(queryClient),
-  });
-}
-
-export function useDeleteUserCollectionImage() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({ id }: { id: string; type: "poster" }) =>
-      v2("DELETE /api/v2/collections/{id}/image", { path: { id }, query: { type: "poster" } }).then(
-        () => id,
-      ),
-    onSuccess: (id) => {
-      toast.success("Poster removed");
-      return PERSONAL_SCOPE.invalidate(queryClient, id);
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Failed to remove poster");
-    },
   });
 }
 

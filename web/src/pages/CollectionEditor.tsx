@@ -30,7 +30,10 @@ export default function CollectionEditor() {
   const { profile } = useCurrentProfile();
   const { data: capabilities } = useCollectionCapabilities();
   const { id } = useParams<{ id: string }>();
-  const { snapshot, isLoading, isFetching, error, refetch } = useScopeEditor(PERSONAL_SCOPE, id);
+  const { snapshot, isLoading, isFetching, error, refetch, rebase } = useScopeEditor(
+    PERSONAL_SCOPE,
+    id,
+  );
   const collection = snapshot?.view.raw ?? null;
   const listPath = PERSONAL_SCOPE.paths.list();
 
@@ -78,6 +81,7 @@ export default function CollectionEditor() {
           key={collection.id}
           collection={collection}
           etag={snapshot!.etag}
+          onSaved={rebase}
           onClose={() => navigate(listPath)}
         />
       </div>

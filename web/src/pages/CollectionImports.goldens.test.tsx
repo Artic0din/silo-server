@@ -6,7 +6,7 @@
  */
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -334,6 +334,67 @@ describe("personal synced-list editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
     expect(v2Recorder.writes()).toEqual(goldens.personalSyncedRename);
+  });
+
+  describe("poster removal", () => {
+    beforeEach(() => {
+      URL.createObjectURL = () => "blob:poster";
+      // The list carries the poster until the image DELETE lands.
+      let posterUrl = "https://images.example/poster.png";
+      v2Recorder.answer("GET /api/v2/collections", () => ({
+        items: [{ id: "c1", poster_url: posterUrl }],
+      }));
+      v2Recorder.answer("DELETE /api/v2/collections/{id}/image", () => {
+        posterUrl = "";
+        return undefined;
+      });
+    });
+
+    function posterField() {
+      return screen.getByText("Poster", { selector: "label" }).parentElement!;
+    }
+
+    async function removePoster() {
+      show(<></>, "/collections/c1/edit");
+      fireEvent.click(await screen.findByTitle("Delete image"));
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+      expect(screen.getByText("1 unsaved change")).toBeTruthy();
+    }
+
+    it("sends nothing and shows the poster again on Discard", async () => {
+      await removePoster();
+      await act(async () => {});
+      expect(v2Recorder.writes()).toEqual([]);
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(within(posterField()).getByRole("img", { name: "Poster" })).toBeTruthy();
+      expect(v2Recorder.writes()).toEqual([]);
+    });
+
+    it("deletes the poster after the PATCH on Save", async () => {
+      await removePoster();
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(2));
+      expect(v2Recorder.writes()).toEqual(goldens.personalSyncedStagedPosterRemoval);
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+    });
+
+    it("starts again from the saved collection after Save", async () => {
+      await removePoster();
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      expect(await screen.findByText("0 unsaved changes")).toBeTruthy();
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+
+      // The second save sends the ETag the first one left, so it is not a 412.
+      const savedETag = v2Recorder.etag("/api/v2/collections/c1");
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(3));
+      expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
+    });
   });
 
   it("clears Max items with max_items 0", async () => {

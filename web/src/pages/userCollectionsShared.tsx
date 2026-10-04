@@ -6,7 +6,6 @@ import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import {
   useCreateCollection,
   useCollectionCapabilities,
-  useDeleteUserCollectionImage,
   useUpdateCollection,
 } from "@/hooks/queries/collections";
 import { buildUserCollectionCatalogHref as buildCatalogHrefForUserCollection } from "@/pages/catalogSearchParams";
@@ -147,10 +146,11 @@ export function UserCollectionForm({
   const [draft, setDraft] = useState(() => toUserCollectionBuilderValue(collection));
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [posterSourceUrl, setPosterSourceUrl] = useState("");
+  // Removing the poster waits for Save, like every other field.
+  const [posterRemoved, setPosterRemoved] = useState(false);
   const { data: capabilities } = useCollectionCapabilities();
   const createMutation = useCreateCollection();
   const updateMutation = useUpdateCollection();
-  const deletePosterMutation = useDeleteUserCollectionImage();
   const { data: profiles = [] } = useProfiles();
   const { data: libraries = [] } = useUserLibraries();
   const { profile } = useCurrentProfile();
@@ -164,6 +164,7 @@ export function UserCollectionForm({
     setDraft(toUserCollectionBuilderValue(collection));
     setPosterFile(null);
     setPosterSourceUrl("");
+    setPosterRemoved(false);
   }, [collection]);
 
   function handleSubmit() {
@@ -174,7 +175,13 @@ export function UserCollectionForm({
         poster_source_url: trimmedSource || undefined,
       };
       updateMutation.mutate(
-        { id: collection.id, etag: etag ?? "", body, poster: posterFile },
+        {
+          id: collection.id,
+          etag: etag ?? "",
+          body,
+          poster: posterFile,
+          removePoster: posterRemoved,
+        },
         { onSuccess: onClose },
       );
     } else {
@@ -243,14 +250,24 @@ export function UserCollectionForm({
           <div className="grid gap-4 md:grid-cols-2">
             <ImageUploadField
               label="Poster"
-              currentUrl={collection?.poster_url}
+              currentUrl={posterRemoved ? "" : collection?.poster_url}
               file={posterFile}
-              onFileChange={setPosterFile}
+              onFileChange={(file) => {
+                setPosterFile(file);
+                if (file) setPosterRemoved(false);
+              }}
               sourceUrl={posterSourceUrl}
-              onSourceUrlChange={setPosterSourceUrl}
+              onSourceUrlChange={(url) => {
+                setPosterSourceUrl(url);
+                if (url.trim()) setPosterRemoved(false);
+              }}
               onDelete={
                 collection?.poster_url
-                  ? () => deletePosterMutation.mutate({ id: collection.id, type: "poster" })
+                  ? () => {
+                      setPosterRemoved(true);
+                      setPosterFile(null);
+                      setPosterSourceUrl("");
+                    }
                   : undefined
               }
             />

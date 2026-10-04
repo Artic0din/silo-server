@@ -38,7 +38,6 @@ import { PERSONAL_SCOPE, personalCollectionLibraryIds } from "@/lib/collections/
 import { ImageUploadField } from "@/components/ImageUploadField";
 import {
   useDeleteCollection,
-  useDeleteUserCollectionImage,
   useCollectionCapabilities,
   useUpdateCollection,
 } from "@/hooks/queries/collections";
@@ -103,12 +102,15 @@ const SOURCE_THEMES: Record<ImportedType, SourceTheme> = {
 interface ImportedCollectionEditorProps {
   collection: Collection;
   etag: string;
+  /** The save landed and its refetch finished; the page can adopt the saved collection. */
+  onSaved: () => void;
   onClose: () => void;
 }
 
 export function ImportedCollectionEditor({
   collection,
   etag,
+  onSaved,
   onClose,
 }: ImportedCollectionEditorProps) {
   const importedType = collection.collection_type as ImportedType;
@@ -116,7 +118,6 @@ export function ImportedCollectionEditor({
 
   const updateMutation = useUpdateCollection();
   const deleteMutation = useDeleteCollection();
-  const deletePosterMutation = useDeleteUserCollectionImage();
   const syncMutation = useSyncUserCollection();
   const { data: profiles = [] } = useProfiles();
   const { data: libraries = [] } = useUserLibraries();
@@ -151,6 +152,8 @@ export function ImportedCollectionEditor({
   );
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [posterSourceUrl, setPosterSourceUrl] = useState("");
+  // Removing the poster waits for Save, like every other field.
+  const [posterRemoved, setPosterRemoved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isMDBList = importedType === "mdblist";
@@ -186,7 +189,7 @@ export function ImportedCollectionEditor({
   const isSyncing = syncMutation.isPending;
 
   const trimmedPosterSource = posterSourceUrl.trim();
-  const posterDirty = posterFile !== null || trimmedPosterSource !== "";
+  const posterDirty = posterFile !== null || trimmedPosterSource !== "" || posterRemoved;
   const trimmedSourceUrl = sourceUrlInput.trim();
   const sourceUrlDirty = hasEditableSourceURL && trimmedSourceUrl !== initialSourceUrl;
   const maxItemsDirty = parsedMaxItems !== initialMaxItems;
@@ -236,11 +239,13 @@ export function ImportedCollectionEditor({
       body.max_items = parsedMaxItems ?? 0;
     }
     updateMutation.mutate(
-      { id: collection.id, etag, body, poster: posterFile },
+      { id: collection.id, etag, body, poster: posterFile, removePoster: posterRemoved },
       {
         onSuccess: () => {
           setPosterFile(null);
           setPosterSourceUrl("");
+          setPosterRemoved(false);
+          onSaved();
         },
       },
     );
@@ -259,6 +264,7 @@ export function ImportedCollectionEditor({
     setMaxItemsInput(initialMaxItems != null ? String(initialMaxItems) : "");
     setPosterFile(null);
     setPosterSourceUrl("");
+    setPosterRemoved(false);
   }
 
   function handleSyncNow() {
@@ -541,14 +547,24 @@ export function ImportedCollectionEditor({
             >
               <ImageUploadField
                 label="Poster"
-                currentUrl={collection.poster_url}
+                currentUrl={posterRemoved ? "" : collection.poster_url}
                 file={posterFile}
-                onFileChange={setPosterFile}
+                onFileChange={(file) => {
+                  setPosterFile(file);
+                  if (file) setPosterRemoved(false);
+                }}
                 sourceUrl={posterSourceUrl}
-                onSourceUrlChange={setPosterSourceUrl}
+                onSourceUrlChange={(url) => {
+                  setPosterSourceUrl(url);
+                  if (url.trim()) setPosterRemoved(false);
+                }}
                 onDelete={
                   collection.poster_url
-                    ? () => deletePosterMutation.mutate({ id: collection.id, type: "poster" })
+                    ? () => {
+                        setPosterRemoved(true);
+                        setPosterFile(null);
+                        setPosterSourceUrl("");
+                      }
                     : undefined
                 }
               />

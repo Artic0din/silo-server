@@ -4,7 +4,7 @@
  * Later editor work changes a golden here only on purpose.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -280,16 +280,85 @@ describe("personal manual and smart collections", () => {
     expect(writes()).toEqual(goldens.personalManualUpdate);
     expect(writes()[0]!.body).not.toHaveProperty("description");
   });
+});
 
-  it("deletes a removed poster at once, before Save", async () => {
+describe("personal poster removal waits for Save", () => {
+  beforeEach(() => {
     v2Recorder.answer("GET /api/v2/collections", {
       items: [{ ...getCollectionOk, poster_url: "https://images.example/poster.png" }],
     });
-    showPage("/collections/c1/edit");
-    await artworkShown("Poster");
+  });
+
+  async function removePoster() {
+    await screen.findByTitle("Delete image");
     deleteArtwork("Poster");
-    await waitFor(() => expect(writes()).toHaveLength(1));
-    expect(writes()).toEqual(goldens.personalPosterRemoval);
+    expect(within(artworkField("Poster")).queryByRole("img")).toBeNull();
+    expect(within(artworkField("Poster")).getByText("Click or drop image")).toBeTruthy();
+  }
+
+  async function leaveWithoutSaving() {
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    await closedTo("Collections page");
+  }
+
+  it("manual: sends nothing when you leave without saving", async () => {
+    showPage("/collections/c1/edit");
+    await removePoster();
+    await act(async () => {});
+    expect(writes()).toEqual([]);
+    await leaveWithoutSaving();
+    expect(writes()).toEqual([]);
+  });
+
+  it("manual: deletes the poster after the PATCH on Save", async () => {
+    showPage("/collections/c1/edit");
+    await removePoster();
+    await act(async () => {});
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
+    await closedTo("Collections page");
+    expect(writes()).toEqual(goldens.personalStagedPosterRemoval);
+  });
+
+  it("manual: uploads a file chosen after the removal and sends no DELETE", async () => {
+    showPage("/collections/c1/edit");
+    await removePoster();
+    chooseArtworkFile("Poster", "poster.png");
+    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
+    await closedTo("Collections page");
+    expect(writes()).toEqual(goldens.personalPosterReplacement);
+  });
+
+  describe("smart", () => {
+    beforeEach(() => {
+      v2Recorder.answer(
+        "GET /api/v2/collections/{id}",
+        personalSmartCollection(storedQuery(undefined)),
+      );
+      v2Recorder.answer("POST /api/v2/catalog/query", emptyCatalogPage);
+    });
+
+    it("sends nothing when you leave without saving", async () => {
+      showPage("/collections/c1/edit");
+      fireEvent.click(await screen.findByRole("button", { name: "Next: Details" }));
+      await removePoster();
+      await act(async () => {});
+      expect(writes()).toEqual([]);
+      await leaveWithoutSaving();
+      expect(writes()).toEqual([]);
+    });
+
+    it("keeps the removal across steps and deletes the poster after the PATCH on Save", async () => {
+      showPage("/collections/c1/edit");
+      fireEvent.click(await screen.findByRole("button", { name: "Next: Details" }));
+      await removePoster();
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Next: Details" }));
+      expect(within(artworkField("Poster")).getByText("Click or drop image")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
+      await closedTo("Collections page");
+      expect(writes()).toEqual(goldens.personalSmartStagedPosterRemoval);
+    });
   });
 });
 

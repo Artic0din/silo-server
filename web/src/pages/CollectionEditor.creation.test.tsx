@@ -34,7 +34,6 @@ vi.mock("@/hooks/queries/collections", () => ({
   useCollectionCapabilities: () => ({ data: {} }),
   useCreateCollection: () => ({ mutate: mocks.create }),
   useUpdateCollection: () => ({}),
-  useDeleteUserCollectionImage: () => ({}),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollectionCapabilities: () => ({ data: {} }),

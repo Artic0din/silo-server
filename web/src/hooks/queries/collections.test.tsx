@@ -8,7 +8,6 @@ import { V2ProblemError } from "@/api/v2/request";
 import type { Collection, CollectionsListResponse } from "@/api/types";
 import {
   useAddItemToCollection,
-  useDeleteUserCollectionImage,
   useRemoveCollectionItem,
   useReorderCollectionItems,
   useReorderCollections,
@@ -322,10 +321,11 @@ describe("personal collection writes refresh library Collections tabs", () => {
       },
     ],
     [
-      "removing the poster",
+      "saving a poster removal",
       () => {
-        const m = useDeleteUserCollectionImage();
-        return () => m.mutateAsync({ id: "c", type: "poster" });
+        const m = useUpdateCollection();
+        return () =>
+          m.mutateAsync({ id: "c", etag: '"c"', body: { name: "Films" }, removePoster: true });
       },
     ],
   ];
