@@ -452,6 +452,87 @@ func TestSharedPersonalCollectionOwnerAccessDB(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a smart collection outside the allowed libraries shows nothing", func(t *testing.T) {
+		// The query's own libraries share none with the reader's
+		// (owner-narrowed) allowed list. Dropping the empty intersection
+		// would run the query across every library.
+		reset(t)
+		hiddenQuery := fmt.Sprintf(`{"library_ids":[%d],"media_scope":"movie","match":"all","groups":[],"sort":{"field":"title","order":"asc"}}`, f.hidden)
+		outside := []*userstore.Collection{
+			shared("Hidden smart", "smart", hiddenQuery, ""),
+			shared("Hidden smart displayed", "smart", hiddenQuery, `{"match":"all","groups":[{"match":"all","rules":[{"field":"type","op":"is","value":"movie"}]}]}`),
+		}
+		for _, profile := range []string{"owner", "viewer"} {
+			rows := make([]userstore.SectionOverride, 0, len(outside))
+			for i, c := range outside {
+				position, limit := 2000+i, 50
+				rows = append(rows, userstore.SectionOverride{
+					ID: "row-" + c.ID, Scope: "home", Position: &position, ItemLimit: &limit, IsUserAdded: true,
+					UserSectionType: string(sections.SectionCollection), UserTitle: c.Name,
+					UserConfig: fmt.Sprintf(`{"user_collection_id":%q}`, c.ID),
+				})
+			}
+			if err := store.SaveSectionOverrides(ctx, profile, "home", "", rows); err != nil {
+				t.Fatal(err)
+			}
+		}
+		assertNone := func(t *testing.T, profileID string) {
+			t.Helper()
+			reqCtx, filter := readerContext(t, profileID)
+			for _, c := range outside {
+				detail, err := h.GetPersonalCollection(reqCtx, f.account, profileID, c.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if detail.ItemCount != 0 {
+					t.Errorf("%s: detail item_count = %d, want 0", c.Name, detail.ItemCount)
+				}
+				page, err := h.PersonalCollectionItemsPage(reqCtx, f.account, profileID, c.ID, filter, userstore.CollectionItemsPageOptions{Limit: 50}, nil)
+				if err != nil {
+					t.Fatalf("%s: items page: %v", c.Name, err)
+				}
+				if len(page.Items) != 0 {
+					t.Errorf("%s: items page shows %d items, want none", c.Name, len(page.Items))
+				}
+				for _, cursor := range []bool{true, false} {
+					result, err := catalogResolver.Resolve(reqCtx, catalog.CatalogRequest{Source: catalog.CatalogSourceUserCollection, CollectionID: c.ID, CursorPaging: cursor, UseSourceOrder: true, Limit: 50}, filter)
+					if err != nil {
+						t.Fatalf("%s: catalog (cursor %t): %v", c.Name, cursor, err)
+					}
+					if len(result.Items) != 0 {
+						t.Errorf("%s: catalog (cursor %t) shows %d items, want none", c.Name, cursor, len(result.Items))
+					}
+				}
+				row, err := sectionHandler.HomeSectionItems(reqCtx, "row-"+c.ID, SectionViewer{Access: filter})
+				if err != nil {
+					t.Fatalf("%s: home row: %v", c.Name, err)
+				}
+				if len(row.Items) != 0 {
+					t.Errorf("%s: home row shows %d items, want none", c.Name, len(row.Items))
+				}
+				// A library page scopes the row to its own library, here
+				// one outside the allowed list.
+				libraryRow, err := fetcher.FetchOne(reqCtx, sections.ResolvedSection{
+					ID: "row-" + c.ID, SectionType: sections.SectionCollection, Title: c.Name, ItemLimit: 50,
+					Config: json.RawMessage(fmt.Sprintf(`{"user_collection_id":%q}`, c.ID)),
+				}, &f.hidden, nil, f.account, profileID, filter)
+				if err != nil {
+					t.Fatalf("%s: library row: %v", c.Name, err)
+				}
+				if len(libraryRow.Items) != 0 {
+					t.Errorf("%s: library row shows %d items, want none", c.Name, len(libraryRow.Items))
+				}
+			}
+		}
+		setProfile(t, "owner", "", []int{f.library})
+		// An unrestricted viewer's home row carries no library scope.
+		assertNone(t, "viewer")
+		// A restricted viewer's home row carries its own allowed libraries.
+		setProfile(t, "viewer", "", []int{f.library, f.hidden})
+		assertNone(t, "viewer")
+		// The owner's own reads stay within its own allowed libraries.
+		assertNone(t, "owner")
+	})
 }
 
 type countingCollectionOwners struct{ calls []string }

@@ -1385,7 +1385,10 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 			return f.fetchFiltered(ctx, synth, libraryID, libraryIDs, filter)
 		}
 
-		qd = applySectionLibraryScopeToQuery(qd.Normalize(), libraryID, libraryIDs)
+		qd, ok := applySectionLibraryScopeToQuery(qd.Normalize(), libraryID, libraryIDs)
+		if !ok {
+			return []*models.MediaItem{}, 0, nil
+		}
 		qd = catalog.ApplySmartCollectionItemLimit(qd)
 		limit := catalog.DefaultSmartCollectionItemLimit
 		if qd.Limit != nil && *qd.Limit > 0 {
@@ -2533,7 +2536,10 @@ func (f *Fetcher) fetchFiltered(ctx context.Context, s ResolvedSection, libraryI
 		return nil, 0, fmt.Errorf("parsing query definition: %w", err)
 	}
 
-	def = applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	def, ok := applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	if !ok {
+		return []*models.MediaItem{}, 0, nil
+	}
 
 	if s.ItemLimit > 0 {
 		limit := s.ItemLimit
@@ -2554,7 +2560,10 @@ func (f *Fetcher) fetchFiltered(ctx context.Context, s ResolvedSection, libraryI
 	return items, total, nil
 }
 
-func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int, libraryIDs []int) catalog.QueryDefinition {
+// applySectionLibraryScopeToQuery limits def to the section's library scope.
+// It reports false when the scope shares no library with the query's own,
+// since an empty def.LibraryIDs would mean every library instead.
+func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int, libraryIDs []int) (catalog.QueryDefinition, bool) {
 	switch {
 	case libraryID != nil:
 		def.LibraryIDs = []int{*libraryID}
@@ -2563,9 +2572,10 @@ func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int
 			def.LibraryIDs = append([]int(nil), libraryIDs...)
 		} else {
 			def.LibraryIDs = intersectLibraryIDs(def.LibraryIDs, libraryIDs)
+			return def, len(def.LibraryIDs) > 0
 		}
 	}
-	return def
+	return def, true
 }
 
 func buildRandomQuery(s ResolvedSection, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) (string, []any, int) {
