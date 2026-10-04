@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -271,12 +270,21 @@ func (h *SectionHandler) previewPosterURLs(ctx context.Context, items []*models.
 		return nil
 	}
 	posterPaths := make(map[string]string, len(items))
+	paths := make([]string, 0, len(items))
 	for _, item := range items {
-		if item != nil {
-			posterPaths[item.ContentID] = sizedPosterPath(item.PosterPath, imagesize.Unset)
+		if item == nil {
+			continue
+		}
+		path := sizedPosterPath(item.PosterPath, imagesize.Unset)
+		if path == "" || path == "-" {
+			continue
+		}
+		posterPaths[item.ContentID] = path
+		if !slices.Contains(paths, path) {
+			paths = append(paths, path)
 		}
 	}
-	resolved := h.DetailSvc.PresignURLsWithExpiry(ctx, slices.Collect(maps.Values(posterPaths)), requestVariantHint("featured", imagesize.Unset))
+	resolved := h.DetailSvc.PresignURLsWithExpiry(ctx, paths, requestVariantHint("featured", imagesize.Unset))
 	out := make(map[string]string, len(posterPaths))
 	for contentID, path := range posterPaths {
 		if url := resolved[path].URL; url != "" {

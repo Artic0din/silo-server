@@ -137,3 +137,32 @@ func TestHandlePreviewV1BodyUnchanged(t *testing.T) {
 		t.Fatalf("v1 preview body changed: %s (signing calls %d)", rec.Body.String(), resolver.batchCalls+resolver.singleCalls)
 	}
 }
+
+// Items that share a poster ask the signer for it once, in item order, the
+// way a live row collects its paths.
+func TestAdminSectionPreviewSignsEachPosterOnce(t *testing.T) {
+	resolver := &countingSectionImageResolver{}
+	detail := &catalog.DetailService{}
+	detail.SetImageResolver(resolver)
+	h := &SectionHandler{DetailSvc: detail, previewFetcher: &stubPreviewFetcher{
+		items: []*models.MediaItem{
+			{ContentID: "b", PosterPath: "/b/original.jpg"},
+			{ContentID: "a", PosterPath: "/a/original.jpg"},
+			{ContentID: "a-again", PosterPath: "/a/original.jpg"},
+			{ContentID: "none"},
+		},
+		total: 4,
+	}}
+
+	result, err := h.PreviewAdminSection(t.Context(), AdminSectionPreviewRequest{SectionType: string(sections.SectionRecentlyAdded), Config: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"/b/w500.jpg", "/a/w500.jpg"}; !slices.Equal(resolver.paths, want) {
+		t.Fatalf("signed paths = %v, want %v", resolver.paths, want)
+	}
+	want := map[string]string{"b": "resolved:/b/w500.jpg", "a": "resolved:/a/w500.jpg", "a-again": "resolved:/a/w500.jpg"}
+	if !maps.Equal(result.PosterURLs, want) {
+		t.Fatalf("poster URLs = %v, want %v", result.PosterURLs, want)
+	}
+}
