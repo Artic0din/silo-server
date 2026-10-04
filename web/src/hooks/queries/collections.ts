@@ -25,10 +25,7 @@ import {
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { catalogKeys, collectionKeys } from "./keys";
 import { toast } from "sonner";
-import {
-  invalidateUserCollectionQueries,
-  invalidateAdminCollectionQueries,
-} from "./collectionSurfaceRefresh";
+import { invalidateAdminCollectionQueries } from "./collectionSurfaceRefresh";
 
 const collectionMutationMessage = PERSONAL_SCOPE.errorMessage;
 
@@ -206,7 +203,7 @@ export function useAddItemToCollection() {
     onSuccess: (_data, vars) => {
       toast.success("Added to collection");
       if (vars.source === "user") {
-        return invalidateUserCollectionQueries(queryClient, vars.collectionId);
+        return PERSONAL_SCOPE.invalidate(queryClient, vars.collectionId);
       }
       return invalidateAdminCollectionQueries(queryClient);
     },
@@ -231,7 +228,7 @@ export function useRemoveCollectionItem(collectionId: string, source: "user" | "
       ),
     onSuccess: () =>
       source === "user"
-        ? invalidateUserCollectionQueries(queryClient, collectionId)
+        ? PERSONAL_SCOPE.invalidate(queryClient, collectionId)
         : invalidateAdminCollectionQueries(queryClient),
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to remove item");
@@ -293,9 +290,9 @@ export function useReorderCollections() {
       if (ctx?.snapshot) queryClient.setQueryData(collectionKeys.list(), ctx.snapshot);
       toast.error(collectionMutationMessage(err, "Failed to reorder"));
       if (err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
+        void PERSONAL_SCOPE.invalidate(queryClient);
     },
-    onSettled: () => invalidateUserCollectionQueries(queryClient),
+    onSettled: () => PERSONAL_SCOPE.invalidate(queryClient),
   });
 }
 
@@ -320,11 +317,11 @@ export function useReorderCollectionItems(
     onError: (err) => {
       toast.error(collectionMutationMessage(err, "Failed to reorder items"));
       if (source === "user" && err instanceof V2ProblemError && err.status === 412)
-        void invalidateUserCollectionQueries(queryClient);
+        void PERSONAL_SCOPE.invalidate(queryClient);
     },
     onSettled: () =>
       source === "user"
-        ? invalidateUserCollectionQueries(queryClient, collectionId)
+        ? PERSONAL_SCOPE.invalidate(queryClient, collectionId)
         : invalidateAdminCollectionQueries(queryClient),
   });
 }
@@ -339,7 +336,7 @@ export function useDeleteUserCollectionImage() {
       ),
     onSuccess: (id) => {
       toast.success("Poster removed");
-      return invalidateUserCollectionQueries(queryClient, id);
+      return PERSONAL_SCOPE.invalidate(queryClient, id);
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to remove poster");
