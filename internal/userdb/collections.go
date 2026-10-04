@@ -2,6 +2,7 @@ package userdb
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/Silo-Server/silo-server/internal/userstore"
@@ -82,6 +83,9 @@ func GetCollection(db *sql.DB, id string) (*Collection, error) {
 		 FROM personal_collections WHERE id = ?`,
 		id,
 	).Scan(&c.ID, &c.ProfileID, &c.CreatorProfileID, &c.Name, &c.CollectionType, &isShared, &c.QueryDefinition, &c.SortConfig, &c.CreatedAt, &c.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("collection %s: %w", id, userstore.ErrCollectionNotFound)
+	}
 	if err != nil {
 		return nil, err
 	}
