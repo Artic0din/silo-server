@@ -484,7 +484,7 @@ func TestImportableCollectionTemplatesKeepsPersonalSources(t *testing.T) {
 	if len(want) == 0 || !hasExcludedSource {
 		t.Fatal("built-in catalog must contain both importable and excluded sources")
 	}
-	got := importableCollectionTemplates(full)
+	got := creatableCollectionTemplates(full)
 
 	kept := map[templates.Source]int{}
 	for _, group := range got.Categories {

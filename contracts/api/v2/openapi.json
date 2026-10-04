@@ -61481,7 +61481,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List supported collection templates.",
+        "summary": "List the collection templates with an mdblist, tmdb or tmdb_list source.",
         "tags": [
           "admin-collections"
         ],
