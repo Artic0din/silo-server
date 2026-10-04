@@ -14,6 +14,7 @@ import {
   draftFromRow,
   findRecipe,
   mergeReloadedDraft,
+  previewWaitText,
   savedTitle,
   withCollection,
   withRules,
@@ -258,6 +259,19 @@ describe("collection rows", () => {
     const draft = draftForPreset(def, def.presets[0]);
     expect(canSaveDraft(draft)).toBe(false);
     expect(canSaveDraft(withCollection(draft, ghibli))).toBe(true);
+  });
+
+  it("counts a legacy personal collection as no selection on the admin surface", () => {
+    const draft = {
+      ...draftForPreset(def, def.presets[0]),
+      config: { user_collection_id: "u-9", sort_by: "title" },
+    };
+    expect(canSaveDraft(draft)).toBe(true);
+    expect(canSaveDraft(draft, "admin")).toBe(false);
+    expect(previewWaitText(draft, "admin")).toBe("Pick a collection to see its titles here.");
+    const picked = withCollection(draft, ghibli);
+    expect(canSaveDraft(picked, "admin")).toBe(true);
+    expect(picked.config).toEqual({ library_collection_id: "lib-1", sort_by: "title" });
   });
 
   it("starts with the picked collection's name until the user types one", () => {

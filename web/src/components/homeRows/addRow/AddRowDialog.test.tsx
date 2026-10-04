@@ -460,7 +460,7 @@ describe("collection rows", () => {
   });
 
   it("keeps a row's collection, and every other key, when only its name changes", async () => {
-    const config = { user_collection_id: "u-9", generated_source: "collection_auto" };
+    const config = { library_collection_id: "lib-gone", generated_source: "collection_auto" };
     await open(editSession({ title: "Shared", sectionType: "collection", config }));
     const dialog = screen.getByRole("dialog", { name: "Edit row" });
     expect(
@@ -472,6 +472,30 @@ describe("collection rows", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(savedDraft()).toMatchObject({ title: "Renamed", config });
+  });
+
+  // The admin endpoint rejects a collection row without library_collection_id,
+  // so a legacy personal-collection row needs a library collection picked.
+  it("makes an admin pick a library collection for a legacy personal-collection row", async () => {
+    const config = { user_collection_id: "u-9", sort_by: "title" };
+    await open(editSession({ title: "Shared", sectionType: "collection", config }));
+    const dialog = screen.getByRole("dialog", { name: "Edit row" });
+    expect(
+      within(dialog).queryByText(
+        "This row's collection isn't in this list. The row keeps it until you pick another.",
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Row name"), { target: { value: "Renamed" } });
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await userEvent.click(within(dialog).getByRole("radio", { name: "Studio Ghibli" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(savedDraft()).toMatchObject({
+      title: "Renamed",
+      config: { library_collection_id: "ghibli", sort_by: "title" },
+    });
+    expect(savedDraft().config).not.toHaveProperty("user_collection_id");
   });
 
   it("turns a ready-made row into a collection row without leaving the dialog", async () => {

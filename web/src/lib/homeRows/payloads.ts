@@ -16,7 +16,7 @@ import { randomUUID } from "@/lib/uuid";
 import { rowKindLabel } from "./catalog";
 import type { RowDraft } from "./rowDraft";
 import { stableJson } from "./stableJson";
-import type { PageRef } from "./types";
+import type { PageRef, Surface } from "./types";
 
 /** A new row's fields, before they become an admin create or a profile row. */
 export interface AddPayload {
@@ -131,8 +131,6 @@ function preserveGeneratedSectionMetadata(
   return merged;
 }
 
-type CollectionRowSurface = "profile" | "admin";
-
 /**
  * The collection a collection row's config points at, or "" for none. Admin
  * rows read only `library_collection_id`: the admin endpoint rejects a row
@@ -140,7 +138,7 @@ type CollectionRowSurface = "profile" | "admin";
  */
 export function collectionIdOf(
   config?: Record<string, unknown>,
-  surface: CollectionRowSurface = "profile",
+  surface: Surface = "profile",
 ): string {
   const userValue = config?.user_collection_id;
   if (surface === "profile" && typeof userValue === "string" && userValue) return userValue;
@@ -160,7 +158,7 @@ function collectionRowConfig(
   stored: Record<string, unknown> | undefined,
   selectedCollectionId: string,
   key: "user_collection_id" | "library_collection_id",
-  surface: CollectionRowSurface,
+  surface: Surface,
 ): Record<string, unknown> {
   if (stored && selectedCollectionId && collectionIdOf(stored, surface) === selectedCollectionId) {
     return { ...stored };
