@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { v2Problem } from "@/api/v2/problems.test-support";
 import { sectionKeys } from "@/hooks/queries/keys";
-import AdminSections from "./AdminSections";
+import AdminHomeRows from "./AdminHomeRows";
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -82,66 +84,33 @@ vi.mock("@/components/CollectionSearchableSelect", () => ({
     return <div>Collection picker</div>;
   },
 }));
-vi.mock("@/components/sections/EditableSectionRows", () => ({
-  SectionDragOverlay: () => null,
-  SortableSectionTableRow: ({
-    section,
-    onEdit,
-    onDelete,
-    selected,
-    onSelectionChange,
-  }: {
-    section: { id: string; title: string };
-    onEdit: () => void;
-    onDelete: () => void;
-    selected: boolean;
-    onSelectionChange: (checked: boolean, extend: boolean) => void;
-  }) => (
-    <tr data-testid={`row-${section.id}`}>
-      <td>
-        {section.title}
-        <button onClick={onEdit}>Edit {section.id}</button>
-        <button onClick={onDelete}>Delete {section.id}</button>
-        <input
-          type="checkbox"
-          aria-label={`Select ${section.id}`}
-          checked={selected}
-          onChange={(e) => onSelectionChange(e.target.checked, false)}
-        />
-      </td>
-    </tr>
-  ),
-}));
-vi.mock("@dnd-kit/core", () => ({
-  DndContext: ({
-    children,
-    onDragStart,
-    onDragEnd,
-  }: {
-    children: ReactNode;
-    onDragStart: (event: unknown) => void;
-    onDragEnd: (event: unknown) => void;
-  }) => (
-    <div>
-      <button onClick={() => onDragStart({ active: { id: "a" } })}>Start drag</button>
-      <button onClick={() => onDragEnd({ active: { id: "a" }, over: { id: "b" } })}>
-        End drag
-      </button>
-      {children}
-    </div>
-  ),
-  DragOverlay: ({ children }: { children: ReactNode }) => children,
-  PointerSensor: class {},
-  KeyboardSensor: class {},
-  closestCenter: vi.fn(),
-  useSensor: vi.fn(),
-  useSensors: vi.fn(),
-}));
+// The real list and sortable rows render; only the drag gesture is replaced by
+// two buttons, so a test can start a drag, refetch, and then drop.
+vi.mock("@dnd-kit/core", async () => {
+  const actual = await vi.importActual<typeof import("@dnd-kit/core")>("@dnd-kit/core");
+  return {
+    ...actual,
+    DndContext: ({
+      children,
+      onDragStart,
+      onDragEnd,
+      ...rest
+    }: Parameters<typeof actual.DndContext>[0] & { children: ReactNode }) => (
+      <actual.DndContext {...rest}>
+        <button onClick={() => onDragStart?.({ active: { id: "a" } } as never)}>Start drag</button>
+        <button onClick={() => onDragEnd?.({ active: { id: "a" }, over: { id: "b" } } as never)}>
+          End drag
+        </button>
+        {children}
+      </actual.DndContext>
+    ),
+  };
+});
 const libraries = [{ id: 7, name: "Movies", type: "movies" }];
 const collections: never[] = [];
 const initial = (id: string) => ({
   id,
-  title: id === "a" ? "Original A" : "Original B",
+  title: `Original ${id.toUpperCase()}`,
   scope: "home",
   library_id: null,
   position: id === "a" ? 0 : 1,
@@ -194,7 +163,10 @@ beforeEach(() => {
     if (args.headers?.["If-Match"] !== `"rev-${revision}"` || args.path?.id === failID)
       throw v2Problem(412, "precondition_failed", "Changed on another client");
     if (operation === "PATCH /api/v2/admin/sections/{id}") {
-      rows = rows.map((row) => (row.id === args.path?.id ? { ...row, ...args.body } : row));
+      const changes = Object.fromEntries(
+        Object.entries(args.body ?? {}).filter(([, value]) => value !== undefined),
+      );
+      rows = rows.map((row) => (row.id === args.path?.id ? { ...row, ...changes } : row));
       return rows.find((row) => row.id === args.path?.id);
     }
     if (operation === "DELETE /api/v2/admin/sections/{id}") {
@@ -211,18 +183,28 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-async function setup(waitForRows = true) {
+async function setup(waitForRows = true, entry = "/admin/home-rows") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
-    <QueryClientProvider client={client}>
-      <AdminSections />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[entry]}>
+      <QueryClientProvider client={client}>
+        <AdminHomeRows />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
-  if (waitForRows) await screen.findByRole("button", { name: "Edit a" });
+  if (waitForRows) {
+    await screen.findByRole("button", { name: "More for Original A" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add Section" })).toBeEnabled());
+  }
   return client;
 }
+async function chooseRowAction(title: string, action: string) {
+  await userEvent.click(screen.getByRole("button", { name: `More for ${title}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: action }));
+}
+const rowOrder = () => screen.getAllByRole("listitem").map((item) => item.dataset.rowId);
 async function refresh(client: QueryClient) {
   await act(async () => {
     await client.invalidateQueries({ queryKey: sectionKeys.all });
@@ -232,7 +214,7 @@ async function refresh(client: QueryClient) {
 describe("admin section captured snapshots", () => {
   it("keeps the real editor draft and original validator through refetch and 412, then reloads explicitly", async () => {
     const client = await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Edit a" }));
+    await chooseRowAction("Original A", "Edit row…");
     const title = await screen.findByDisplayValue("Original A");
     fireEvent.change(title, { target: { value: "My draft" } });
     revision = 2;
@@ -253,19 +235,19 @@ describe("admin section captured snapshots", () => {
   });
   it("freezes single-delete confirmation and requires explicit reload after 412", async () => {
     await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Delete a" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete section" });
+    await chooseRowAction("Original A", "Delete row…");
+    const dialog = await screen.findByRole("dialog", { name: "Delete Original A?" });
     revision = 2;
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    await screen.findByText(/Reload it before confirming deletion/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete row" }));
+    await screen.findByText(/Reload it before deleting/);
     expect(writes[0]!.args.headers?.["If-Match"]).toBe('"rev-1"');
     expect(writes).toHaveLength(1);
     expect(dialog).toBeInTheDocument();
   });
   it("captures bulk targets before confirmation and retains failed selection", async () => {
     const client = await setup();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select a" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select b" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Original A" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Original B" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete selected sections" });
     rows.push(initial("c"));
@@ -274,8 +256,8 @@ describe("admin section captured snapshots", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete 2 sections" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(writes.map((write) => write.args.path?.id)).toEqual(["a", "b"]);
-    expect(screen.getByRole("checkbox", { name: "Select b" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Select c" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Original B" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Original C" })).not.toBeChecked();
   });
   it("does not replace an active drag on refetch and preserves attempted order on 412", async () => {
     const client = await setup();
@@ -283,18 +265,12 @@ describe("admin section captured snapshots", () => {
     revision = 2;
     rows = [rows[1]!, rows[0]!];
     await refresh(client);
-    expect(screen.getAllByTestId(/row-/).map((row) => row.dataset.testid)).toEqual([
-      "row-a",
-      "row-b",
-    ]);
+    expect(rowOrder()).toEqual(["a", "b"]);
     fireEvent.click(screen.getByRole("button", { name: "End drag" }));
-    await screen.findByRole("button", { name: "Reload order" });
+    await screen.findByRole("button", { name: "Reload rows" });
     expect(writes[0]!.args.headers?.["If-Match"]).toBe('"rev-1"');
     expect(writes[0]!.args.body?.ordered_ids).toEqual(["b", "a"]);
-    expect(screen.getAllByTestId(/row-/).map((row) => row.dataset.testid)).toEqual([
-      "row-b",
-      "row-a",
-    ]);
+    expect(rowOrder()).toEqual(["b", "a"]);
   });
   it("disables unsupported profile reset and keeps restore confirmation after stale save", async () => {
     await setup();
@@ -312,7 +288,7 @@ describe("admin section captured snapshots", () => {
     rows[0]!.section_type = "collection";
     rows[0]!.config = { library_collection_id: "public" };
     await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Edit a" }));
+    await chooseRowAction("Original A", "Edit row…");
     await screen.findByText("Collection picker");
     expect(mocks.collectionOptions).toEqual(["public"]);
   });
@@ -325,7 +301,7 @@ describe("admin section captured snapshots", () => {
       extra: { retained: true },
     };
     await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Edit a" }));
+    await chooseRowAction("Original A", "Edit row…");
     fireEvent.change(await screen.findByDisplayValue("Original A"), {
       target: { value: "Renamed" },
     });
@@ -340,7 +316,7 @@ describe("admin section captured snapshots", () => {
   });
   it("does not reopen an editor when a canceled reload completes", async () => {
     await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Edit a" }));
+    await chooseRowAction("Original A", "Edit row…");
     await screen.findByDisplayValue("Original A");
     revision = 2;
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -377,18 +353,12 @@ describe("admin section captured snapshots", () => {
     await waitFor(() => expect(fail).toBeTypeOf("function"));
     revision = 2;
     await refresh(client);
-    expect(screen.getAllByTestId(/row-/).map((row) => row.dataset.testid)).toEqual([
-      "row-b",
-      "row-a",
-    ]);
+    expect(rowOrder()).toEqual(["b", "a"]);
     await act(async () => {
       fail();
     });
-    await screen.findByRole("button", { name: "Reload order" });
-    expect(screen.getAllByTestId(/row-/).map((row) => row.dataset.testid)).toEqual([
-      "row-b",
-      "row-a",
-    ]);
+    await screen.findByRole("button", { name: "Reload rows" });
+    expect(rowOrder()).toEqual(["b", "a"]);
   });
   it("keeps scope controls fixed during a pending reorder and adopts the next scope after rejection", async () => {
     await setup();
@@ -420,27 +390,20 @@ describe("admin section captured snapshots", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start drag" }));
     fireEvent.click(screen.getByRole("button", { name: "End drag" }));
     await waitFor(() => expect(fail).toBeTypeOf("function"));
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Library" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    expect(screen.getByRole("tab", { name: "Home" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "Library" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "Home" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Movies" }));
+    expect(screen.getByRole("button", { name: "Home" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Movies" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
     await act(async () => {
       fail();
     });
-    await screen.findByRole("button", { name: "Reload order" });
-    expect(screen.getByRole("tab", { name: "Library" })).toBeEnabled();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Library" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    expect(screen.queryByRole("button", { name: "Edit a" })).not.toBeInTheDocument();
-    await screen.findByRole("button", { name: "Edit library-row" });
-    expect(screen.queryByRole("button", { name: "Edit a" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete a" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reload order" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Reload rows" });
+    expect(screen.getByRole("button", { name: "Movies" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Movies" }));
+    expect(screen.queryByRole("button", { name: "More for Original A" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "More for Library section" });
+    expect(screen.queryByRole("button", { name: "More for Original A" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reload rows" })).not.toBeInTheDocument();
   });
   it("shows a failed initial read instead of an empty editable scope", async () => {
     const implementation = mocks.request.getMockImplementation()!;
@@ -451,7 +414,7 @@ describe("admin section captured snapshots", () => {
     );
     await setup(false);
     await screen.findByText("Read unavailable");
-    expect(screen.queryByText(/No sections configured/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No rows on/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add Section" })).toBeDisabled();
   });
 
@@ -484,5 +447,115 @@ describe("admin section captured snapshots", () => {
     expect(creates[0]?.config).toMatchObject({ library_collection_id: "import-1" });
     expect(creates[1]?.config).toMatchObject({ library_collection_id: "import-2" });
     expect(creates[2]?.config).toMatchObject({ library_collection_id: "import-2" });
+  });
+});
+
+describe("admin Home rows list", () => {
+  it("turns a row off with the version it read and holds reordering until the list refetches", async () => {
+    await setup();
+    const implementation = mocks.request.getMockImplementation()!;
+    let releaseList: (() => void) | null = null;
+    let patched = false;
+    mocks.request.mockImplementation((operation: string, args: Args) => {
+      if (operation === "PATCH /api/v2/admin/sections/{id}") patched = true;
+      if (patched && operation === "GET /api/v2/admin/sections")
+        return new Promise((resolve) => {
+          releaseList = () => resolve(implementation(operation, args));
+        });
+      return implementation(operation, args);
+    });
+    const toggle = screen.getByRole("switch", { name: "Original A is on for everyone" });
+    toggle.focus();
+    await userEvent.keyboard(" ");
+    expect(await screen.findByText(/is off\. Nobody sees this row\./)).toBeInTheDocument();
+    await waitFor(() => expect(releaseList).toBeTypeOf("function"));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.operation).toBe("PATCH /api/v2/admin/sections/{id}");
+    expect(writes[0]!.args.headers?.["If-Match"]).toBe('"rev-1"');
+    expect(writes[0]!.args.body).toEqual({ enabled: false });
+    expect(screen.getByRole("button", { name: "Move Original B" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Home" })).toBeDisabled();
+    await act(async () => releaseList!());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Move Original B" })).toHaveAttribute(
+        "aria-disabled",
+        "false",
+      ),
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("switch", { name: "Original A is off for everyone" }),
+    );
+  });
+
+  it("shows the conflict banner instead of writing when the row changed elsewhere", async () => {
+    await setup();
+    rows = rows.map((row) => (row.id === "a" ? { ...row, title: "Renamed elsewhere" } : row));
+    fireEvent.click(screen.getByRole("switch", { name: "Original A is on for everyone" }));
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("Home rows changed since you opened this page.");
+    expect(writes).toEqual([]);
+    expect(screen.getByRole("switch", { name: "Original A is on for everyone" })).toBeChecked();
+    fireEvent.click(within(banner).getByRole("button", { name: "Reload rows" }));
+    await screen.findByRole("switch", { name: "Renamed elsewhere is on for everyone" });
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("uses a row as the hero banner from its menu", async () => {
+    await setup();
+    await chooseRowAction("Original B", "Use as hero banner");
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.args.path?.id).toBe("b");
+    expect(writes[0]!.args.body).toEqual({ featured: true });
+    expect(await screen.findByText("Hero banner")).toBeInTheDocument();
+  });
+
+  it("moves focus to the next row's menu after a delete, or to Add Section after the last", async () => {
+    await setup();
+    await chooseRowAction("Original A", "Delete row…");
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete row" }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "More for Original B" }),
+      ),
+    );
+    await chooseRowAction("Original B", "Delete row…");
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete row" }),
+    );
+    await screen.findByText("No rows on Home yet.");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add Section" })),
+    );
+  });
+
+  it("opens the library page a ?page= link names", async () => {
+    mocks.request.mockImplementation(
+      (
+        (implementation) =>
+        (operation: string, args: Args = {}) => {
+          if (args.query?.scope === "library") {
+            args.onResponse?.(new Response(null, { headers: { ETag: '"library-1"' } }));
+            if (operation === "GET /api/v2/admin/sections/order")
+              return Promise.resolve({ scope: "library", library_id: "7", ordered_ids: ["lib"] });
+            if (operation === "GET /api/v2/admin/sections")
+              return Promise.resolve({
+                items: [
+                  { ...initial("lib"), scope: "library", library_id: "7", title: "Movie row" },
+                ],
+              });
+          }
+          return implementation(operation, args);
+        }
+      )(mocks.request.getMockImplementation()!),
+    );
+    await setup(false, "/admin/home-rows?page=7");
+    await screen.findByRole("button", { name: "More for Movie row" });
+    expect(screen.getByRole("button", { name: "Movies" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("These rows show above the full Movies grid.")).toBeInTheDocument();
   });
 });

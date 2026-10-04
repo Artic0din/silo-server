@@ -5,11 +5,9 @@ import { sectionTypeLabel } from "@/lib/sectionTypes";
 import { queryDefinitionFromSectionConfig } from "@/api/types";
 import type { Library } from "@/api/types";
 import { matchRecipePreset, type RecipeCatalogResponse } from "@/lib/recipes";
-import { Eye, EyeOff, GripVertical, Pencil, Star, Trash2 } from "lucide-react";
+import { Eye, EyeOff, GripVertical, Pencil, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { TableCell, TableRow } from "@/components/ui/table";
-import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 
 export interface EditableSectionViewModel {
   id: string;
@@ -127,107 +125,6 @@ export function SectionDragOverlay({
         {recipeLabel(catalog, section.sectionType, section.config)}
       </Badge>
     </div>
-  );
-}
-
-export function SortableSectionTableRow({
-  section,
-  canReorder,
-  libraries,
-  collectionLabels,
-  catalog,
-  selected,
-  selectionLabel,
-  onSelectionChange,
-  onEdit,
-  onDelete,
-}: {
-  section: EditableSectionViewModel;
-  canReorder: boolean;
-  libraries: Library[];
-  collectionLabels: Map<string, string>;
-  catalog?: RecipeCatalogResponse;
-  selected: boolean;
-  selectionLabel: string;
-  onSelectionChange: (checked: boolean, extendRange: boolean) => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: section.id,
-    disabled: !canReorder,
-  });
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
-
-  return (
-    <TableRow ref={setNodeRef} style={style} data-state={selected ? "selected" : undefined}>
-      <TableCell className="w-10">
-        <BulkSelectionCheckbox
-          label={selectionLabel}
-          selected={selected}
-          onSelectionChange={onSelectionChange}
-        />
-      </TableCell>
-      <TableCell>
-        {canReorder ? (
-          <button
-            type="button"
-            className="cursor-grab touch-none"
-            aria-label={`Drag ${section.title}`}
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="text-muted-foreground h-4 w-4" />
-          </button>
-        ) : (
-          <GripVertical className="text-muted-foreground h-4 w-4" />
-        )}
-      </TableCell>
-      <TableCell className="font-medium">{section.title}</TableCell>
-      <TableCell>
-        <SectionSummaryBadges
-          section={section}
-          libraries={libraries}
-          collectionLabels={collectionLabels}
-          catalog={catalog}
-        />
-      </TableCell>
-      <TableCell>{section.itemLimit}</TableCell>
-      <TableCell>
-        {section.featured ? <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" /> : null}
-      </TableCell>
-      <TableCell>
-        <Badge variant={section.enabled ? "default" : "secondary"}>
-          {section.enabled ? "On" : "Off"}
-        </Badge>
-      </TableCell>
-      <TableCell>
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={onEdit}
-            aria-label={`Edit ${section.title}`}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive h-7 w-7 p-0"
-            onClick={onDelete}
-            aria-label={`Delete ${section.title}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
   );
 }
 

@@ -148,11 +148,11 @@ export function useLibrarySections(libraryId: number) {
   });
 }
 
-export function useAdminSections(scope: string, libraryId?: number) {
+export function useAdminSections(scope: string, libraryId?: number, enabled = true) {
   return useQuery({
     queryKey: sectionKeys.adminList(scope, libraryId),
     queryFn: ({ signal }) => fetchAdminSections(scope, libraryId, signal),
-    enabled: scope !== "library" || Boolean(libraryId),
+    enabled: enabled && (scope !== "library" || Boolean(libraryId)),
   });
 }
 
