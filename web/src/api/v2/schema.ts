@@ -6305,7 +6305,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** List the collections the acting profile owns or may see, with the account's collection groups. */
+    /** List the acting profile's own collections in its order, then the collections other profiles on the login share, grouped by creator and each in its creator's order. */
     get: operations["listCollections"];
     put?: never;
     /** Create a manual or smart collection for the acting profile. Not idempotent: a retry after a lost response creates a second collection. */
@@ -6331,7 +6331,7 @@ export interface paths {
     delete: operations["deleteCollection"];
     options?: never;
     head?: never;
-    /** Update the creator's collection; omitted fields are unchanged. */
+    /** Update the creator's collection; omitted fields are unchanged. Another profile's shared collection answers permission_denied. */
     patch: operations["updateCollection"];
     trace?: never;
   };
@@ -6465,7 +6465,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Create an account-wide collection group. Not idempotent: a retry after a lost response creates a second group. */
+    /** Not supported: personal collection groups were removed, and this operation answers capability_unsupported. */
     post: operations["createCollectionGroup"];
     delete?: never;
     options?: never;
@@ -6480,15 +6480,15 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Read the canonical collection editor state and its strong validator. */
+    /** Not supported: personal collection groups were removed, and this operation answers capability_unsupported. */
     get: operations["getCollectionGroup"];
     put?: never;
     post?: never;
-    /** Delete a collection group; its collections become ungrouped. */
+    /** Not supported: personal collection groups were removed, and this operation answers capability_unsupported. */
     delete: operations["deleteCollectionGroup"];
     options?: never;
     head?: never;
-    /** Update a collection group; omitted members are unchanged. Retries are not safe after an intervening mutation. */
+    /** Not supported: personal collection groups were removed, and this operation answers capability_unsupported. */
     patch: operations["updateCollectionGroup"];
     trace?: never;
   };
@@ -6499,9 +6499,9 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Read the canonical collection editor state and its strong validator. */
+    /** Not supported: personal collection groups were removed, and this operation answers capability_unsupported. */
     get: operations["getCollectionGroupsOrder"];
-    /** Replace the order of the account's collection groups. Retries are not safe after an intervening mutation. */
+    /** Not supported: personal collection groups were removed, and this operation answers capability_unsupported. */
     put: operations["reorderCollectionGroups"];
     post?: never;
     delete?: never;
@@ -6621,7 +6621,7 @@ export interface paths {
     };
     /** Read the canonical collection editor state and its strong validator. */
     get: operations["getCollectionOrder"];
-    /** Replace the order of the collections in one group (or the ungrouped section). Retries are not safe after an intervening mutation. */
+    /** Replace the order of the acting profile's own collections. Retries are not safe after an intervening mutation. */
     put: operations["reorderCollections"];
     post?: never;
     delete?: never;
@@ -19606,7 +19606,7 @@ export interface components {
       display_filter_presets: components["schemas"]["CollectionDisplayFilterPresets"];
       /** @example true */
       effective_collection_sort: boolean;
-      /** @description The acting account supports collection groups */
+      /** @description Always false: personal collection groups are no longer supported */
       groups: boolean;
       /**
        * @description Import sources the acting account can create a collection from; empty when imports is false
@@ -19621,6 +19621,8 @@ export interface components {
       imports: boolean;
       /** @description The acting account supports reordering collection items */
       item_reorder: boolean;
+      /** @description is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it */
+      login_sharing: boolean;
       /** @description Opaque revision of this document */
       revision: string;
       /**
@@ -19776,12 +19778,12 @@ export interface components {
     };
     CollectionOrder: {
       /**
-       * @description The group whose collections are ordered; omitted or null orders the ungrouped section
+       * @description Omit or send null: personal collection groups are no longer supported, and any other value is a validation failure
        * @example g1
        */
       group_id?: string | null;
       /**
-       * @description Every visible collection in the scope, exactly once, in the new order
+       * @description Each of the acting profile's own collections, exactly once, in the new order; another profile's collection is a validation failure
        * @example [
        *       "01J9Z8C3W4R5T6Y7U8I9O0P1Q4"
        *     ]
@@ -23032,7 +23034,10 @@ export interface components {
       description?: string;
       /** @description Display filter fragment */
       display_query_definition?: unknown;
-      /** @example false */
+      /**
+       * @description Show the collection to every profile on the login; defaults to false
+       * @example false
+       */
       is_shared?: boolean;
       /**
        * @description Libraries the sync matches against; every library when omitted
@@ -24357,11 +24362,6 @@ export interface components {
     };
     PersonalCollection: {
       /**
-       * @description Profiles a shared collection is limited to; empty means every profile on the account
-       * @example []
-       */
-      allowed_profile_ids: string[];
-      /**
        * @description manual, smart, or an import source (mdblist, tmdb, trakt)
        * @example manual
        */
@@ -24382,7 +24382,7 @@ export interface components {
       /** @description Display filter fragment; absent when none */
       display_query_definition?: unknown;
       /**
-       * @description null when ungrouped
+       * @description Always null: personal collection groups are no longer supported
        * @example g1
        */
       group_id: string | null;
@@ -24393,7 +24393,10 @@ export interface components {
       id: string;
       /** @example false */
       include_in_server_collections: boolean;
-      /** @example false */
+      /**
+       * @description Every profile on the login sees the collection read-only, including profiles added later; otherwise only its creator does
+       * @example false
+       */
       is_shared: boolean;
       /**
        * Format: int64
@@ -24439,6 +24442,7 @@ export interface components {
       sort_config: unknown;
       /**
        * Format: int64
+       * @description Position in its creator's own order of collections
        * @example 0
        */
       sort_order: number;
@@ -24466,7 +24470,7 @@ export interface components {
       position: number;
     };
     PersonalCollectionCollection: {
-      /** @description The account's collection groups in sort order; empty, never null */
+      /** @description Always empty: personal collection groups are no longer supported */
       groups: components["schemas"]["CollectionGroup"][];
       /** @description The page's items; empty, never null */
       items: components["schemas"]["PersonalCollection"][];
@@ -24474,11 +24478,6 @@ export interface components {
       page?: components["schemas"]["PageInfo"];
     };
     PersonalCollectionCreate: {
-      /**
-       * @description Profiles a shared collection is limited to
-       * @example []
-       */
-      allowed_profile_ids?: string[];
       /**
        * @description Defaults to manual
        * @example manual
@@ -24489,7 +24488,10 @@ export interface components {
       display_query_definition?: unknown;
       /** @example false */
       include_in_server_collections?: boolean;
-      /** @example false */
+      /**
+       * @description Show the collection to every profile on the login; defaults to false
+       * @example false
+       */
       is_shared?: boolean;
       /** @example Rainy days */
       name: string;
@@ -24558,15 +24560,15 @@ export interface components {
       total: number;
     };
     PersonalCollectionUpdate: {
-      allowed_profile_ids?: string[];
       description?: string;
       display_query_definition?: unknown;
       /**
-       * @description Null removes the group; omitted leaves it unchanged
+       * @description Omit: personal collection groups are no longer supported, and setting it answers capability_unsupported
        * @example 1
        */
       group_id?: string | null;
       include_in_server_collections?: boolean;
+      /** @description Show the collection to every profile on the login */
       is_shared?: boolean;
       library_ids?: string[];
       /** Format: int64 */
@@ -28284,7 +28286,10 @@ export interface components {
       description?: string;
       /** @description Display filter fragment */
       display_query_definition?: unknown;
-      /** @example false */
+      /**
+       * @description Show the collection to every profile on the login; defaults to false
+       * @example false
+       */
       is_shared?: boolean;
       /**
        * @description Libraries the sync matches against; every library when omitted
@@ -28360,7 +28365,10 @@ export interface components {
       description?: string;
       /** @description Display filter fragment */
       display_query_definition?: unknown;
-      /** @example false */
+      /**
+       * @description Show the collection to every profile on the login; defaults to false
+       * @example false
+       */
       is_shared?: boolean;
       /**
        * @description Libraries the sync matches against; every library when omitted
@@ -28469,7 +28477,10 @@ export interface components {
       description?: string;
       /** @description Display filter fragment */
       display_query_definition?: unknown;
-      /** @example false */
+      /**
+       * @description Show the collection to every profile on the login; defaults to false
+       * @example false
+       */
       is_shared?: boolean;
       /**
        * @description Libraries the sync matches against; every library when omitted
@@ -85970,6 +85981,15 @@ export interface operations {
           "application/problem+json": components["schemas"]["Problem"];
         };
       };
+      /** @description Not Implemented */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
       /** @description Service Unavailable */
       503: {
         headers: {
@@ -87241,6 +87261,15 @@ export interface operations {
           "application/problem+json": components["schemas"]["Problem"];
         };
       };
+      /** @description Not Implemented */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
       /** @description Service Unavailable */
       503: {
         headers: {
@@ -87346,6 +87375,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };
@@ -87477,6 +87515,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };
@@ -87650,6 +87697,15 @@ export interface operations {
           "application/problem+json": components["schemas"]["Problem"];
         };
       };
+      /** @description Not Implemented */
+      501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
       /** @description Service Unavailable */
       503: {
         headers: {
@@ -87750,6 +87806,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };
@@ -87913,6 +87978,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };
@@ -88701,6 +88775,7 @@ export interface operations {
   getCollectionOrder: {
     parameters: {
       query?: {
+        /** @description Omit: personal collection groups are no longer supported, and any value is a validation failure */
         group_id?: string;
       };
       header: {

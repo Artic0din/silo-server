@@ -32,7 +32,10 @@ import {
   type CollectionBuilderValue,
 } from "@/components/collections/CollectionBuilder";
 import { withSmartCollectionLimit } from "@/components/collections/smartCollectionLimits";
-import CollectionAccessEditor from "@/components/collections/CollectionAccessEditor";
+import { ReadOnlyCollectionNotice } from "@/components/collections/ReadOnlyCollectionNotice";
+import { ShowToOtherProfilesField } from "@/components/collections/ShowToOtherProfilesField";
+import { LIBRARY_TAB_DESCRIPTION } from "@/lib/collections/personalCollectionCopy";
+import { ownerName } from "@/lib/collections/personalOwnership";
 import { useCatalogWindow } from "@/hooks/queries/catalog";
 import {
   useCreateCollection,
@@ -450,18 +453,21 @@ function Step2UserMetadata({
 
           <section className="space-y-3">
             <h2 className="text-base font-semibold">Sharing</h2>
-            <CollectionAccessEditor
-              value={draft.access}
-              onChange={(access) => onDraftChange({ ...draft, access })}
-              profiles={profiles.map((p) => ({ id: p.id, name: p.name }))}
-              readOnly={readOnly}
-              creatorProfileId={collection?.creator_profile_id ?? null}
+            {readOnly && collection ? (
+              <ReadOnlyCollectionNotice
+                ownerName={ownerName(profiles, collection.creator_profile_id)}
+              />
+            ) : null}
+            <ShowToOtherProfilesField
+              checked={draft.is_shared}
+              onCheckedChange={(is_shared) => onDraftChange({ ...draft, is_shared })}
+              disabled={readOnly}
             />
           </section>
 
           <ToggleRow
             title="Show in my library Collections tab"
-            description="Pin this collection to your library's Collections tab alongside the admin shelves. Only you see it — personal collections are private to your user."
+            description={LIBRARY_TAB_DESCRIPTION}
             checked={draft.include_in_server_collections}
             disabled={readOnly}
             onCheckedChange={(checked) =>
