@@ -7,6 +7,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { toast } from "sonner";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -134,6 +135,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  vi.mocked(toast.warning).mockClear();
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -395,6 +397,47 @@ describe("Synced list step, server", () => {
       featured: false,
       poster_url: "/images/collection-templates/mdblist_imdb_top_250_movies.jpg",
     });
+  });
+
+  it("creates it hidden when the Collections tab switch is off, with a guarded PATCH", async () => {
+    showPage(SERVER_NEW);
+    await pick("IMDb Top 250 Movies");
+    const tabSwitch = screen.getByRole("switch", { name: "Show on the Collections tab" });
+    fireEvent.click(tabSwitch);
+    expect(tabSwitch).not.toBeChecked();
+    await create();
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(2));
+    expect(v2Recorder.writes().map((call) => call.operation)).toEqual([
+      "POST /api/v2/admin/collections/import/mdblist",
+      "PATCH /api/v2/admin/collections/{id}",
+    ]);
+    const [, patch] = v2Recorder.writes();
+    expect(patch?.body).toEqual({ collection_type: "mdblist", visibility: "hidden" });
+    expect(patch?.headers["If-Match"]).toBe('"/api/v2/admin/collections/c1#1"');
+  });
+
+  it("leaves the switch on: imports only, with no PATCH", async () => {
+    showPage(SERVER_NEW);
+    await pick("IMDb Top 250 Movies");
+    await create();
+    expect(v2Recorder.writes().map((call) => call.operation)).toEqual([
+      "POST /api/v2/admin/collections/import/mdblist",
+    ]);
+  });
+
+  it("says the list still shows when hiding it fails", async () => {
+    v2Recorder.answer("PATCH /api/v2/admin/collections/{id}", () => {
+      throw new Error("Server unavailable");
+    });
+    showPage(SERVER_NEW);
+    await pick("IMDb Top 250 Movies");
+    fireEvent.click(screen.getByRole("switch", { name: "Show on the Collections tab" }));
+    await create();
+    await vi.waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith(expect.any(String), {
+        description: "It still shows on Collections tabs: Server unavailable",
+      }),
+    );
   });
 
   it("stays on the new list after Create", async () => {

@@ -319,7 +319,11 @@ function syncOutcome(
   return run && { status: run.status, message: run.message, itemsMatched: run.items_matched };
 }
 
-/** A new server synced list: imported unpinned (Pin is an Arrange action), then its artwork. */
+/**
+ * A new server synced list: imported unpinned (Pin is an Arrange action). The
+ * import takes no visibility, so hiding it is a guarded PATCH once the list
+ * exists, before its artwork.
+ */
 async function createServerSynced(draft: SyncedCreateDraft) {
   const list = followedList(draft);
   const common = {
@@ -349,6 +353,8 @@ async function createServerSynced(draft: SyncedCreateDraft) {
     }
   };
   const result = await importList();
+  const id = result.collection.id;
+  const hideWarning = draft.server?.visibility === "hidden" ? await hideFromTabs(id) : undefined;
   const { artworkErrors } = await saveAdminArtwork(
     result.collection,
     {
@@ -358,11 +364,25 @@ async function createServerSynced(draft: SyncedCreateDraft) {
     draft.artwork.poster?.file,
     draft.artwork.backdrop?.file,
   );
-  return {
-    id: result.collection.id,
-    sync: syncOutcome(result.sync_run),
-    ...serverOutcome(artworkErrors),
-  };
+  const outcome = serverOutcome(artworkErrors);
+  if (hideWarning) outcome.warnings.unshift(hideWarning);
+  return { id, sync: syncOutcome(result.sync_run), ...outcome };
+}
+
+/** Hides a server collection from Collections tabs; answers a warning when that fails. */
+async function hideFromTabs(id: string): Promise<string | undefined> {
+  try {
+    const { collection, etag } = await fetchAdminCollectionSnapshot(id);
+    await v2("PATCH /api/v2/admin/collections/{id}", {
+      path: { id },
+      headers: { "If-Match": requiredETag(etag) },
+      body: adminUpdateBody({ collection_type: collection.collection_type, visibility: "hidden" }),
+    });
+    return undefined;
+  } catch (error) {
+    // The list exists either way; say that it still shows.
+    return `It still shows on Collections tabs: ${adminMutationMessage(error, "hiding it failed")}`;
+  }
 }
 
 /**
