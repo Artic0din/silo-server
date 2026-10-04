@@ -168,11 +168,54 @@ describe("AddToCollectionDialog", () => {
 
   it("lists nothing while the acting profile is unknown", async () => {
     account.profileId = null;
+    let served = false;
+    listing(() => {
+      served = true;
+      return [rainyDays];
+    });
     show();
-    await waitFor(() => expect(v2Recorder.calls.length).toBeGreaterThan(0));
+    await waitFor(() => expect(served).toBe(true));
+    // Let the list read settle, so only the unknown profile keeps the dialog waiting.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     expect(dialog().getByText("Loading collections…")).toBeTruthy();
+    expect(dialog().queryByText("Start your first collection")).toBeNull();
+    expect(dialog().queryByRole("textbox", { name: "New manual collection" })).toBeNull();
     expect(dialog().queryByRole("checkbox")).toBeNull();
     expect(dialog().queryByText("Rainy days")).toBeNull();
+  });
+
+  it("says the list couldn't load instead of offering a first collection, and retries", async () => {
+    let fail = true;
+    listing(() => {
+      if (fail) throw new Error("The server is busy");
+      return [rainyDays];
+    });
+    show();
+    expect(await dialog().findByText("Couldn't load your collections")).toBeTruthy();
+    expect(dialog().queryByText("Start your first collection")).toBeNull();
+    expect(dialog().queryByRole("textbox", { name: "New manual collection" })).toBeNull();
+    expect(dialog().getByRole("button", { name: "Cancel" })).toBeTruthy();
+
+    fail = false;
+    fireEvent.click(dialog().getByRole("button", { name: "Try again" }));
+    expect(await dialog().findByRole("checkbox", { name: "Rainy days" })).toBeTruthy();
+  });
+
+  it("keeps focus on a tick while it saves, and ignores a second press until it lands", async () => {
+    show();
+    const box = await dialog().findByRole("checkbox", { name: "Rainy days" });
+    act(() => box.focus());
+    fireEvent.click(box);
+    expect(box.getAttribute("aria-disabled")).toBe("true");
+    expect((box as HTMLButtonElement).disabled).toBe(false);
+    expect(document.activeElement).toBe(box);
+    fireEvent.click(box);
+    expect(await dialog().findByText("Added")).toBeTruthy();
+    expect(v2Recorder.writes().map((call) => call.operation)).toEqual([
+      "PUT /api/v2/collections/{id}/items/{item_id}",
+    ]);
+    expect(box.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(box);
   });
 
   it("offers an inline create when the profile has no manual collection", async () => {
