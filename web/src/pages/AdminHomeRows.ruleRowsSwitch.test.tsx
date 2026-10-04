@@ -63,6 +63,7 @@ const tag = (value: boolean) => `"allow-${value}"`;
 let allowed: boolean;
 let refusal: Error | null;
 let holdWrite: Promise<void> | null;
+let holdRead: Promise<void> | null;
 let writes: Args[];
 
 beforeEach(() => {
@@ -78,11 +79,15 @@ beforeEach(() => {
   allowed = false;
   refusal = null;
   holdWrite = null;
+  holdRead = null;
   writes = [];
   mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
     if (operation === `GET ${SETTINGS}`) {
-      args.onResponse?.(new Response(null, { headers: { ETag: tag(allowed) } }));
-      return { allow_profile_custom_sections: allowed };
+      // A held read answers with the value it found when it started.
+      const value = allowed;
+      if (holdRead) await holdRead;
+      args.onResponse?.(new Response(null, { headers: { ETag: tag(value) } }));
+      return { allow_profile_custom_sections: value };
     }
     if (operation === `PUT ${SETTINGS}`) {
       writes.push(args);
@@ -254,6 +259,42 @@ describe("Let profiles add rule rows", () => {
     expect(item).toHaveAttribute("aria-checked", "false");
     expect(item).toHaveAccessibleDescription("This action is not available in demo mode.");
     expect(mocks.error).toHaveBeenCalledWith("This action is not available in demo mode.");
+  });
+
+  it("reads again on a later open, showing a change another admin made meanwhile", async () => {
+    await setup();
+    expect(await openMore()).toHaveAttribute("aria-checked", "false");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    allowed = true; // Another admin turned it on while this menu was closed.
+    const item = await openMore();
+    await waitFor(() => expect(item).toHaveAttribute("aria-checked", "true"));
+    expect(settingReads()).toBe(2);
+    expect(writes).toHaveLength(0);
+  });
+
+  it("keeps a saved change when a read that started before it finishes after it", async () => {
+    await setup();
+    await openMore();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    let release!: () => void;
+    holdRead = new Promise((resolve) => {
+      release = resolve;
+    });
+    const item = await openMore(); // Shows the last value while it reads again.
+    await waitFor(() => expect(settingReads()).toBe(2));
+    await userEvent.click(item);
+    await waitFor(() =>
+      expect(mocks.success).toHaveBeenCalledWith("Profiles can now add rule rows."),
+    );
+    expect(item).toHaveAttribute("aria-checked", "true");
+    await act(async () => release());
+    // The older read saw Off; it must not replace the value just saved.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(item).toHaveAttribute("aria-checked", "true");
   });
 
   it("draws every menu icon in the same muted color", async () => {
