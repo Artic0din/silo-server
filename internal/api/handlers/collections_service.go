@@ -91,6 +91,11 @@ func (h *CollectionHandler) CreatePersonalCollection(ctx context.Context, cmd Pe
 			return none, err
 		}
 	}
+	if req.Description != "" {
+		if err := collectionFeatureError(store, "description"); err != nil {
+			return none, err
+		}
+	}
 	queryDefinitionJSON := defaultJSON(req.QueryDefinition)
 	collectionType := firstNonEmptyCollection(req.CollectionType, "manual")
 	if collectionType == collectionTypeSmart {
@@ -116,6 +121,7 @@ func (h *CollectionHandler) CreatePersonalCollection(ctx context.Context, cmd Pe
 	collection, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 		CreatorProfileID:           cmd.ProfileID,
 		Name:                       req.Name,
+		Description:                req.Description,
 		CollectionType:             collectionType,
 		IsShared:                   req.IsShared,
 		QueryDefinition:            queryDefinition,
@@ -355,6 +361,8 @@ func collectionFeatureError(store userstore.UserStore, feature string) error {
 		supported = f.Artwork
 	case "item_reorder":
 		supported = f.ItemReorder
+	case "description":
+		supported = f.Description
 	}
 	if !supported {
 		return apiError(http.StatusNotImplemented, "unsupported", "The acting account does not support collection "+feature)

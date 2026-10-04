@@ -1738,7 +1738,18 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, adminTrickplayFixtureCases()...)
 	cases = append(cases, deviceSignInFixtureCases()...)
 	cases = append(cases, externalSignInFixtureCases()...)
-	return append(cases, fixtureCase{name: "collection_order_foreign_id", operationID: "reorderCollections", scenario: "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c2","c1"]}`, headers: with(viewer, "If-Match", "*"), status: 422, assertHeaders: []string{"Content-Type"}, schema: problem})
+	cases = append(cases, fixtureCase{name: "collection_order_foreign_id", operationID: "reorderCollections", scenario: "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c2","c1"]}`, headers: with(viewer, "If-Match", "*"), status: 422, assertHeaders: []string{"Content-Type"}, schema: problem})
+	return append(cases, personalCollectionCreateFixtureCases()...)
+}
+
+// personalCollectionCreateFixtureCases pin a create that carries a
+// description and the capability that advertises it.
+func personalCollectionCreateFixtureCases() []fixtureCase {
+	viewer := viewerHeaders()
+	return []fixtureCase{
+		{name: "create_collection_with_description_ok", operationID: "createCollection", scenario: "A manual collection created with its description.", method: http.MethodPost, path: "/api/v2/collections", body: `{"name":"Rainy days","description":"For wet afternoons","collection_type":"manual"}`, headers: viewer, status: 201, assertHeaders: []string{"Content-Type", "Location"}, schema: "#/components/schemas/PersonalCollection"},
+		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
+	}
 }
 
 // deviceSignInFixtureCases covers the TV sign-in additions: the opened
@@ -1801,7 +1812,7 @@ func fixtureDeps() Dependencies {
 	deps.ProgressBootstrap = &fakeBootstrap{}
 	sharedCollection := fixtureCollectionView()
 	sharedCollection.ID, sharedCollection.ProfileID, sharedCollection.CreatorProfileID, sharedCollection.Name, sharedCollection.IsShared = "c2", "p-primary", "p-primary", "Family night", true
-	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}}}
+	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, features: userstore.CollectionFeatures{Description: true}}}
 	deps.CollectionImports = &fakeCollectionImports{configured: true}
 	deps, _ = withLibraryAdmin(deps)
 	deps.LibraryMonitoring = &fakeLibraryMonitoring{snap: librarymonitor.StatusSnapshot{

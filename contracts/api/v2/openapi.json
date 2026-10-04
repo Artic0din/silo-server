@@ -22469,6 +22469,13 @@
             ],
             "type": "boolean"
           },
+          "create_description": {
+            "description": "createCollection stores a description for the acting account",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "display_filter_fields": {
             "description": "Catalog query fields a display filter may use",
             "examples": [
@@ -22569,6 +22576,7 @@
           "collection_sort_preferences",
           "effective_collection_sort",
           "sort_preference_kinds",
+          "create_description",
           "revision",
           "state",
           "allowed"
@@ -34661,6 +34669,13 @@
             ],
             "examples": [
               "manual"
+            ],
+            "type": "string"
+          },
+          "description": {
+            "description": "Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails",
+            "examples": [
+              "For wet afternoons"
             ],
             "type": "string"
           },
@@ -129652,6 +129667,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "503": {
             "content": {

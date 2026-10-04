@@ -49,6 +49,9 @@ type PersonalCollectionCreateRequest struct {
 	DisplayQueryDefinition     json.RawMessage `json:"display_query_definition"`
 	IncludeInServerCollections bool            `json:"include_in_server_collections"`
 	PosterSourceURL            string          `json:"poster_source_url"`
+	// Description is set only by the /api/v2 adapter; the frozen /api/v1
+	// create never accepted one and still ignores it.
+	Description string `json:"-"`
 }
 
 type PersonalCollectionUpdateRequest struct {

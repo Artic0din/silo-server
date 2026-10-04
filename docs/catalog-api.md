@@ -110,6 +110,19 @@ from (`mdblist`, `tmdb`, `tmdb_list`); it is empty when `imports` is false. Chec
 which follows a public TMDB list. The administrator capability document
 (`getAdminCollectionCapabilities`) carries the same field for `importAdminTMDBList`.
 
+## Personal collection descriptions
+
+`createCollection` (`POST /api/v2/collections`) accepts an optional `description`, stored
+with the new collection and returned as `description` on collection reads. Omitting it stores
+an empty description; `null` is a validation failure. Check `create_description` in the
+`getCollectionCapabilities` document before sending it: a server without that flag rejects the
+member as unknown, and an account whose user store does not keep descriptions (the SQLite
+store) reports `false` and answers a non-empty `description` with `501 capability_unsupported`.
+`updateCollection` changes the description of an existing collection.
+
+The frozen `/api/v1/collections` create ignores a `description` member, in a JSON body and in
+the multipart `data` field alike; the collection is created with an empty description.
+
 ## Personal collection imports
 
 A personal collection imported with `importMDBListCollection`, `importTMDBCollection`,
