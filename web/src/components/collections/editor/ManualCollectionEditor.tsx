@@ -18,10 +18,12 @@ import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { catalogKeys } from "@/hooks/queries/keys";
 import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import {
   DRAFT_FIELD_LABEL,
   NOT_CREATED_YET,
+  PICK_LIBRARIES_FIRST,
   SAVE_FAILED,
   TITLES_ALREADY_SAVED,
   joinNames,
@@ -119,6 +121,7 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
   const { draft, view } = editor;
   const created = Boolean(editor.id);
   const isServer = scope.kind === "server";
+  useDocumentTitle(created ? `Edit ${view?.name ?? draft.name}` : "New collection");
   const { data: adminLibraries = [] } = useAdminLibraries({ enabled: isServer });
   const { profile } = useCurrentProfile();
   const { data: profiles = [] } = useProfiles({ enabled: !isServer });
@@ -192,8 +195,8 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
     setOpenEdit(result.id);
   }
 
-  const canCreate =
-    draft.name.trim() !== "" && (!scope.requireLibraries || draft.libraryIds.length > 0);
+  const needsLibraries = scope.requireLibraries && draft.libraryIds.length === 0;
+  const canCreate = draft.name.trim() !== "" && !needsLibraries;
   const pending = editor.pendingLabels;
   const saveBar = created ? (
     <SaveBar
@@ -235,7 +238,7 @@ export function ManualCollectionEditor<Raw extends WireCollection>({
           <>
             {NOT_CREATED_YET}{" "}
             <span className="text-muted-foreground ml-3 font-normal">
-              {titlesReadyToAdd(staged.length)}
+              {needsLibraries ? PICK_LIBRARIES_FIRST : titlesReadyToAdd(staged.length)}
             </span>
           </>
         )

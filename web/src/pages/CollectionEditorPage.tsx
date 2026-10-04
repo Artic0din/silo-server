@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import type { Collection, LibraryCollection, UserCollectionType } from "@/api/types";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useScopeEditor } from "@/hooks/queries/collectionScope";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import {
   PERSONAL_SCOPE,
   SERVER_SCOPE,
@@ -20,10 +21,17 @@ import {
   type ScopeKind,
 } from "@/lib/collections/scope";
 
-import AdminCollectionEditor from "./AdminCollectionEditor";
-import { ImportedCollectionEditor } from "./ImportedCollectionEditor";
-import SmartCollectionWizard from "./SmartCollectionWizard";
-import { UserCollectionForm } from "./userCollectionsShared";
+// The earlier editors load on their own, so each scope downloads only its own.
+const AdminCollectionEditor = lazy(() => import("./AdminCollectionEditor"));
+const SmartCollectionWizard = lazy(() => import("./SmartCollectionWizard"));
+const ImportedCollectionEditor = lazy(() =>
+  import("./ImportedCollectionEditor").then((module) => ({
+    default: module.ImportedCollectionEditor,
+  })),
+);
+const UserCollectionForm = lazy(() =>
+  import("./userCollectionsShared").then((module) => ({ default: module.UserCollectionForm })),
+);
 
 type ImportedType = Extract<UserCollectionType, "mdblist" | "tmdb" | "trakt">;
 const IMPORTED_TYPES = new Set<ImportedType>(["mdblist", "tmdb", "trakt"]);
@@ -113,7 +121,13 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
       />
     );
   }
-  if (!id) return <LegacyCreate scope={scopeKind} libraryId={libraryId} />;
+  if (!id) {
+    return (
+      <Suspense fallback={<EditorSkeleton />}>
+        <LegacyCreate scope={scopeKind} libraryId={libraryId} />
+      </Suspense>
+    );
+  }
 
   const { snapshot } = editor;
   if (!snapshot) {
@@ -128,22 +142,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
         />
       );
     }
-    return (
-      <PageUnavailable
-        title={scopeKind === "server" ? "Collection not found" : "This collection isn't available"}
-        description={
-          scopeKind === "server"
-            ? "It may have been deleted, or the link may be wrong."
-            : "It may have been deleted, or you may not have access to it."
-        }
-      >
-        <Button asChild variant="outline">
-          <ViewTransitionLink to={listPath} up>
-            All collections
-          </ViewTransitionLink>
-        </Button>
-      </PageUnavailable>
-    );
+    return <CollectionNotFound scope={scopeKind} listPath={listPath} />;
   }
 
   // Ownership fails closed while the profile is unknown, so wait for it.
@@ -155,13 +154,37 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
   if (snapshot.view.kind === "manual") {
     return <ManualCollectionEditor key={snapshot.view.id} scope={scope} snapshot={snapshot} />;
   }
-  return scopeKind === "server" ? (
-    <AdminCollectionEditor
-      snapshot={snapshot as EditorSnapshot<LibraryCollection>}
-      initialLibraryId={libraryId}
-    />
-  ) : (
-    <LegacyPersonalEditor snapshot={snapshot as EditorSnapshot<Collection>} />
+  return (
+    <Suspense fallback={<EditorSkeleton />}>
+      {scopeKind === "server" ? (
+        <AdminCollectionEditor
+          snapshot={snapshot as EditorSnapshot<LibraryCollection>}
+          initialLibraryId={libraryId}
+        />
+      ) : (
+        <LegacyPersonalEditor snapshot={snapshot as EditorSnapshot<Collection>} />
+      )}
+    </Suspense>
+  );
+}
+
+function CollectionNotFound({ scope, listPath }: { scope: ScopeKind; listPath: string }) {
+  useDocumentTitle("Not found");
+  return (
+    <PageUnavailable
+      title={scope === "server" ? "Collection not found" : "This collection isn't available"}
+      description={
+        scope === "server"
+          ? "It may have been deleted, or the link may be wrong."
+          : "It may have been deleted, or you may not have access to it."
+      }
+    >
+      <Button asChild variant="outline">
+        <ViewTransitionLink to={listPath} up>
+          All collections
+        </ViewTransitionLink>
+      </Button>
+    </PageUnavailable>
   );
 }
 

@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import type { LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import type { CollectionBuilderProps } from "@/components/collections/CollectionBuilder";
 import type { CollectionScope, EditorSnapshot } from "@/lib/collections/scope";
+import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
 import CollectionEditorPage from "./CollectionEditorPage";
+
+beforeAll(preloadLegacyCollectionEditors);
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -125,9 +128,9 @@ function show(admin = false, edit = false) {
     </QueryClientProvider>,
   );
 }
-it("creates a personal smart collection from the new collection route", () => {
+it("creates a personal smart collection from the new collection route", async () => {
   show();
-  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My picks" } });
+  fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "My picks" } });
   fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
   expect(mocks.create).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -137,15 +140,17 @@ it("creates a personal smart collection from the new collection route", () => {
   );
 });
 
-it("opens the editor page when Manual is chosen for a new personal collection", () => {
+it("opens the editor page when Manual is chosen for a new personal collection", async () => {
   show();
-  fireEvent.change(screen.getByLabelText("Collection Mode"), { target: { value: "manual" } });
+  fireEvent.change(await screen.findByLabelText("Collection Mode"), {
+    target: { value: "manual" },
+  });
   expect(screen.getByTestId("location")).toHaveTextContent("/collections/new?type=manual");
   expect(screen.getByTestId("manual-editor")).toHaveAttribute("data-source", "user");
   expect(mocks.create).not.toHaveBeenCalled();
 });
 
-it("opens the editor page from the admin Manual card, keeping the library", () => {
+it("opens the editor page from the admin Manual card, keeping the library", async () => {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
@@ -158,7 +163,7 @@ it("opens the editor page from the admin Manual card, keeping the library", () =
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  fireEvent.click(screen.getByRole("button", { name: /Manual Curate items by hand/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Manual Curate items by hand/ }));
   expect(screen.getByTestId("location")).toHaveTextContent(
     "/admin/collections/new?type=manual&libraryId=7",
   );
@@ -167,9 +172,9 @@ it("opens the editor page from the admin Manual card, keeping the library", () =
   expect(editor).toHaveAttribute("data-library", "7");
 });
 
-it("creates an admin smart collection from the Smart card", () => {
+it("creates an admin smart collection from the Smart card", async () => {
   show(true);
-  fireEvent.click(screen.getByRole("button", { name: /Smart Match titles with rules/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Smart Match titles with rules/ }));
   expect(screen.getByLabelText("Collection Mode")).toHaveValue("smart");
   expect(screen.getByLabelText("Collection Mode")).toBeDisabled();
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Staff picks" } });
@@ -236,6 +241,7 @@ it("points a missing admin collection back to the collection board", () => {
   expect(
     screen.getByRole("heading", { level: 1, name: "Collection not found" }),
   ).toBeInTheDocument();
+  expect(document.title).toMatch(/^Not found · /);
   expect(screen.getByRole("link", { name: "All collections" })).toHaveAttribute(
     "href",
     "/admin/collections",
