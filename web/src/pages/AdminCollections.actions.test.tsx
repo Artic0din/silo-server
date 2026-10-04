@@ -50,9 +50,6 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
   useTemplateBundleApplyJobs: () => ({ data: [] }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
-}));
 
 function collection(
   id: string,

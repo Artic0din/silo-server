@@ -58,7 +58,6 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { useUICustomization } from "@/hooks/useUICustomization";
 import { carouselCardWidthClasses } from "@/lib/uiCustomization";
 
@@ -89,8 +88,9 @@ function CollectionList() {
   const [confirmDeleteCollection, setConfirmDeleteCollection] =
     useState<CollectionEditSnapshot | null>(null);
   const dragSnapshot = useRef<Promise<string>>(undefined);
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const navigate = useNavigate();
+  // Templates are ready-made picks in the editor's Synced list step.
+  const openTemplates = () => navigate(PERSONAL_SCOPE.paths.create({ type: "synced" }));
   const deleteMutation = useDeleteCollection();
   const syncMutation = useSyncUserCollection();
   const reorderMutation = useReorderCollections();
@@ -151,10 +151,6 @@ function CollectionList() {
         }}
       />
 
-      {capabilities?.imports && (
-        <CollectionTemplateGallery mode="user" open={galleryOpen} onOpenChange={setGalleryOpen} />
-      )}
-
       <div className="page-header">
         <div className="space-y-3">
           <h1 className="page-title text-[clamp(2rem,5vw,3.25rem)]">Collections</h1>
@@ -165,7 +161,7 @@ function CollectionList() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {capabilities?.imports && (
-            <Button size="sm" variant="outline" onClick={() => setGalleryOpen(true)}>
+            <Button size="sm" variant="outline" onClick={openTemplates}>
               <Sparkles className="mr-1 h-4 w-4" /> Browse Templates
             </Button>
           )}
@@ -190,7 +186,7 @@ function CollectionList() {
             </div>
             <div className="flex flex-wrap items-center justify-center gap-2">
               {capabilities?.imports && (
-                <Button variant="outline" size="sm" onClick={() => setGalleryOpen(true)}>
+                <Button variant="outline" size="sm" onClick={openTemplates}>
                   <Sparkles className="mr-1 h-4 w-4" /> Start from a template
                 </Button>
               )}

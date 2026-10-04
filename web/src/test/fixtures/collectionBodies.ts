@@ -548,7 +548,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin MDBList import: `featured` defaults on. */
+  /** Admin MDBList import from a pasted link: imported unpinned (`featured: false`). */
   adminImportMDBList: [
     {
       operation: "POST /api/v2/admin/collections/import/mdblist",
@@ -558,13 +558,13 @@ export const goldens = {
         title: "Top Watched",
         description: "",
         url: "https://mdblist.com/lists/user/top-watched/json",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Admin TMDB chart import with the form's defaults. */
+  /** Admin TMDB chart import: Trending starts on Both, today, and is named for it. */
   adminImportTMDBChart: [
     {
       operation: "POST /api/v2/admin/collections/import/tmdb",
@@ -576,7 +576,7 @@ export const goldens = {
         preset: "trending",
         time_window: "day",
         media_type: "all",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
@@ -592,13 +592,13 @@ export const goldens = {
         title: "Festival Picks",
         description: "",
         url: "https://www.themoviedb.org/list/310-festival-picks",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Admin template import: the template's server poster is sent as `poster_url`, and `featured` defaults on. */
+  /** Admin template pick: the template's server poster is sent as `poster_url`; imported unpinned. */
   adminTemplateTMDB: [
     {
       operation: "POST /api/v2/admin/collections/import/tmdb",
@@ -607,7 +607,7 @@ export const goldens = {
       body: {
         title: "Trending Movies This Week",
         description: "Top trending movies on TMDB.",
-        featured: true,
+        featured: false,
         sync_schedule: "0 4 * * *",
         limit: 50,
         sort_config: {},
@@ -619,7 +619,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin template import of a list picked in MDBList search: the list's JSON URL and name. */
+  /** Admin pick from MDBList search: the list's JSON URL, name and own description. */
   adminTemplateMDBListPick: [
     {
       operation: "POST /api/v2/admin/collections/import/mdblist",
@@ -627,15 +627,15 @@ export const goldens = {
       headers: {},
       body: {
         title: "Oscar Winners",
-        description: "Any public MDBList list.",
-        featured: true,
+        description: "Best Picture winners.",
+        featured: false,
         sort_config: {},
         url: "https://mdblist.com/lists/cinephile/oscar-winners/json",
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Personal template import: the cron default maps to a named schedule; the server poster is `poster_url`. */
+  /** Personal template pick: the cron default maps to a named schedule; the server poster is `poster_url`. */
   personalTemplateTMDB: [
     {
       operation: "POST /api/v2/collections/import/tmdb",

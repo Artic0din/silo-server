@@ -128,3 +128,52 @@ describe("OrderBlock, Smart", () => {
     expect(onChange).toHaveBeenCalledWith({ rules, sortConfig: { mode: "manual_pins" } });
   });
 });
+
+describe("OrderBlock, Synced list", () => {
+  function renderSynced({
+    limit,
+    sortConfig = {},
+  }: { limit?: number; sortConfig?: Record<string, unknown> } = {}) {
+    const onSortChange = vi.fn<(sortConfig: Record<string, unknown>) => void>();
+    const onLimitChange = vi.fn<(limit: number | undefined) => void>();
+    render(
+      <OrderBlock
+        mode="synced"
+        sortConfig={sortConfig}
+        limit={limit}
+        allowPersonalized={false}
+        onSortChange={onSortChange}
+        onLimitChange={onLimitChange}
+      />,
+    );
+    return {
+      input: screen.getByRole("spinbutton", { name: "Max titles" }),
+      onSortChange,
+      onLimitChange,
+    };
+  }
+
+  it("keeps the list's own order by default and says blank takes the whole list", () => {
+    const { input } = renderSynced();
+    expect(screen.getByRole("combobox", { name: "Default sort" })).toHaveTextContent("List order");
+    expect(input).toHaveAttribute("placeholder", "Whole list");
+    expect(screen.getByText(/Blank takes the whole list, up to 500\./)).toBeInTheDocument();
+  });
+
+  it("sends the chosen default sort", () => {
+    const { onSortChange } = renderSynced();
+    choose(screen.getByRole("combobox", { name: "Default sort" }), "Title");
+    expect(onSortChange).toHaveBeenCalledWith({ field: "title", order: "asc" });
+  });
+
+  it("caps max titles at 500 and clears it when blank", () => {
+    const { input, onLimitChange } = renderSynced({ limit: 50 });
+    fireEvent.change(input, { target: { value: "900" } });
+    fireEvent.blur(input);
+    expect(onLimitChange).toHaveBeenLastCalledWith(500);
+    expect(input).toHaveValue(500);
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(onLimitChange).toHaveBeenLastCalledWith(undefined);
+  });
+});

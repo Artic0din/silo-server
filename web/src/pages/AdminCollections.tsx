@@ -53,9 +53,9 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
+import { SERVER_SCOPE } from "@/lib/collections/scope";
 import { isListBackedCollectionType } from "@/lib/collections/types";
 import { buildAdminCollectionEditorPath, collectionsInAdminScope } from "./adminCollectionsShared";
 
@@ -68,7 +68,9 @@ export default function AdminCollections() {
   const initialLibraryId =
     Number.isFinite(requestedLibraryId) && requestedLibraryId > 0 ? requestedLibraryId : null;
   const selectedLibraryId = initialLibraryId;
-  const [galleryOpen, setGalleryOpen] = useState(false);
+  // Templates are ready-made picks in the editor's Synced list step.
+  const openTemplates = (libraryId: number | null) =>
+    navigate(SERVER_SCOPE.paths.create({ type: "synced", libraryId }));
   const [editingGroup, setEditingGroup] = useState<{
     mode: "create" | "edit";
     id?: string;
@@ -322,7 +324,7 @@ export default function AdminCollections() {
             disabled={!capabilities?.imports}
             size="sm"
             variant="outline"
-            onClick={() => setGalleryOpen(true)}
+            onClick={() => openTemplates(selectedLibraryId)}
           >
             <Sparkles className="mr-1 h-4 w-4" /> Browse Templates
           </Button>
@@ -368,13 +370,6 @@ export default function AdminCollections() {
 
       <CollectionApplyJobBanner job={latestApplyJob} />
 
-      <CollectionTemplateGallery
-        open={galleryOpen}
-        onOpenChange={setGalleryOpen}
-        libraries={libraries}
-        initialLibraryId={selectedLibraryId}
-      />
-
       {isAllLibraries ? (
         <AllLibraryCollectionsOverview
           libraries={libraries}
@@ -394,7 +389,7 @@ export default function AdminCollections() {
             })
           }
           onCreate={() => navigate(buildAdminCollectionEditorPath("new", null))}
-          onOpenTemplates={capabilities?.imports ? () => setGalleryOpen(true) : undefined}
+          onOpenTemplates={capabilities?.imports ? () => openTemplates(null) : undefined}
         />
       ) : null}
 
@@ -442,7 +437,7 @@ export default function AdminCollections() {
               disabled={!capabilities?.imports}
               variant="outline"
               size="sm"
-              onClick={() => setGalleryOpen(true)}
+              onClick={() => openTemplates(selectedLibraryId)}
             >
               <Sparkles className="mr-1 h-4 w-4" /> Start from a template
             </Button>

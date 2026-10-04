@@ -27,9 +27,6 @@ vi.mock("@/components/collections/editor/CollectionEditor", () => ({
     );
   },
 }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
-}));
 
 installV2Recorder();
 

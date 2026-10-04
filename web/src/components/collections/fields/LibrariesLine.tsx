@@ -18,6 +18,7 @@ export function LibrariesLine({
   ineligibleReason,
   disabled,
   warning,
+  allLabel,
 }: {
   lead: string;
   libraries: Array<{ id: number; name: string; type?: string }>;
@@ -27,6 +28,8 @@ export function LibrariesLine({
   ineligibleReason?: string;
   disabled?: boolean;
   warning?: ReactNode;
+  /** When none ticked means every library: how that reads, as in "All my libraries". */
+  allLabel?: string;
 }) {
   return (
     <div className="grid gap-2.5">
@@ -38,8 +41,8 @@ export function LibrariesLine({
           onChange={onChange}
           eligibleKinds={eligibleKinds}
           ineligibleReason={ineligibleReason}
-          hideAllOption
-          emptyLabel="Choose libraries"
+          hideAllOption={!allLabel}
+          emptyLabel={allLabel ?? "Choose libraries"}
           triggerLabel={lead}
           triggerClassName="h-9 max-w-full justify-between gap-1 rounded-[10px] px-3 font-semibold"
           disabled={disabled}
