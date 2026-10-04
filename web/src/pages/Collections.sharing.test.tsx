@@ -13,6 +13,7 @@ vi.mock("@/hooks/queries/collections", () => ({
   useServerCollections: () => ({ data: [] }),
   useDeleteCollection: () => ({}),
   useReorderCollections: () => ({}),
+  useSetCollectionShared: () => ({}),
 }));
 vi.mock("@/hooks/queries/userCollectionImports", () => ({ useSyncUserCollection: () => ({}) }));
 vi.mock("@/hooks/queries/profiles", () => ({
@@ -82,10 +83,10 @@ describe("Collections page sharing", () => {
   it("splits own collections from the ones other profiles share", () => {
     show();
     const own = section("Your collections");
-    expect(within(own).getByText("Rainy days")).toBeTruthy();
-    expect(within(own).getByText("Road trips")).toBeTruthy();
-    expect(within(own).queryByText("Family night")).toBeNull();
-    // The Shared badge marks the profile's own shared collection.
+    expect(within(own).getByRole("link", { name: "Rainy days" })).toBeTruthy();
+    expect(within(own).getByRole("link", { name: "Road trips" })).toBeTruthy();
+    expect(within(own).queryByRole("link", { name: "Family night" })).toBeNull();
+    // The Shared pill marks the profile's own shared collection.
     expect(within(own).getAllByText("Shared")).toHaveLength(1);
 
     const shared = section("Shared with me");
@@ -95,15 +96,18 @@ describe("Collections page sharing", () => {
         .getAllByRole("heading")
         .map((heading) => heading.textContent),
     ).toEqual(["Shared with me", "by Kid", "by Parent"]);
-    expect(within(shared).getByText("Family night")).toBeTruthy();
-    expect(within(shared).getByText("Cartoons")).toBeTruthy();
+    expect(within(shared).getByRole("link", { name: "Family night" })).toBeTruthy();
+    expect(within(shared).getByRole("link", { name: "Cartoons" })).toBeTruthy();
   });
 
   it("offers management actions only on the profile's own collections", () => {
     show();
     const own = section("Your collections");
-    expect(within(own).getAllByRole("button", { name: "Edit collection" })).toHaveLength(2);
-    expect(within(own).getAllByRole("button", { name: "Delete collection" })).toHaveLength(2);
+    expect(
+      within(own)
+        .getAllByRole("button", { name: /^More for / })
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["More for Rainy days", "More for Road trips"]);
     expect(within(own).getAllByRole("button", { name: /^Drag / })).toHaveLength(2);
     const shared = section("Shared with me");
     expect(within(shared).queryAllByRole("button")).toHaveLength(0);

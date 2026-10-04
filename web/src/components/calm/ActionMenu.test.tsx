@@ -72,4 +72,31 @@ describe("ActionMenu", () => {
     expect(openMovies).toHaveBeenCalledTimes(1);
     expect(remove).not.toHaveBeenCalled();
   });
+
+  it("reads a setting as a checked item with its help, and reports the new value", async () => {
+    const onCheckedChange = vi.fn();
+    render(
+      <ActionMenu
+        label="More for Rainy days"
+        items={[
+          {
+            key: "share",
+            label: "Show to other profiles",
+            help: "Every profile on this account sees it",
+            icon: Pencil,
+            checked: false,
+            onCheckedChange,
+          },
+        ]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "More for Rainy days" }));
+    const toggle = await screen.findByRole("menuitemcheckbox", {
+      name: "Show to other profiles",
+      description: "Every profile on this account sees it",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await userEvent.click(toggle);
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
+  });
 });

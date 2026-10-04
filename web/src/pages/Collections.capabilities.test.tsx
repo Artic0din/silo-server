@@ -10,6 +10,7 @@ vi.mock("@/hooks/queries/collections", () => ({
   useServerCollections: () => ({ data: [] }),
   useDeleteCollection: () => ({}),
   useReorderCollections: () => ({}),
+  useSetCollectionShared: () => ({}),
 }));
 vi.mock("@/hooks/queries/profiles", () => ({ useProfiles: () => ({ data: [] }) }));
 vi.mock("@/hooks/useCurrentProfile", () => ({ useCurrentProfile: () => ({ profile: null }) }));
@@ -37,7 +38,10 @@ describe("collection capability controls", () => {
       data: { imports: false, artwork: false, item_reorder: false },
     });
     show();
-    expect(screen.getByRole("button", { name: "New Collection" })).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "New collection" })[0]).toHaveAttribute(
+      "href",
+      "/collections/new",
+    );
     expect(screen.queryByRole("button", { name: "Browse Templates" })).toBeNull();
     expect(screen.queryByText("Import gallery")).toBeNull();
   });

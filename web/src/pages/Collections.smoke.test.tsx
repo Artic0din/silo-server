@@ -1,5 +1,5 @@
 /**
- * Smoke tests for today's Collections page: the Your collections grid moves
+ * Smoke tests for the Collections page: the Your collections grid moves
  * with the keyboard and announces the move, Shared with me cards carry no
  * buttons (#195 W7), and a single-profile account still sees Server
  * collections (#195 W1).
@@ -130,8 +130,8 @@ describe("Your collections", () => {
     const handle = await screen.findByRole("button", { name: "Drag Rainy days" });
     const other = screen.getByRole("button", { name: "Drag Road trips" });
     // jsdom lays nothing out: put the two cards side by side.
-    rects.set(handle.closest('[data-slot="card"]')!, new DOMRect(0, 0, 300, 100));
-    rects.set(other.closest('[data-slot="card"]')!, new DOMRect(320, 0, 300, 100));
+    rects.set(handle.closest("[data-collection-id]")!, new DOMRect(0, 0, 300, 100));
+    rects.set(other.closest("[data-collection-id]")!, new DOMRect(320, 0, 300, 100));
     expect(document.getElementById(handle.getAttribute("aria-describedby")!)).toHaveTextContent(
       "To pick up a draggable item, press the space bar.",
     );
@@ -150,15 +150,12 @@ describe("Your collections", () => {
       fireEvent.keyDown(handle, { code: "Space" });
     });
     // The pick-up announcement is replaced in the same render by the first
-    // "moved over", so assistive technology hears these three.
-    // Known gap, pinned on purpose: Collections.tsx sets no `announcements`,
-    // so dnd-kit's defaults read collection ids (c1, c3) instead of names.
-    // A change that announces names should update this expectation on
-    // purpose.
+    // "is over", so assistive technology hears these three, by name and
+    // position (spec §7).
     expect(announcements).toEqual([
-      "Draggable item c1 was moved over droppable area c1.",
-      "Draggable item c1 was moved over droppable area c3.",
-      "Draggable item c1 was dropped over droppable area c3",
+      "Rainy days is over position 1 of 2.",
+      "Rainy days is over position 2 of 2.",
+      "Moved Rainy days to position 2 of 2.",
     ]);
 
     await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
@@ -197,13 +194,13 @@ describe("Server collections", () => {
       ],
     });
     show();
-    // The library's row, under the Server collections heading, once loaded.
-    expect(await screen.findByRole("link", { name: /^Movies/ })).toHaveAttribute(
-      "href",
-      "/library/1?tab=collections",
-    );
-    expect(screen.getByRole("heading", { name: "Server collections" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Oscar Winners/ })).toBeInTheDocument();
+    // The library's cards under the Server collections heading, once loaded,
+    // with See all leading to its Collections tab.
+    const server = await screen.findByRole("region", { name: "Server collections" });
+    expect(
+      await within(server).findByRole("link", { name: "See all 1 Movies collections" }),
+    ).toHaveAttribute("href", "/library/1?tab=collections");
+    expect(within(server).getByRole("link", { name: /Oscar Winners/ })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Shared with me" })).toBeNull();
   });
 });
