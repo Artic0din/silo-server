@@ -36,11 +36,11 @@ function formatLibraryFilterSummary(
     .map((libraryId) => libraries.find((library) => library.id === libraryId)?.name)
     .filter((name): name is string => Boolean(name));
 
-  if (names.length === 0) {
-    return `${libraryIds.length} libraries`;
-  }
   if (libraryIds.length === 1) {
     return names[0] ?? "1 library";
+  }
+  if (names.length === 0) {
+    return `${libraryIds.length} libraries`;
   }
   // Unnamed IDs (deleted or not yet loaded) still count toward "+N more".
   if (libraryIds.length === 2 && names.length === 2) {
