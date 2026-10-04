@@ -22533,6 +22533,13 @@
             "description": "is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it",
             "type": "boolean"
           },
+          "preview_posters": {
+            "description": "previewCollection items carry poster_url when the title has a poster",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
@@ -22577,6 +22584,7 @@
           "effective_collection_sort",
           "sort_preference_kinds",
           "create_description",
+          "preview_posters",
           "revision",
           "state",
           "allowed"
@@ -34827,6 +34835,10 @@
               "1"
             ],
             "minLength": 1,
+            "type": "string"
+          },
+          "poster_url": {
+            "description": "Card-size poster URL; omitted when the item has none",
             "type": "string"
           },
           "title": {
