@@ -2,23 +2,38 @@ package usercollections
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Silo-Server/silo-server/internal/catalog"
+
 	"github.com/Silo-Server/silo-server/internal/userstore"
 	"github.com/Silo-Server/silo-server/internal/userstore/pgstore"
 )
 
-// TestSchedulerFailureKeepsAScheduleEditedDuringTheSyncDB pins the failed
-// sync's retry delay: it pushes back only a next_sync_at that is still due,
-// so a schedule turned off or changed while the sync ran, on any node, keeps
+// failingOwners fails every sync at the owner-access step, after running
+// during, which stands in for whatever happens while the sync runs.
+type failingOwners struct{ during func() }
+
+func (o failingOwners) OwnerFilter(context.Context, int, string) (catalog.AccessFilter, error) {
+	if o.during != nil {
+		o.during()
+	}
+	return catalog.AccessFilter{}, errors.New("owner access unavailable")
+}
+
+// TestSchedulerFailedSyncRetryAndEditsDB pins a scheduled sync's claim on a
+// due collection: one node runs it, a failed sync retries after the minimum
+// interval, and a schedule edited while the sync ran, on any node, keeps
 // what the edit wrote.
-func TestSchedulerFailureKeepsAScheduleEditedDuringTheSyncDB(t *testing.T) {
+func TestSchedulerFailedSyncRetryAndEditsDB(t *testing.T) {
 	dsn := os.Getenv("SILO_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("SILO_TEST_DATABASE_URL is not set")
@@ -37,80 +52,112 @@ func TestSchedulerFailureKeepsAScheduleEditedDuringTheSyncDB(t *testing.T) {
 		_, _ = pool.Exec(context.WithoutCancel(ctx), `DELETE FROM users WHERE id=$1`, account)
 		_, _ = pool.Exec(context.WithoutCancel(ctx), `DELETE FROM user_collection_revisions WHERE user_id=$1`, account)
 	})
-	store, err := pgstore.NewPostgresProvider(pool).ForUser(ctx, account)
+	provider := pgstore.NewPostgresProvider(pool)
+	store, err := provider.ForUser(ctx, account)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.CreateProfile(ctx, userstore.Profile{ID: "owner", Name: "owner"}); err != nil {
 		t.Fatal(err)
 	}
-	scheduler := NewScheduler(pool, nil, slog.New(slog.DiscardHandler))
+	logger := slog.New(slog.DiscardHandler)
+	// node builds one cluster node's scheduler whose syncs fail after
+	// running during.
+	node := func(during func()) *Scheduler {
+		return NewScheduler(pool, NewService(provider, nil, nil, failingOwners{during: during}, nil, logger), logger)
+	}
 	daily, weekly := AllowedSyncSchedules["daily"], AllowedSyncSchedules["weekly"]
 	due := time.Now().Add(-time.Minute).UTC().Truncate(time.Microsecond)
+	interval := time.Duration(MinSyncIntervalHours) * time.Hour
 
-	// failOnNode creates a collection that is due on the daily schedule,
-	// applies edit as if it landed while the sync ran, then records the
-	// failure on a node whose clock reads nodeNow, and returns the stored
-	// collection.
-	failOnNode := func(t *testing.T, edit *userstore.UpdateCollectionInput, nodeNow time.Time) *userstore.Collection {
+	createDue := func(t *testing.T, schedule string) dueCollection {
 		t.Helper()
 		c, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 			CreatorProfileID: "owner", Name: "Synced", CollectionType: "mdblist", QueryDefinition: "{}",
-			SourceConfig: `{"mode":"mdblist","url":"https://mdblist.com/lists/user/list"}`,
-			SyncSchedule: &daily, NextSyncAt: &due,
+			SourceConfig: `{"mode":"mdblist_json","url":"https://mdblist.com/lists/user/list"}`,
+			SyncSchedule: &schedule, NextSyncAt: &due,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if edit != nil {
-			edit.ID, edit.RequestProfileID = c.ID, "owner"
-			if err := store.UpdateCollection(ctx, *edit); err != nil {
-				t.Fatal(err)
-			}
-		}
-		scheduler.advanceAfterFailure(ctx, dueCollection{UserID: account, CollectionID: c.ID}, nodeNow)
-		got, err := store.GetCollection(ctx, c.ID)
+		return dueCollection{UserID: account, CollectionID: c.ID}
+	}
+	run := func(t *testing.T, s *Scheduler, dc dueCollection) SchedulerResult {
+		t.Helper()
+		var (
+			mu     sync.Mutex
+			result SchedulerResult
+		)
+		s.syncOne(ctx, dc, &mu, &result)
+		return result
+	}
+	stored := func(t *testing.T, dc dueCollection) *userstore.Collection {
+		t.Helper()
+		got, err := store.GetCollection(ctx, dc.CollectionID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return got
 	}
-	failDuring := func(t *testing.T, edit *userstore.UpdateCollectionInput) *userstore.Collection {
+	dbNow := func(t *testing.T) time.Time {
 		t.Helper()
-		return failOnNode(t, edit, time.Now())
+		var now time.Time
+		if err := pool.QueryRow(ctx, `SELECT NOW()`).Scan(&now); err != nil {
+			t.Fatal(err)
+		}
+		return now
 	}
 
-	t.Run("an unchanged schedule retries after the minimum interval", func(t *testing.T) {
-		before := time.Now()
-		got := failDuring(t, nil)
-		interval := time.Duration(MinSyncIntervalHours) * time.Hour
-		low, high := before.Add(interval), time.Now().Add(interval)
-		if got.NextSyncAt == nil || got.NextSyncAt.Before(low.Add(-time.Second)) || got.NextSyncAt.After(high.Add(time.Second)) {
-			t.Fatalf("next_sync_at = %v, want between %v and %v", got.NextSyncAt, low, high)
+	t.Run("a failed sync retries after the minimum interval on the database clock", func(t *testing.T) {
+		dc := createDue(t, daily)
+		before := dbNow(t)
+		if got := run(t, node(nil), dc); got.Failed != 1 {
+			t.Fatalf("result = %+v, want one failed sync", got)
+		}
+		after := dbNow(t)
+		got := stored(t, dc)
+		if got.NextSyncAt == nil || got.NextSyncAt.Before(before.Add(interval)) || got.NextSyncAt.After(after.Add(interval)) {
+			t.Fatalf("next_sync_at = %v, want between %v and %v", got.NextSyncAt, before.Add(interval), after.Add(interval))
+		}
+	})
+	t.Run("a collection another node already took is skipped", func(t *testing.T) {
+		// Both nodes listed the collection as due. The first node's sync
+		// fails; the second must not run it again, or its later success
+		// would find the first node's retry time and keep it.
+		dc := createDue(t, weekly)
+		nodeA, nodeB := node(nil), node(nil)
+		if got := run(t, nodeA, dc); got.Failed != 1 {
+			t.Fatalf("node A result = %+v, want one failed sync", got)
+		}
+		if got := run(t, nodeB, dc); got.Skipped != 1 || got.Failed != 0 || got.Synced != 0 {
+			t.Fatalf("node B result = %+v, want the collection skipped", got)
 		}
 	})
 	t.Run("a schedule turned off during the sync stays off", func(t *testing.T) {
-		got := failDuring(t, &userstore.UpdateCollectionInput{ClearSyncSchedule: true, ClearNextSyncAt: true})
-		if got.SyncSchedule != nil || got.NextSyncAt != nil {
+		var dc dueCollection
+		s := node(func() {
+			if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: dc.CollectionID, RequestProfileID: "owner", ClearSyncSchedule: true, ClearNextSyncAt: true}); err != nil {
+				t.Error(err)
+			}
+		})
+		dc = createDue(t, daily)
+		run(t, s, dc)
+		if got := stored(t, dc); got.SyncSchedule != nil || got.NextSyncAt != nil {
 			t.Fatalf("schedule %v, next_sync_at %v; want both null", got.SyncSchedule, got.NextSyncAt)
 		}
 	})
 	t.Run("a schedule changed during the sync keeps its own next run", func(t *testing.T) {
 		weeklyNext := time.Now().Add(6 * 24 * time.Hour).UTC().Truncate(time.Microsecond)
-		got := failDuring(t, &userstore.UpdateCollectionInput{SyncSchedule: &weekly, NextSyncAt: &weeklyNext})
-		if got.NextSyncAt == nil || !got.NextSyncAt.Equal(weeklyNext) {
+		var dc dueCollection
+		s := node(func() {
+			if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: dc.CollectionID, RequestProfileID: "owner", SyncSchedule: &weekly, NextSyncAt: &weeklyNext}); err != nil {
+				t.Error(err)
+			}
+		})
+		dc = createDue(t, daily)
+		run(t, s, dc)
+		if got := stored(t, dc); got.NextSyncAt == nil || !got.NextSyncAt.Equal(weeklyNext) {
 			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, weeklyNext)
-		}
-	})
-	t.Run("a node whose clock runs behind the database still pushes the retry back", func(t *testing.T) {
-		// The row is due by the database clock, which is what listDue
-		// selects with. A node an hour behind must still move it, or a
-		// broken source is retried on every tick.
-		nodeNow := time.Now().Add(-time.Hour)
-		got := failOnNode(t, nil, nodeNow)
-		want := nodeNow.Add(time.Duration(MinSyncIntervalHours) * time.Hour)
-		if got.NextSyncAt == nil || got.NextSyncAt.Sub(want).Abs() > time.Second {
-			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, want)
 		}
 	})
 }
