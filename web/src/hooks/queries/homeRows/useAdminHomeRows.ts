@@ -129,6 +129,11 @@ export function useAdminHomeRows(): AdminHomeRows {
   const [optimistic, setOptimistic] = useState<
     Record<string, Partial<Record<QuickField, boolean>>>
   >({});
+  // The newest quick action per row and field. Only that action clears the
+  // field's on-screen value, so an earlier toggle that finishes first cannot
+  // flash the row back to the server value.
+  const latestQuickAction = useRef(new Map<string, number>());
+  const quickActionCount = useRef(0);
   const [pendingCount, setPendingCount] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
   // Writes made outside this hook (add, edit, delete, restore) and the refetch
@@ -185,7 +190,12 @@ export function useAdminHomeRows(): AdminHomeRows {
 
   const quickAction = useCallback(
     (id: string, field: QuickField, value: boolean) => {
-      const clearOptimistic = () =>
+      const key = `${id}:${field}`;
+      const sequence = ++quickActionCount.current;
+      latestQuickAction.current.set(key, sequence);
+      const clearOptimistic = () => {
+        if (latestQuickAction.current.get(key) !== sequence) return;
+        latestQuickAction.current.delete(key);
         setOptimistic((current) => {
           const { [field]: _dropped, ...rest } = current[id] ?? {};
           const next = { ...current };
@@ -193,6 +203,7 @@ export function useAdminHomeRows(): AdminHomeRows {
           else delete next[id];
           return next;
         });
+      };
       setOptimistic((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
       return enqueue(async () => {
         try {

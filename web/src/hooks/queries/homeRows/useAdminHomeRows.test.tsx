@@ -321,4 +321,31 @@ describe("useAdminHomeRows", () => {
     expect(result.current.adapter.orderToken).toBe('"rev-2"');
     expect(result.current.adapter.canReorder).toBe(true);
   });
+
+  it("keeps showing the latest switch state while an earlier toggle of the row finishes", async () => {
+    const { result } = setup();
+    await ready(result);
+    hold = { operation: "PATCH /api/v2/admin/sections/{id}" };
+    let off!: Promise<void>;
+    let on!: Promise<void>;
+    act(() => {
+      off = result.current.adapter.setShown("a", false);
+      on = result.current.adapter.setShown("a", true);
+    });
+    expect(result.current.adapter.rows[0]!.shown).toBe(true);
+    await waitFor(() => expect(hold?.release).toBeTypeOf("function"));
+    const releaseOff = hold.release!;
+    hold.release = undefined;
+    releaseOff();
+    await act(async () => off);
+    // The first write landed (server: off) while the second is still queued.
+    await waitFor(() => expect(hold?.release).toBeTypeOf("function"));
+    expect(rows[0]!.enabled).toBe(false);
+    expect(result.current.adapter.rows[0]!.shown).toBe(true);
+    hold.release!();
+    hold = null;
+    await act(async () => on);
+    expect(result.current.adapter.rows[0]!.shown).toBe(true);
+    expect(writes().map((call) => call.args.body)).toEqual([{ enabled: false }, { enabled: true }]);
+  });
 });
