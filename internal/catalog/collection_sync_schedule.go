@@ -1,8 +1,10 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -12,8 +14,13 @@ import (
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 // ParseCronExpression validates a cron expression string.
-// It accepts the standard 5-field format: minute hour dom month dow.
+// It accepts the standard 5-field format: minute hour dom month dow. It
+// rejects the parser's TZ= and CRON_TZ= prefixes: every schedule runs on the
+// node's local clock, the zone collection capabilities report.
 func ParseCronExpression(expr string) error {
+	if trimmed := strings.TrimSpace(expr); strings.HasPrefix(trimmed, "TZ=") || strings.HasPrefix(trimmed, "CRON_TZ=") {
+		return errors.New("invalid cron expression: time zone prefixes are not supported; schedules run in the server's time zone")
+	}
 	_, err := cronParser.Parse(expr)
 	if err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)

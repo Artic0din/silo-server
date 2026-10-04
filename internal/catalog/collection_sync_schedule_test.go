@@ -27,3 +27,17 @@ func TestComputeNextSyncAtFromUsesLocalWallTime(t *testing.T) {
 		t.Errorf("next = %s, want within 15 minutes after %s", next, earliest)
 	}
 }
+
+// TestParseCronExpressionRejectsZonePrefix checks that a schedule cannot pick
+// its own zone: every cron schedule runs on the node's local clock, the zone
+// the collection capability documents report as schedule_time_zone.
+func TestParseCronExpressionRejectsZonePrefix(t *testing.T) {
+	for _, expr := range []string{"CRON_TZ=UTC 30 4 * * *", "TZ=America/Chicago 30 4 * * *", " CRON_TZ=UTC 30 4 * * *"} {
+		if err := ParseCronExpression(expr); err == nil {
+			t.Errorf("ParseCronExpression(%q) accepted a zone prefix", expr)
+		}
+	}
+	if err := ParseCronExpression("30 4 * * *"); err != nil {
+		t.Errorf("ParseCronExpression(30 4 * * *) = %v", err)
+	}
+}
