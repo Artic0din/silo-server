@@ -404,6 +404,8 @@ each bundle with `templates`, a summary of every template in `template_ids` orde
 `source`, `media_kind`, `featured`, `poster_path` (omitted when the template has no poster) and
 `needs_setup`. The list covers every source a bundle uses, including `tmdb_discover` and
 `tmdb_collection` templates, so a client can describe a bundle without the template catalog.
+Check `template_summaries` in the `getAdminCollectionCapabilities` document before relying on
+`templates`; a server without it returns bundles without summaries.
 
 `featured` is the pinned-first flag a collection created from the template starts with.
 `needs_setup` is true for a template whose collection is created empty and cannot sync until an

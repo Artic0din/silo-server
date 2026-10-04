@@ -3436,6 +3436,13 @@
               "unsupported"
             ],
             "type": "string"
+          },
+          "template_summaries": {
+            "description": "listAdminCollectionTemplateBundles returns each bundle's templates",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           }
         },
         "required": [
@@ -3444,6 +3451,7 @@
           "import_sources",
           "artwork",
           "item_reorder",
+          "template_summaries",
           "revision",
           "state",
           "allowed"
