@@ -47,6 +47,7 @@ export function HomeRowsPage({
   title,
   subtitle,
   moreItems,
+  onMoreOpenChange,
   addRow,
   notices,
   rowMenuItems,
@@ -62,6 +63,8 @@ export function HomeRowsPage({
   subtitle: string;
   /** The More menu's items. */
   moreItems: PageMoreMenuItem[];
+  /** The More menu opened or closed, for items that read their state while it is open. */
+  onMoreOpenChange?: (open: boolean) => void;
   addRow: { onClick: () => void; disabled?: boolean };
   notices?: ReactNode;
   rowMenuItems: (row: HomeRow, shared: SharedRowMenuItems) => RowMenuItem[];
@@ -151,7 +154,14 @@ export function HomeRowsPage({
 
   const { attachAddButton } = focus;
   const selectedCount = rows.filter((row) => selection?.selectedIds.has(row.id)).length;
-  const more = <PageMoreMenu items={moreItems} compact={narrow} triggerRef={moreTrigger} />;
+  const more = (
+    <PageMoreMenu
+      items={moreItems}
+      compact={narrow}
+      triggerRef={moreTrigger}
+      onOpenChange={onMoreOpenChange}
+    />
+  );
   const addButton = (
     <Button
       ref={attachAddButton}

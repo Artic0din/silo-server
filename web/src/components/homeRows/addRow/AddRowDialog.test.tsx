@@ -57,6 +57,7 @@ function row(overrides: Partial<HomeRow> = {}): HomeRow {
 let create: ReturnType<typeof vi.fn<(draft: RowDraft) => Promise<{ newIds: string[] }>>>;
 let save: ReturnType<typeof vi.fn<(session: EditSession, draft: RowDraft) => Promise<void>>>;
 let ruleRows: boolean;
+let profileRuleRowsSwitch: boolean;
 
 function adapter(): HomeRowsAdapter {
   return {
@@ -79,7 +80,7 @@ function adapter(): HomeRowsAdapter {
     reorder: async () => {},
     setShown: async () => {},
     setHero: async () => {},
-    capabilities: { draftPreview: false, ruleRows, libraryCopies: false },
+    capabilities: { draftPreview: false, ruleRows, libraryCopies: false, profileRuleRowsSwitch },
     create,
     openEdit: async () => {
       throw new Error("unused");
@@ -136,6 +137,7 @@ beforeEach(() => {
   create = vi.fn(async () => ({ newIds: ["n"] }));
   save = vi.fn(async () => {});
   ruleRows = true;
+  profileRuleRowsSwitch = false;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -617,6 +619,27 @@ describe("rule rows", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(JSON.stringify(savedDraft().config)).toBe(JSON.stringify(config));
+  });
+
+  it("says where profiles get rule rows when this surface has that switch", async () => {
+    profileRuleRowsSwitch = true;
+    await open(editSession({ sectionType: "custom_filter", config: structuredClone(MULTI_GROUP) }));
+    const note = screen.getByText(/Only admins can add rule rows unless/);
+    expect(note.textContent).toBe(
+      "Only admins can add rule rows unless Let profiles add rule rows is on in More.",
+    );
+    // Last in the form, after the name and More options.
+    const more = screen.getByRole("button", { name: /More options/ });
+    expect(more.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      screen.getByLabelText("Row name").compareDocumentPosition(note) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("has no note about the profile switch on a surface without it", async () => {
+    await open(editSession({ sectionType: "custom_filter", config: structuredClone(MULTI_GROUP) }));
+    expect(screen.queryByText(/Let profiles add rule rows/)).toBeNull();
   });
 
   it("starts a new rule row with no rules", async () => {

@@ -63,6 +63,8 @@ export interface HomeRowsCapabilities {
   ruleRows: boolean;
   /** A row may be added to several library pages at once (library pages only). */
   libraryCopies: boolean;
+  /** This surface has the "Let profiles add rule rows" switch (admin, in More). */
+  profileRuleRowsSwitch: boolean;
 }
 
 /** The collections a collection row may show on this surface. */

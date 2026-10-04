@@ -475,6 +475,7 @@ export function AddRowDialog({
               onLibraryPage={adapter.page.kind === "library"}
               onVariant={(presetKey) => setDraft(withVariant(draft, def, presetKey))}
               libraryPages={copyPages}
+              ruleRowsNote={adapter.capabilities.profileRuleRowsSwitch}
             />
           </div>
         ) : null}
