@@ -1,6 +1,5 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, Ref } from "react";
 import { EyeOff, GripVertical, Star } from "lucide-react";
-import { BulkSelectionCheckbox } from "@/components/BulkSelectionCheckbox";
 import { Switch } from "@/components/ui/switch";
 import {
   collapsedRowText,
@@ -11,6 +10,7 @@ import {
 import type { HomeRow, Surface } from "@/lib/homeRows/types";
 import { cn } from "@/lib/utils";
 import { RowPeek } from "./RowPeek";
+import { SelectCheckbox } from "./SelectCheckbox";
 
 export interface RowSelection {
   selected: boolean;
@@ -25,6 +25,7 @@ export interface RowLineProps {
   description: DescriptionPart[];
   /** Props for the grip button, from the sortable list. */
   handleProps: ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement> };
+  /** Select mode: a checkbox takes the grip's place. */
   selection?: RowSelection;
   switchDisabled?: boolean;
   onShownChange: (shown: boolean) => void;
@@ -59,7 +60,8 @@ function Description({ parts }: { parts: DescriptionPart[] }) {
 }
 
 /**
- * One row of the list: grip, art, name and sentence, switch, ⋯.
+ * One row of the list: grip (checkbox in select mode), art, name and
+ * sentence, switch, ⋯.
  *
  * Off (admin) and hidden (profile) rows collapse to a dashed line, but the
  * element at every position keeps its type and the switch keeps its key, so
@@ -92,9 +94,8 @@ export function RowLine({
       className={cn(
         "hover:bg-accent/60 relative grid items-center gap-2 rounded-[18px] py-[11px] pr-3 pl-2 sm:gap-3.5",
         "before:bg-border/75 before:absolute before:top-0 before:right-4 before:left-[124px] before:h-px first:before:hidden hover:before:hidden [&:hover+li]:before:hidden",
-        selection
-          ? "grid-cols-[20px_28px_48px_minmax(0,1fr)_auto_36px] sm:grid-cols-[20px_28px_74px_minmax(0,1fr)_auto_36px]"
-          : "grid-cols-[28px_48px_minmax(0,1fr)_auto_36px] sm:grid-cols-[28px_74px_minmax(0,1fr)_auto_36px]",
+        // Under 1024px the ⋯ column widens to a 44px touch target.
+        "grid-cols-[28px_48px_minmax(0,1fr)_auto_44px] sm:grid-cols-[28px_74px_minmax(0,1fr)_auto_44px] lg:grid-cols-[28px_74px_minmax(0,1fr)_auto_36px]",
         collapsed &&
           "border-muted-foreground/30 bg-background/40 my-1.5 border border-dashed py-[5px] before:hidden [&+li]:before:hidden",
         selection?.selected && "bg-accent/75",
@@ -103,25 +104,28 @@ export function RowLine({
       )}
     >
       {selection ? (
-        <BulkSelectionCheckbox
-          label={selection.label}
-          selected={selection.selected}
-          onSelectionChange={selection.onChange}
-        />
-      ) : null}
-      <button
-        ref={handleRef}
-        type="button"
-        aria-label={`Move ${row.title}`}
-        className={cn(
-          "text-muted-foreground/70 hover:text-foreground focus-visible:ring-ring/50 grid w-7 cursor-grab touch-none place-items-center rounded-lg outline-none focus-visible:ring-[3px] aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
-          collapsed ? "h-[30px]" : "h-9",
-          handleClassName,
-        )}
-        {...handleRest}
-      >
-        <GripVertical className="size-[18px]" />
-      </button>
+        <span className={cn("grid w-7 place-items-center", collapsed ? "h-[30px]" : "h-9")}>
+          <SelectCheckbox
+            label={selection.label}
+            checked={selection.selected}
+            onChange={selection.onChange}
+          />
+        </span>
+      ) : (
+        <button
+          ref={handleRef}
+          type="button"
+          aria-label={`Move ${row.title}`}
+          className={cn(
+            "text-muted-foreground/70 hover:text-foreground focus-visible:ring-ring/50 grid w-7 cursor-grab touch-none place-items-center rounded-lg outline-none focus-visible:ring-[3px] aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
+            collapsed ? "h-[30px]" : "h-9",
+            handleClassName,
+          )}
+          {...handleRest}
+        >
+          <GripVertical className="size-[18px]" />
+        </button>
+      )}
       {collapsed ? (
         <div
           aria-hidden
@@ -175,6 +179,8 @@ export function RowLine({
           key="shown"
           checked={row.shown}
           disabled={switchDisabled}
+          // A 44px touch target under 1024px, without changing the layout.
+          className="max-lg:relative max-lg:after:absolute max-lg:after:-inset-[13px] max-lg:after:content-['']"
           aria-label={rowSwitchLabel(surface, row, pageLabel)}
           onCheckedChange={(checked) => onShownChange(checked === true)}
         />

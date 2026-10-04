@@ -354,6 +354,110 @@ describe("useAdminHomeRows", () => {
     expect(writes().map((call) => call.args.body)).toEqual([{ enabled: false }, { enabled: true }]);
   });
 
+  describe("turning several rows on or off", () => {
+    /** Row versions like the server's: each row has its own. */
+    function perRowVersions() {
+      const implementation = mocks.request.getMockImplementation()!;
+      const versions = new Map<string, number>();
+      let inFlight = 0;
+      const stats = { maxInFlight: 0 };
+      mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
+        const id = args.path?.id;
+        if (operation === "GET /api/v2/admin/sections/{id}" || operation.startsWith("PATCH ")) {
+          calls.push({ operation, args });
+          inFlight++;
+          stats.maxInFlight = Math.max(stats.maxInFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          inFlight--;
+          const version = `"row-${id}-${versions.get(id!) ?? 1}"`;
+          if (operation.startsWith("GET ")) {
+            args.onResponse?.(new Response(null, { headers: { ETag: version } }));
+            return { ...rows.find((entry) => entry.id === id)! };
+          }
+          if (args.headers?.["If-Match"] !== version)
+            throw v2Problem(412, "precondition_failed", "Changed on another client");
+          versions.set(id!, (versions.get(id!) ?? 1) + 1);
+          rows = rows.map((entry) => (entry.id === id ? { ...entry, ...args.body } : entry));
+          return rows.find((entry) => entry.id === id);
+        }
+        return implementation(operation, args);
+      });
+      return stats;
+    }
+
+    it("writes up to four rows at a time, reports the row that changed, and refetches once", async () => {
+      rows = ["a", "b", "c", "d", "e", "f"].map((id, index) => row(id, { position: index }));
+      const { result } = setup();
+      await ready(result);
+      const stats = perRowVersions();
+      rows = rows.map((entry) =>
+        entry.id === "b" ? { ...entry, title: "Renamed elsewhere" } : entry,
+      );
+      calls = [];
+      let outcome!: Awaited<ReturnType<typeof result.current.adapter.setShownMany>>;
+      await act(async () => {
+        outcome = await result.current.adapter.setShownMany(["a", "b", "c", "d", "e", "f"], false);
+      });
+      expect(outcome.changedIds.sort()).toEqual(["a", "c", "d", "e", "f"]);
+      expect(outcome.failures).toEqual([
+        expect.objectContaining({ id: "b", title: "Title b", reason: "changed" }),
+      ]);
+      const patched = writes().map((call) => [call.args.path?.id, call.args.body]);
+      expect(patched).toHaveLength(5);
+      expect(patched).not.toContainEqual(["b", expect.anything()]);
+      expect(patched).toContainEqual(["a", { enabled: false }]);
+      expect(stats.maxInFlight).toBe(4);
+      // One refetch fence for the whole batch, not one per row.
+      expect(calls.filter((call) => call.operation === "GET /api/v2/admin/sections")).toHaveLength(
+        1,
+      );
+      expect(result.current.adapter.pending).toBe(false);
+      expect(result.current.adapter.rows.find((entry) => entry.id === "b")).toMatchObject({
+        title: "Renamed elsewhere",
+        shown: true,
+      });
+    });
+
+    it("skips rows already in that state and refuses to turn a legacy Trakt row back on", async () => {
+      rows = [
+        row("a", { enabled: false }),
+        row("b", { enabled: true }),
+        row("t", { enabled: false, config: { source_provider: "trakt" } }),
+      ];
+      const { result } = setup();
+      await ready(result);
+      perRowVersions();
+      let outcome!: Awaited<ReturnType<typeof result.current.adapter.setShownMany>>;
+      await act(async () => {
+        outcome = await result.current.adapter.setShownMany(["a", "b", "t"], true);
+      });
+      expect(outcome.changedIds).toEqual(["a"]);
+      expect(outcome.failures).toEqual([expect.objectContaining({ id: "t", reason: "legacy" })]);
+      expect(writes().map((call) => call.args.path?.id)).toEqual(["a"]);
+    });
+
+    it("stays pending from the first write until the refetch after the batch", async () => {
+      rows = [row("a"), row("b")];
+      const { result } = setup();
+      await ready(result);
+      perRowVersions();
+      hold = { operation: "GET /api/v2/admin/sections" };
+      let done!: Promise<unknown>;
+      act(() => {
+        done = result.current.adapter.setShownMany(["a", "b"], false);
+      });
+      expect(result.current.adapter.pending).toBe(true);
+      await waitFor(() => expect(hold?.release).toBeTypeOf("function"));
+      expect(writes()).toHaveLength(2);
+      expect(result.current.adapter.pending).toBe(true);
+      expect(result.current.adapter.canReorder).toBe(false);
+      hold.release!();
+      hold = null;
+      await act(async () => done);
+      expect(result.current.adapter.pending).toBe(false);
+    });
+  });
+
   it("reports a library link as an error with a retry when the libraries fail to load", async () => {
     const refetch = vi.fn(async () => undefined);
     mocks.libraries.mockReturnValue({

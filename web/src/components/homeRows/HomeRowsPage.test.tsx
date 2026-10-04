@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Pencil } from "lucide-react";
+import { Pencil, SquareCheckBig } from "lucide-react";
 import { TouchSensor } from "@dnd-kit/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HomeRow, HomeRowsAdapter, PageRef, Surface } from "@/lib/homeRows/types";
 import { HomeRowsPage } from "./HomeRowsPage";
+import { SelectModeBar } from "./SelectModeBar";
 import { useRowFocus } from "./useRowFocus";
 
 const dnd = vi.hoisted(() => ({ sensorOptions: vi.fn() }));
@@ -40,7 +41,9 @@ function makeHarness() {
     reorder: vi.fn<(ids: string[], token: unknown) => void>(),
     setPage: vi.fn<(ref: PageRef) => void>(),
     reload: vi.fn<() => Promise<void>>(async () => {}),
-    onClear: vi.fn<() => void>(),
+    onExit: vi.fn<() => void>(),
+    addRow: vi.fn<() => void>(),
+    turnOn: vi.fn<() => void>(),
     onSelect: vi.fn<(id: string, checked: boolean, extendRange: boolean) => void>(),
     settle: () => {},
     setOrderToken: (_token: string) => {},
@@ -62,10 +65,12 @@ function FakePage({
   page?: PageRef;
   pending?: boolean;
   conflict?: HomeRowsAdapter["conflict"];
+  /** Opens in select mode with Row A selected. */
   selectable?: boolean;
 }) {
   const [rows, setRows] = useState(initialRows);
   const [pending, setPending] = useState(initialPending);
+  const [selectMode, setSelectMode] = useState(selectable);
   const [selected, setSelected] = useState<Set<string>>(new Set(selectable ? ["a"] : []));
   const [orderToken, setOrderToken] = useState("token-1");
   useEffect(() => {
@@ -108,24 +113,53 @@ function FakePage({
     save: async () => {},
   };
   const focus = useRowFocus(rows, pending);
-  const { attachAddButton } = focus;
   return (
     <HomeRowsPage
       adapter={adapter}
       title="Home rows"
       subtitle="Subtitle"
-      actions={<button ref={attachAddButton}>Add row</button>}
+      addRow={{ onClick: harness.addRow }}
+      moreItems={[
+        {
+          key: "select",
+          label: "Select rows",
+          help: "Turn several rows on or off, or delete them together.",
+          icon: SquareCheckBig,
+          returnFocus: false,
+          disabled: selectMode,
+          onSelect: () => setSelectMode(true),
+        },
+      ]}
       focus={focus}
       selection={
-        selectable
+        selectMode
           ? {
               selectedIds: selected,
-              onChange: harness.onSelect,
-              onClear: () => {
-                harness.onClear();
+              onChange: (id, checked, extendRange) => {
+                harness.onSelect(id, checked, extendRange);
+                setSelected((current) => {
+                  const next = new Set(current);
+                  if (checked) next.add(id);
+                  else next.delete(id);
+                  return next;
+                });
+              },
+              onSelectAll: (checked) =>
+                setSelected(new Set(checked ? rows.map((row) => row.id) : [])),
+              onExit: () => {
+                harness.onExit();
+                setSelectMode(false);
                 setSelected(new Set());
               },
               label: (row) => `Select ${row.title}`,
+              bar: (
+                <SelectModeBar
+                  count={selected.size}
+                  onTurnOn={harness.turnOn}
+                  onTurnOff={vi.fn()}
+                  onDelete={vi.fn()}
+                />
+              ),
             }
           : undefined
       }
@@ -294,21 +328,128 @@ describe("HomeRowsPage", () => {
     await waitFor(() => expect(harness.reorder).toHaveBeenCalledWith(["b", "a", "c"], "token-1"));
   });
 
-  it("clears the selection on Escape inside the list, but not from an open menu", async () => {
-    render(<FakePage initialRows={[makeRow("a"), makeRow("b")]} selectable />);
-    const menu = await openMenu("Row B");
-    fireEvent.keyDown(within(menu).getAllByRole("menuitem")[0]!, { key: "Escape" });
-    expect(harness.onClear).not.toHaveBeenCalled();
-    fireEvent.keyDown(screen.getByRole("checkbox", { name: "Select Row A" }), { key: "Escape" });
-    expect(harness.onClear).toHaveBeenCalledTimes(1);
+  it("enters select mode from More: checkboxes replace the grips and focus lands on Select all", async () => {
+    render(<FakePage initialRows={[makeRow("a"), makeRow("b")]} />);
+    expect(screen.getByRole("button", { name: "Move Row A" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    const item = await screen.findByRole("menuitem", { name: "Select rows" });
+    expect(item).toHaveAccessibleDescription(
+      "Turn several rows on or off, or delete them together.",
+    );
+    await userEvent.click(item);
+    const selectAll = await screen.findByRole("checkbox", { name: "Select all" });
+    await waitFor(() => expect(document.activeElement).toBe(selectAll));
+    expect(screen.getByText("Up to 100 rows at a time")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Move Row/ })).not.toBeInTheDocument();
+    // Tab order inside a row: checkbox → switch → ⋯.
+    const rowA = screen.getAllByRole("listitem")[0]!;
+    // The checkbox, switch and ⋯ are all buttons, in DOM (and so tab) order.
+    const focusable = Array.from(rowA.querySelectorAll("button")).map((element) =>
+      element.getAttribute("aria-label"),
+    );
+    expect(focusable).toEqual(["Select Row A", "Row A is on for everyone", "More for Row A"]);
+    expect(screen.getByRole("toolbar", { name: "0 rows selected" })).toBeInTheDocument();
   });
 
-  it("asks for a range when a row's checkbox is shift-clicked", () => {
+  it("selects every row with Select all and shows how many are selected", async () => {
     render(<FakePage initialRows={[makeRow("a"), makeRow("b")]} selectable />);
+    const selectAll = screen.getByRole("checkbox", { name: "Select all" });
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+    await userEvent.click(selectAll);
+    expect(screen.getByRole("checkbox", { name: "Select Row B" })).toBeChecked();
+    expect(selectAll).toBeChecked();
+    expect(screen.getByRole("toolbar", { name: "2 rows selected" })).toHaveTextContent(
+      "2 selected",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    expect(harness.turnOn).toHaveBeenCalledTimes(1);
+    await userEvent.click(selectAll);
+    expect(screen.getByRole("checkbox", { name: "Select Row A" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeDisabled();
+  });
+
+  it("refuses to act on more than 100 rows at a time", () => {
+    render(<SelectModeBar count={101} onTurnOn={vi.fn()} onTurnOff={vi.fn()} onDelete={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Select up to 100 rows at a time.");
+    for (const name of ["Turn on", "Turn off", "Delete…"])
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+  });
+
+  it("leaves select mode on Escape inside the list, not from an open row menu", async () => {
+    render(<FakePage initialRows={[makeRow("a"), makeRow("b")]} selectable />);
+    const menu = await openMenu("Row B");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(menu).not.toBeInTheDocument());
+    expect(harness.onExit).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: "Select Row A" })).toBeInTheDocument();
+    screen.getByRole("checkbox", { name: "Select Row A" }).focus();
+    await userEvent.keyboard("{Escape}");
+    expect(harness.onExit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("checkbox", { name: "Select Row A" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move Row A" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "More" })),
+    );
+  });
+
+  it("leaves select mode with Done", async () => {
+    render(<FakePage initialRows={[makeRow("a")]} selectable />);
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(harness.onExit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+  });
+
+  it("asks for a range when a row's checkbox is shift-clicked or Shift+Space is pressed", async () => {
+    render(<FakePage initialRows={[makeRow("a"), makeRow("b"), makeRow("c")]} selectable />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Row B" }));
     expect(harness.onSelect).toHaveBeenLastCalledWith("b", true, false);
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Row B" }), { shiftKey: true });
-    expect(harness.onSelect).toHaveBeenLastCalledWith("b", true, true);
+    expect(harness.onSelect).toHaveBeenLastCalledWith("b", false, true);
+    screen.getByRole("checkbox", { name: "Select Row C" }).focus();
+    await userEvent.keyboard("{Shift>} {/Shift}");
+    expect(harness.onSelect).toHaveBeenLastCalledWith("c", true, true);
+    await userEvent.keyboard(" ");
+    expect(harness.onSelect).toHaveBeenLastCalledWith("c", false, false);
+  });
+
+  it("does not start a drag in select mode", () => {
+    render(<FakePage initialRows={[makeRow("a"), makeRow("b")]} selectable />);
+    expect(screen.queryByRole("button", { name: /^Move Row/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Drag a row to move it/)).not.toBeInTheDocument();
+  });
+
+  it("docks More and a full-width Add row at the bottom on narrow screens", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 1023px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    render(<FakePage initialRows={[makeRow("a")]} />);
+    const header = screen.getByRole("banner");
+    expect(within(header).queryByRole("button")).not.toBeInTheDocument();
+    const dock = screen.getByRole("region", { name: "Page actions" });
+    const more = within(dock).getByRole("button", { name: "More" });
+    expect(more).toHaveClass("size-12");
+    await userEvent.click(within(dock).getByRole("button", { name: "Add row" }));
+    expect(harness.addRow).toHaveBeenCalledTimes(1);
+    // Row controls get 44px targets on touch screens.
+    expect(screen.getByRole("button", { name: "More for Row A" })).toHaveClass("max-lg:size-11");
+    expect(screen.getByRole("switch", { name: "Row A is on for everyone" })).toHaveClass(
+      "max-lg:after:-inset-[13px]",
+    );
+  });
+
+  it("hides the dock in select mode, where the selection bar takes its place", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 1023px)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    render(<FakePage initialRows={[makeRow("a")]} selectable />);
+    expect(screen.queryByRole("region", { name: "Page actions" })).not.toBeInTheDocument();
+    expect(screen.getByRole("toolbar", { name: "1 row selected" })).toBeInTheDocument();
   });
 
   it("uses profile wording on the profile surface", () => {
