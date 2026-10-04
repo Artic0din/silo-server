@@ -227,6 +227,9 @@ export function useAdminHomeRows(): AdminHomeRows {
         } catch (error) {
           if (isStale(error)) setConflict({ scope: "row", rowId: id });
           else toast.error(adminSectionMutationMessage(error, "Could not save this row"));
+          // Without a server answer the write may still have landed, so read
+          // the page again before showing the row's value.
+          if (!(error instanceof V2ProblemError)) await refresh();
         } finally {
           clearOptimistic();
         }
