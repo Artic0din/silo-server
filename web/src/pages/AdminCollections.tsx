@@ -603,7 +603,9 @@ export default function AdminCollections() {
                             libraryNames={libraries.map((library) => library.name)}
                             showLibraries={state.libraryId === null}
                             peek={
-                              peekLibraryId ? serverCollectionPeek(collection, peekLibraryId) : null
+                              peekLibraryId
+                                ? serverCollectionPeek(collection, peekLibraryId, !visible)
+                                : null
                             }
                             visible={visible}
                             syncing={syncing}
