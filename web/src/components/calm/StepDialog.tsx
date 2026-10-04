@@ -32,6 +32,9 @@ export function StepCount({ step, children }: { step: 1 | 2; children: string })
   );
 }
 
+/** Each open step dialog's content, to the element that opened it. */
+const openers = new WeakMap<Element, HTMLElement | null>();
+
 /**
  * The centered dialog of a two-step flow (pick, then fill in). At 1024px and
  * up it is centered; below, a bottom sheet, and the form step takes the whole
@@ -39,7 +42,9 @@ export function StepCount({ step, children }: { step: 1 | 2; children: string })
  * 880px one, and "choice" a 1000px step only as tall as its few cards.
  *
  * It opens with no Radix trigger, so it keeps the element that had focus when
- * it mounted and gives focus back to it on close.
+ * it mounted and gives focus back to it on close. When a link in one step
+ * dialog swaps it for another, that element is gone by then, so focus goes
+ * back to what opened the first dialog.
  */
 export function StepDialog({
   size,
@@ -73,16 +78,23 @@ export function StepDialog({
   /** The footer's buttons after Cancel. */
   actions?: ReactNode;
 }) {
-  const [returnFocus] = useState(() =>
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-  );
+  const [returnFocus] = useState(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const from = opener?.closest("[data-step-dialog]");
+    return { opener, fallback: (from && openers.get(from)) || null };
+  });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
+        ref={(node) => {
+          if (node) openers.set(node, returnFocus.opener);
+        }}
+        data-step-dialog=""
         showCloseButton={false}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          returnFocus?.focus();
+          const { opener, fallback } = returnFocus;
+          (opener?.isConnected ? opener : fallback)?.focus();
         }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();

@@ -102,4 +102,55 @@ describe("StepDialog", () => {
     expect(dialog).toHaveClass("max-lg:max-h-[calc(100dvh-2.5rem)]");
     expect(dialog.className).not.toMatch(/(^|\s)(max-)?lg:h-/);
   });
+
+  it("returns focus to the page when the dialog that opened it has gone", async () => {
+    // A link in one dialog swaps it for the next in one render (the picker's
+    // "Add a starter pack"), so the element that opened the second is removed.
+    function Swap() {
+      const [open, setOpen] = useState<"none" | "first" | "second">("none");
+      const close = () => setOpen("none");
+      const packsTitle = useRef<HTMLHeadingElement>(null);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen("first")}>
+            New collection
+          </button>
+          {open === "first" ? (
+            <StepDialog
+              size="choice"
+              onClose={close}
+              onOpenFocus={vi.fn()}
+              title="New collection"
+              description="Pick a type."
+            >
+              <button type="button" onClick={() => setOpen("second")}>
+                Add a starter pack
+              </button>
+            </StepDialog>
+          ) : null}
+          {open === "second" ? (
+            <StepDialog
+              size="picker"
+              onClose={close}
+              onOpenFocus={() => packsTitle.current?.focus()}
+              title="Starter packs"
+              titleRef={packsTitle}
+              description="Pick a pack."
+            >
+              <p>Packs</p>
+            </StepDialog>
+          ) : null}
+        </>
+      );
+    }
+    render(<Swap />);
+    const opener = screen.getByRole("button", { name: "New collection" });
+    await userEvent.click(opener);
+    await userEvent.click(await screen.findByRole("button", { name: "Add a starter pack" }));
+    await screen.findByRole("dialog", { name: "Starter packs" });
+    expect(screen.getByRole("heading", { name: "Starter packs" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
 });
