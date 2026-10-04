@@ -26,6 +26,16 @@ describe("buildAllUserCollectionOptions", () => {
     ]);
   });
 
+  it("keeps the profile that made each personal collection", () => {
+    const options = buildAllUserCollectionOptions(
+      [],
+      [{ id: "shared", name: "Road trips", creator_profile_id: "sibling" }],
+      [],
+    );
+
+    expect(options[0]).toMatchObject({ id: "shared", creator_profile_id: "sibling" });
+  });
+
   it("leaves the source config out of a library collection option", () => {
     const options = buildAllUserCollectionOptions([{ id: 1, name: "Movies" }], undefined, [
       [{ ...libraryCollection("library", "Staff Picks"), source_config: { mode: "x" } }],

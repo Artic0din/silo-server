@@ -8,7 +8,11 @@ import { sectionKeys } from "@/hooks/queries/keys";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import HomeScreenSettings from "./HomeScreenSettings";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn(), role: "user" as string | undefined }));
+const mocks = vi.hoisted(() => ({
+  request: vi.fn(),
+  role: "user" as string | undefined,
+  collections: [] as Array<Record<string, unknown>>,
+}));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
   v2: mocks.request,
@@ -19,7 +23,7 @@ vi.mock("@/api/client", async () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/useAuth", () => ({
-  useOptionalAuth: () => ({ user: { role: mocks.role } }),
+  useOptionalAuth: () => ({ user: { role: mocks.role }, profile: { id: "p1" } }),
 }));
 vi.mock("@/hooks/queries/libraries", () => {
   const data = [{ id: 7, name: "Movies", type: "movies" }];
@@ -32,7 +36,7 @@ vi.mock("@/hooks/queries/settingValues", () => ({
 }));
 vi.mock("@/hooks/queries/useAllUserCollections", () => ({
   useAllUserCollections: () => ({
-    collections: [{ id: "lib-c", title: "Studio Ghibli", source: "library", group: "Movies" }],
+    collections: mocks.collections,
     isLoading: false,
     isError: false,
   }),
@@ -122,6 +126,7 @@ async function release(operation: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = "user";
+  mocks.collections = [{ id: "lib-c", title: "Studio Ghibli", source: "library", group: "Movies" }];
   serverRows = {
     home: [entry("a", 0), entry("b", 1)],
     "library:7": [entry("m", 0, { title: "New Movies", default_title: "New Movies" })],
@@ -385,6 +390,40 @@ describe("Settings > Home Screen", () => {
       title: "Cozy",
       config: { user_collection_id: "gone-1", extra: true },
     });
+  });
+
+  it("calls only this profile's own collections its own", async () => {
+    mocks.collections = [
+      {
+        id: "mine",
+        title: "Rainy days",
+        source: "user",
+        group: "My Collections",
+        creator_profile_id: "p1",
+      },
+      {
+        id: "theirs",
+        title: "Road trips",
+        source: "user",
+        group: "My Collections",
+        creator_profile_id: "p2",
+      },
+    ];
+    saved.home = ["mine", "theirs"].map((id, index) => ({
+      id: `row-${id}`,
+      position: 2 + index,
+      hidden: false,
+      title: `Row for ${id}`,
+      section_type: "collection",
+      config: { user_collection_id: id },
+    }));
+    await renderPage();
+    await screen.findByText("Row for mine");
+
+    const text = document.body.textContent;
+    expect(text).toContain("Your Rainy days collection");
+    // Another profile made this one and shared it, so it isn't this profile's.
+    expect(text).toContain("The Road trips collection");
   });
 
   it("offers export, import and a reset named after the page under More", async () => {

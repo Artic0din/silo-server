@@ -28,6 +28,7 @@ import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer
 import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
 import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
 import { useUserLibraries } from "@/hooks/queries/libraries";
+import { useOptionalAuth } from "@/hooks/useAuth";
 import {
   useEffectiveSettings,
   useSetSettingValue,
@@ -79,6 +80,7 @@ export default function HomeScreenSettings() {
   const hideWatchedItems =
     homePreferences.data?.[SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS]?.value === true;
 
+  const profileId = useOptionalAuth()?.profile?.id;
   const collectionOptions = adapter.collections?.options;
   const collectionSummaries = useMemo(
     () =>
@@ -88,11 +90,12 @@ export default function HomeScreenSettings() {
           {
             title: option.title,
             kind: collectionKind(option.collection_type),
-            yours: option.source === "user",
+            // The list also holds collections other profiles shared.
+            yours: Boolean(profileId) && option.creator_profile_id === profileId,
           },
         ]),
       ),
-    [collectionOptions],
+    [collectionOptions, profileId],
   );
 
   const { pageLock } = adapter;
