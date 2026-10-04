@@ -179,12 +179,12 @@ func registerAdminCollectionExtras(reg *Registry) {
 	trakt := adminCollectionOperation(http.MethodPost, "/admin/collections/import/trakt", "importAdminTrakt", "Import a Trakt collection.", false)
 	trakt.DefaultStatus = http.StatusCreated
 	Register(reg, trakt, reg.importAdminTrakt)
-	Register(reg, adminCollectionOperation(http.MethodGet, "/admin/collections/templates", "listAdminCollectionTemplates", "List supported collection templates.", false), func(ctx context.Context, _ *struct{}) (*AdminTemplateCatalogOutput, error) {
+	Register(reg, adminCollectionOperation(http.MethodGet, "/admin/collections/templates", "listAdminCollectionTemplates", "List the collection templates an admin import route can create.", false), func(ctx context.Context, _ *struct{}) (*AdminTemplateCatalogOutput, error) {
 		s, p := reg.adminCollectionExtras()
 		if p != nil {
 			return nil, p
 		}
-		return &AdminTemplateCatalogOutput{Body: s.AdminCollectionTemplateCatalog(ctx)}, nil
+		return &AdminTemplateCatalogOutput{Body: creatableCollectionTemplates(s.AdminCollectionTemplateCatalog(ctx))}, nil
 	})
 	Register(reg, adminCollectionOperation(http.MethodGet, "/admin/collections/template-bundles", "listAdminCollectionTemplateBundles", "List collection template bundles, each with a summary of its templates.", false), func(ctx context.Context, _ *struct{}) (*AdminBundleCatalogOutput, error) {
 		s, p := reg.adminCollectionExtras()

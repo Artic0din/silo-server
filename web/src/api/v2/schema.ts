@@ -1099,7 +1099,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** List supported collection templates. */
+    /** List the collection templates an admin import route can create. */
     get: operations["listAdminCollectionTemplates"];
     put?: never;
     post?: never;

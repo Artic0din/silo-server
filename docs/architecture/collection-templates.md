@@ -58,9 +58,9 @@ documented in the manual at https://siloserver.org/docs/manage-collections.
    `TestPhase3FranchiseTemplatesUseExpectedBands` hold these rules. The last two also pin the
    template counts (18 popular genres, 18 top-rated genres, 1 kids, 11 franchises including the
    placeholder); update the count when you add one.
-5. Add a `tmdb_discover` or `tmdb_collection` template to a bundle. The gallery can't create
-   those two sources directly, and `TestBundleOnlyTemplatesAreReachableFromBundles` fails on one
-   that no bundle references.
+5. Add a `tmdb_discover` or `tmdb_collection` template to a bundle. No import route creates
+   those two sources, so the v2 admin and personal template lists leave them out, and
+   `TestBundleOnlyTemplatesAreReachableFromBundles` fails on one that no bundle references.
 6. Add both poster files (see below).
 
 ## Starter packs
@@ -160,7 +160,8 @@ Commands assume the repository root is the cwd.
 
 ```sh
 go test ./internal/collections/templates/...
-go test ./internal/api/handlers/ -run 'TestBuiltinTemplateTitleSlugsAreUnique|TestCollectionTemplateHandler|TestLibraryCollectionHandlerListsTemplateBundles'
+go test ./internal/api/handlers/ -run 'TestBuiltinTemplateTitleSlugsAreUnique|TestCollectionTemplateHandler|TestLibraryCollectionHandlerListsTemplateBundles|TestV1Template'
+go test ./internal/apiv2/ -run 'AdminTemplate|BuiltinBundleOnly|ImportableCollectionTemplates'
 ```
 
 When you change the gallery or Starter packs, also run

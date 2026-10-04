@@ -61473,7 +61473,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List supported collection templates.",
+        "summary": "List the collection templates an admin import route can create.",
         "tags": [
           "admin-collections"
         ],
