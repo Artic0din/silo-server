@@ -116,7 +116,7 @@ export function CollectionTemplateConfigForm({
 
   // Discover- and Collection-source templates are bundle-only: the spec is
   // backend-driven and can't be edited inline. Render a read-only summary so
-  // admins know to apply them via Template Bundles. The early returns MUST
+  // admins know to add them with Starter packs. The early returns MUST
   // sit AFTER every useState above so React's rules-of-hooks lint stays
   // green — the unused state slots are cheap and isolate this branch from
   // the editable-form path.
@@ -404,7 +404,7 @@ interface TMDBCollectionTemplateSummaryProps {
 // opens a `tmdb_collection` template directly from the gallery. The spec
 // (TMDB collection ID, sort order, sync schedule) ships from the backend
 // catalog and isn't user-editable at apply-time — the official flow is to
-// apply via Template Bundles, where bulk creation, dedupe by management key,
+// add it with Starter packs, where bulk creation, dedupe by management key,
 // and featured-section wiring are all handled in one shot.
 function TMDBCollectionTemplateSummary({ template, onCancel }: TMDBCollectionTemplateSummaryProps) {
   const collectionId = template.tmdb_collection?.collection_id ?? 0;
@@ -449,9 +449,9 @@ function TMDBCollectionTemplateSummary({ template, onCancel }: TMDBCollectionTem
       </dl>
 
       <p className="text-muted-foreground border-border bg-muted/30 rounded-md border p-3 text-xs">
-        TMDB franchise templates are bundle-driven. Apply them through Template Bundles so the
-        management key, library scoping, and sync schedule are wired up consistently across
-        libraries.
+        TMDB franchise lists come in Starter packs. Add them with Starter packs on the Collections
+        page so the management key, library scoping, and sync schedule are wired up consistently
+        across libraries.
         {isPlaceholder ? (
           <>
             {" "}
@@ -467,7 +467,7 @@ function TMDBCollectionTemplateSummary({ template, onCancel }: TMDBCollectionTem
           Close
         </Button>
         <Button type="button" disabled>
-          Use Template Bundles
+          In Starter packs
         </Button>
       </div>
     </div>
@@ -513,7 +513,7 @@ function summarizeDiscoverSpec(spec: NonNullable<CollectionTemplate["tmdb_discov
 
 // TMDBDiscoverTemplateSummary mirrors TMDBCollectionTemplateSummary: TMDB
 // discover templates ship as backend-driven blueprints (genre matrices etc.)
-// and apply through Template Bundles, not the per-template create form.
+// are added with Starter packs, not the per-template create form.
 function TMDBDiscoverTemplateSummary({ template, onCancel }: TMDBDiscoverTemplateSummaryProps) {
   const spec = template.tmdb_discover;
 
@@ -556,9 +556,9 @@ function TMDBDiscoverTemplateSummary({ template, onCancel }: TMDBDiscoverTemplat
       ) : null}
 
       <p className="text-muted-foreground border-border bg-muted/30 rounded-md border p-3 text-xs">
-        Discover templates are applied via Template Bundles. The filter set ships from the backend
-        catalog; apply through a bundle so the management key, library scoping, and sync schedule
-        are wired up consistently across libraries.
+        Discover lists come in Starter packs. The filter set ships from the backend catalog; add
+        them with Starter packs on the Collections page so the management key, library scoping, and
+        sync schedule are wired up consistently across libraries.
       </p>
 
       <div className="border-border flex justify-end gap-2 border-t pt-4">
@@ -566,7 +566,7 @@ function TMDBDiscoverTemplateSummary({ template, onCancel }: TMDBDiscoverTemplat
           Close
         </Button>
         <Button type="button" disabled>
-          Use Template Bundles
+          In Starter packs
         </Button>
       </div>
     </div>

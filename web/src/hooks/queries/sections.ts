@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ProfileRequestContextSnapshot } from "@/api/client";
 import { V2ProblemError } from "@/api/v2/request";
@@ -147,12 +147,18 @@ export function useLibrarySections(libraryId: number) {
   });
 }
 
-export function useAdminSections(scope: string, libraryId?: number, enabled = true) {
-  return useQuery({
+/** One page's admin rows, as the Home rows pages read them. */
+export function adminSectionsQuery(scope: string, libraryId?: number) {
+  return queryOptions({
     queryKey: sectionKeys.adminList(scope, libraryId),
     queryFn: ({ signal }) => fetchAdminSections(scope, libraryId, signal),
-    enabled: enabled && (scope !== "library" || Boolean(libraryId)),
+    enabled: scope !== "library" || Boolean(libraryId),
   });
+}
+
+export function useAdminSections(scope: string, libraryId?: number, enabled = true) {
+  const query = adminSectionsQuery(scope, libraryId);
+  return useQuery({ ...query, enabled: enabled && query.enabled });
 }
 
 export function useAdminSectionCapabilities() {

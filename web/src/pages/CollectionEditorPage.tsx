@@ -160,7 +160,10 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
           initialLibraryId={libraryId}
         />
       ) : (
-        <LegacyPersonalEditor snapshot={snapshot as EditorSnapshot<Collection>} />
+        <LegacyPersonalEditor
+          snapshot={snapshot as EditorSnapshot<Collection>}
+          onSaved={editor.rebase}
+        />
       )}
     </Suspense>
   );
@@ -235,7 +238,14 @@ function PersonalTypeChooser() {
 }
 
 /** A personal Synced list, in its earlier editor. */
-function LegacyPersonalEditor({ snapshot }: { snapshot: EditorSnapshot<Collection> }) {
+function LegacyPersonalEditor({
+  snapshot,
+  onSaved,
+}: {
+  snapshot: EditorSnapshot<Collection>;
+  /** The Synced list's save and refetch finished: adopt the saved collection. */
+  onSaved: () => void;
+}) {
   const navigate = useNavigate();
   const collection = snapshot.view.raw;
   const listPath = PERSONAL_SCOPE.paths.list();
@@ -253,6 +263,7 @@ function LegacyPersonalEditor({ snapshot }: { snapshot: EditorSnapshot<Collectio
         key={collection.id}
         collection={collection}
         etag={snapshot.etag}
+        onSaved={onSaved}
         onClose={() => navigate(listPath)}
       />
     </div>

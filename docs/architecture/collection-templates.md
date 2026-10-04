@@ -2,10 +2,10 @@
 
 Collection templates are curated presets for synced library collections. The server owns the
 catalog; the admin and personal template galleries render whatever it returns, and template
-bundles apply a group of templates in one pass. This page covers what a contributor needs to add
-or change a template: registration, validation, the rules the tests enforce, and the poster
-artwork. User-facing behavior is documented in the manual at
-https://siloserver.org/docs/manage-collections.
+bundles apply a group of templates in one pass. The admin web shows bundles as Starter packs.
+This page covers what a contributor needs to add or change a template: registration,
+validation, the rules the tests enforce, and the poster artwork. User-facing behavior is
+documented in the manual at https://siloserver.org/docs/manage-collections.
 
 ## Catalog and registration
 
@@ -62,6 +62,32 @@ https://siloserver.org/docs/manage-collections.
    those two sources directly, and `TestBundleOnlyTemplatesAreReachableFromBundles` fails on one
    that no bundle references.
 6. Add both poster files (see below).
+
+## Starter packs
+
+The admin web calls template bundles Starter packs (`web/src/components/collections/StarterPacksDialog.tsx`,
+helpers in `web/src/lib/collections/starterPacks.ts`). The single-template gallery no longer
+lists bundles. The rules the web keeps:
+
+- **Template summaries only.** The dialog reads `GET /api/v2/admin/collections/template-bundles`
+  and its `templates` summaries, never the admin template catalog, so Discover and Franchise
+  templates keep their titles and media kinds even when the catalog leaves them out.
+- **One pack at a time.** Each pack is a separate apply with its own dry run and its own result.
+  The table comes from `POST .../template-bundles/{bundle_id}/apply` with `dry_run: true`; Add
+  runs the same dry run again, then queues `POST .../apply-job`. After the job ends the dialog
+  stays open, tags the pack Added and checks it again.
+- **No deletes.** The web always sends `delete_existing: false`. The server option stays for
+  other clients.
+- **Heroes are opt-in.** The hero switch is off by default and then the request carries no
+  `featured` member, so `ClearFeaturedForSurface` never runs and hand-set heroes stay. With the
+  switch on, the dry run and the job carry the same `featured`; a page set to Keep current is left
+  out of it. The line for each page names the hero it replaces, read from the admin sections list.
+- **Pinned first is the template's.** A pack collection keeps the template's `Featured` flag
+  (pinned first on its shelf). Collections made in the editor start unpinned.
+- **Hidden templates.** A template whose summary has `needs_setup` (the franchise placeholder) is
+  never shown or counted. The server still creates it when its bundle is applied.
+- **Where lists land.** A pack creates no shelves: its collections land in each library's
+  no-heading group.
 
 ## Source rules
 
@@ -137,5 +163,5 @@ go test ./internal/collections/templates/...
 go test ./internal/api/handlers/ -run 'TestBuiltinTemplateTitleSlugsAreUnique|TestCollectionTemplateHandler|TestLibraryCollectionHandlerListsTemplateBundles'
 ```
 
-When you change the gallery, also run
-`pnpm --dir web exec vitest run src/components/CollectionTemplateGallery src/lib/collectionTemplates.test.ts`.
+When you change the gallery or Starter packs, also run
+`pnpm --dir web exec vitest run src/components/CollectionTemplateGallery src/components/collections/StarterPacksDialog.test.tsx src/lib/collections/starterPacks.test.ts src/lib/collectionTemplates.test.ts`.
