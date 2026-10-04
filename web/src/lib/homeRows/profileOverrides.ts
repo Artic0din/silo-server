@@ -70,7 +70,7 @@ function sharedOrder(a: SettingsSectionEntry[], b: SettingsSectionEntry[]): stri
  * the ID of the profile's saved override for that section, or gets one from
  * `newId`: the server's section source policy refuses a legacy Trakt admin
  * section's override without an ID. It also refuses a new override that
- * leaves such a section showing, so a shown one without a saved override is
+ * leaves such a section showing, so a shown one without a saved override ID is
  * left out and keeps its admin position, unless a change being saved is to
  * that section; the refusal then reaches the user instead of the change
  * silently not saving. Positions are only as close to the list order as that
@@ -93,15 +93,17 @@ export function buildSectionOverrides(
     baseline,
   }: SectionOverrideIds = {},
 ): SectionOverride[] {
-  // The server resolves the last saved override for a section.
+  // The server resolves the last saved override for a section. One saved
+  // without an ID still holds the profile's changes; it gets a new ID below.
   const saved = new Map<string, SectionOverride>();
   for (const override of savedOverrides) {
-    if (override.section_id && override.id) saved.set(override.section_id, override);
+    if (override.section_id) saved.set(override.section_id, override);
   }
+  const savedId = (sectionId: string) => saved.get(sectionId)?.id || newId(sectionId);
   const baseById = new Map(baseline?.map((s) => [s.id, s]));
   const changed = (id: string) => id === changedSectionId || Boolean(changedSectionIds?.has(id));
   const leftOut = (s: SettingsSectionEntry) =>
-    !s.is_custom && !s.hidden && !saved.has(s.id) && !changed(s.id) && isTraktConfig(s.config);
+    !s.is_custom && !s.hidden && !saved.get(s.id)?.id && !changed(s.id) && isTraktConfig(s.config);
   // Positions follow the list once the profile orders the page; until then
   // admin sections keep the admin order and only added rows store a position.
   const ordered =
@@ -136,7 +138,7 @@ export function buildSectionOverrides(
       continue;
     }
     const savedOverride = saved.get(s.id);
-    const id = savedOverride?.id ?? newId(s.id);
+    const id = savedId(s.id);
     if (!baseline) {
       overrides.push({
         section_id: s.id,
@@ -164,7 +166,7 @@ export function buildSectionOverrides(
   for (const section of removedSystemSections) {
     overrides.push({
       section_id: section.id,
-      id: saved.get(section.id)?.id ?? newId(section.id),
+      id: savedId(section.id),
       removed: true,
     });
   }
