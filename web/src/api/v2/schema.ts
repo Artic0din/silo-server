@@ -24556,6 +24556,8 @@ export interface components {
        * @example 1
        */
       content_id: string;
+      /** @description Card-size poster URL; omitted when the item has none */
+      poster_url?: string;
       title: string;
       type: string;
     };

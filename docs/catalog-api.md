@@ -115,6 +115,16 @@ member as unknown. `updateCollection` changes the description of an existing col
 The frozen `/api/v1/collections` create ignores a `description` member, in a JSON body and in
 the multipart `data` field alike; the collection is created with an empty description.
 
+## Personal smart previews
+
+`previewCollection` (`POST /api/v2/collections/preview`) returns the first titles a smart query
+matches within the acting profile's access. Each item carries `poster_url`, a card-size poster URL,
+when the title has a poster, and omits the member when it has none. The URL can be signed and
+expire, like other artwork URLs, so read a fresh preview rather than storing it.
+`previewAdminCollection` items carry the same field.
+
+The frozen `/api/v1/collections/preview` response is unchanged and carries no poster.
+
 ## Personal collection imports
 
 A personal collection imported with `importMDBListCollection`, `importTMDBCollection`,

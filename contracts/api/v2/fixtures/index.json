@@ -11890,6 +11890,27 @@
       "body_file": "precondition_required.json"
     },
     {
+      "name": "preview_collection_ok",
+      "operation_id": "previewCollection",
+      "scenario": "A smart query's first matches within the acting profile's access, each with its poster when it has one.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections/preview",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"query_definition\":{\"match\":\"all\",\"groups\":[]},\"limit\":2}"
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollectionPreviewOutputBody",
+      "body_file": "preview_collection_ok.json"
+    },
+    {
       "name": "profile_verification_required",
       "operation_id": null,
       "scenario": "A profile-scoped operation called for a PIN-locked profile without X-Profile-Token; clients start PIN entry on this type.",

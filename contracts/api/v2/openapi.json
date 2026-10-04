@@ -34851,6 +34851,10 @@
             "minLength": 1,
             "type": "string"
           },
+          "poster_url": {
+            "description": "Card-size poster URL; omitted when the item has none",
+            "type": "string"
+          },
           "title": {
             "type": "string"
           },

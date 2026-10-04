@@ -81,6 +81,7 @@ type PersonalCollectionPreviewItem struct {
 	ContentID ID     `json:"content_id"`
 	Title     string `json:"title"`
 	Type      string `json:"type"`
+	PosterURL string `json:"poster_url,omitempty" doc:"Card-size poster URL; omitted when the item has none"`
 }
 type PersonalCollectionPreviewOutput struct {
 	Body struct {
@@ -300,7 +301,7 @@ func (reg *Registry) previewPersonalCollection(ctx context.Context, in *Personal
 	}
 	items := make([]PersonalCollectionPreviewItem, 0, len(v.Items))
 	for _, i := range v.Items {
-		items = append(items, PersonalCollectionPreviewItem{ContentID: ID(i.ContentID), Title: i.Title, Type: i.Type})
+		items = append(items, PersonalCollectionPreviewItem{ContentID: ID(i.ContentID), Title: i.Title, Type: i.Type, PosterURL: i.PosterURL})
 	}
 	out := &PersonalCollectionPreviewOutput{}
 	out.Body.Collection = NewCollection(items)
