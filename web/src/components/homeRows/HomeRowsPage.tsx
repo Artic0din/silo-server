@@ -179,7 +179,14 @@ export function HomeRowsPage({
   );
 
   return (
-    <div className={cn("mx-auto grid max-w-[1000px] gap-7", (narrow || selectMode) && "pb-24")}>
+    // One column that may shrink below its content's width, so the page pills
+    // scroll instead of pushing the list past the right edge of a phone.
+    <div
+      className={cn(
+        "mx-auto grid max-w-[1000px] grid-cols-[minmax(0,1fr)] gap-7",
+        (narrow || selectMode) && "pb-24",
+      )}
+    >
       <header className="page-header gap-5">
         {surface === "admin" ? (
           <div className="space-y-3">

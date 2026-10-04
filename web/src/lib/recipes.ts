@@ -34,7 +34,7 @@ export interface RecipeCatalogResponse {
   categories: Partial<Record<Category, RecipeDefinition[]>>;
 }
 
-// matchRecipePreset returns the gallery preset a section's config came from.
+// matchRecipePreset returns the preset a section's config came from.
 // Several presets can share one recipe type and differ only in their params
 // (TMDB Trending Today vs This Week), so the type alone cannot name the
 // section. The preset whose default params the config matches on the most
@@ -56,12 +56,6 @@ export function matchRecipePreset(
     }
   }
   return best ?? def.presets[0];
-}
-
-export interface Candidate {
-  value: string;
-  display_name: string;
-  subtitle?: string;
 }
 
 export interface PreviewRequest {
@@ -110,17 +104,6 @@ export function recipeCatalogFromV2(
     }));
   }
   return { categories };
-}
-
-export async function fetchCandidates(recipeType: string): Promise<Candidate[]> {
-  const body = await v2("GET /api/v2/sections/recipes/{type}/candidates", {
-    path: { type: recipeType },
-  });
-  return body.candidates.map((candidate) => ({
-    value: candidate.value,
-    display_name: candidate.display_name,
-    ...(candidate.subtitle ? { subtitle: candidate.subtitle } : {}),
-  }));
 }
 
 export async function previewSection(

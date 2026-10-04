@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAccessToken, setProfileId } from "@/api/client";
 import type { SectionOverride, SettingsSectionEntry } from "@/api/types";
 import { sectionKeys } from "@/hooks/queries/keys";
+import { expectPhoneLayout, stubPhone } from "@/components/homeRows/phoneLayout.test-support";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import HomeScreenSettings from "./HomeScreenSettings";
 
@@ -236,6 +237,12 @@ async function openMore() {
 }
 
 describe("Settings > Home Screen", () => {
+  it("fits a phone", async () => {
+    stubPhone();
+    await renderPage();
+    await expectPhoneLayout("Home");
+  });
+
   it("is titled Home screen and says only this profile changes", async () => {
     await renderPage();
     expect(screen.getByRole("heading", { level: 2, name: "Home screen" })).toBeInTheDocument();

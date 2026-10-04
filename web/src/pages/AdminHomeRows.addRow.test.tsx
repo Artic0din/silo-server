@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import golden from "@/lib/homeRows/payloads.golden.json";
+import { expectPhoneLayout, stubPhone } from "@/components/homeRows/phoneLayout.test-support";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
 import { V2ProblemError } from "@/api/v2/request";
 import AdminHomeRows from "./AdminHomeRows";
@@ -224,6 +225,12 @@ async function editRow(title: string) {
 const creates = () => writes.filter((write) => write.operation === "POST /api/v2/admin/sections");
 
 describe("admin Home rows page", () => {
+  it("fits a phone", async () => {
+    stubPhone();
+    await setup();
+    await expectPhoneLayout("Home");
+  });
+
   it("is titled Home rows and says who sees the rows", async () => {
     await setup();
     expect(screen.getByRole("heading", { level: 1, name: "Home rows" })).toBeInTheDocument();
