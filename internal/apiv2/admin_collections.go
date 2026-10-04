@@ -126,11 +126,12 @@ type AdminCollectionCapabilityOutputBody struct {
 	Groups  bool `json:"groups"`
 	Imports bool `json:"imports"`
 	// ImportSources lists the sources a new collection can be imported from.
-	ImportSources    []string                   `json:"import_sources" enum:"mdblist,tmdb,tmdb_list" doc:"Import sources a new collection can be created from; empty when imports is false" example:"[\"mdblist\",\"tmdb\",\"tmdb_list\"]"`
-	Artwork          bool                       `json:"artwork"`
-	ItemReorder      bool                       `json:"item_reorder"`
-	MDBListSearch    bool                       `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
-	ScheduleTimeZone CollectionScheduleTimeZone `json:"schedule_time_zone"`
+	ImportSources     []string                   `json:"import_sources" enum:"mdblist,tmdb,tmdb_list" doc:"Import sources a new collection can be created from; empty when imports is false" example:"[\"mdblist\",\"tmdb\",\"tmdb_list\"]"`
+	Artwork           bool                       `json:"artwork"`
+	ItemReorder       bool                       `json:"item_reorder"`
+	TemplateSummaries bool                       `json:"template_summaries" doc:"listAdminCollectionTemplateBundles returns each bundle's templates" example:"true"`
+	MDBListSearch     bool                       `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
+	ScheduleTimeZone  CollectionScheduleTimeZone `json:"schedule_time_zone"`
 }
 
 func adminCollectionOperation(method, path, id, summary string, guarded bool) Operation {
@@ -173,6 +174,7 @@ func registerAdminCollections(reg *Registry) {
 		out.Body.ImportSources = collectionImportSources(v.Imports)
 		out.Body.Artwork = v.Artwork
 		out.Body.ItemReorder = v.ItemReorder
+		out.Body.TemplateSummaries = true
 		return out, nil
 	})
 	registerAdminCollectionGroups(reg)

@@ -132,7 +132,9 @@ Both collection capability documents, `getCollectionCapabilities` and
 with the new collection and returned as `description` on collection reads. Omitting it stores
 an empty description; `null` is a validation failure. Check `create_description` in the
 `getCollectionCapabilities` document before sending it: a server without that flag rejects the
-member as unknown. `updateCollection` changes the description of an existing collection.
+member as unknown, and an account whose user store does not keep descriptions (the SQLite
+store) reports `false` and answers a non-empty `description` with `501 capability_unsupported`.
+`updateCollection` changes the description of an existing collection.
 
 The frozen `/api/v1/collections` create ignores a `description` member, in a JSON body and in
 the multipart `data` field alike; the collection is created with an empty description.
@@ -418,6 +420,8 @@ each bundle with `templates`, a summary of every template in `template_ids` orde
 `source`, `media_kind`, `featured`, `poster_path` (omitted when the template has no poster) and
 `needs_setup`. The list covers every source a bundle uses, including `tmdb_discover` and
 `tmdb_collection` templates, so a client can describe a bundle without the template catalog.
+Check `template_summaries` in the `getAdminCollectionCapabilities` document before relying on
+`templates`; a server without it returns bundles without summaries.
 
 `featured` is the pinned-first flag a collection created from the template starts with.
 `needs_setup` is true for a template whose collection is created empty and cannot sync until an

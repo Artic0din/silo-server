@@ -233,6 +233,21 @@ describe("SettingsLayout", () => {
     expect(screen.getAllByRole("link", { name: /Home Screen/ })).toHaveLength(1);
   });
 
+  it.each(["hide watched items", "export layout", "import layout", "reset home"])(
+    "finds Home Screen when searching for %s",
+    async (query) => {
+      render(
+        <MemoryRouter initialEntries={["/settings/playback"]}>
+          <SettingsLayout />
+        </MemoryRouter>,
+      );
+
+      await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), query);
+
+      expect(screen.getAllByRole("link", { name: /Home Screen/ })).toHaveLength(1);
+    },
+  );
+
   it("matches individual personal setting labels", async () => {
     render(
       <MemoryRouter initialEntries={["/settings/playback"]}>

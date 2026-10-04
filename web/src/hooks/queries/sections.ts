@@ -1,15 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { ProfileRequestContextSnapshot } from "@/api/client";
 import { V2ProblemError } from "@/api/v2/request";
 import {
   fetchAdminSections,
   fetchAdminSectionCapabilities,
-  createAdminSection,
   bulkCreateAdminSections,
-  updateAdminSection,
   deleteAdminSection,
-  reorderAdminSections,
   restoreAdminSections,
   type AdminSectionDeleteTarget,
 } from "@/api/adminSections";
@@ -47,6 +45,8 @@ export interface SaveOverridesRequest {
   scope: ProfileSectionScope;
   library_id?: string;
   overrides: SectionOverride[];
+  /** The profile to write as, when it must not follow a later profile switch. */
+  profileContext?: ProfileRequestContextSnapshot;
 }
 
 /**
@@ -148,11 +148,11 @@ export function useLibrarySections(libraryId: number) {
   });
 }
 
-export function useAdminSections(scope: string, libraryId?: number) {
+export function useAdminSections(scope: string, libraryId?: number, enabled = true) {
   return useQuery({
     queryKey: sectionKeys.adminList(scope, libraryId),
     queryFn: ({ signal }) => fetchAdminSections(scope, libraryId, signal),
-    enabled: scope !== "library" || Boolean(libraryId),
+    enabled: enabled && (scope !== "library" || Boolean(libraryId)),
   });
 }
 
@@ -160,17 +160,6 @@ export function useAdminSectionCapabilities() {
   return useQuery({
     queryKey: [...sectionKeys.all, "admin-capabilities"],
     queryFn: fetchAdminSectionCapabilities,
-  });
-}
-
-export function useCreateSection() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: createAdminSection,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
   });
 }
 
@@ -193,18 +182,8 @@ export function useBulkCreateSections() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: bulkCreateAdminSections,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
-  });
-}
-
-export function useUpdateSection() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: updateAdminSection,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
     },
@@ -215,6 +194,7 @@ export function useDeleteSection() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: deleteAdminSection,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });
@@ -229,6 +209,7 @@ export function useDeleteSections() {
 
   const mutation = useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     onMutate: (targets) => {
       setProgress({ completed: 0, total: new Set(targets.map((target) => target.id)).size });
     },
@@ -278,17 +259,6 @@ export function useDeleteSections() {
   return { ...mutation, progress };
 }
 
-export function useReorderSections() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: reorderAdminSections,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
-  });
-}
-
 function sectionScopeQuery(scope: ProfileSectionScope, libraryId?: string | number) {
   return { scope, library_id: libraryId ? String(libraryId) : undefined };
 }
@@ -317,30 +287,27 @@ export function useProfileSectionOverrides(scope: ProfileSectionScope, libraryId
   });
 }
 
-export function useSaveProfileOverrides() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: SaveOverridesRequest) =>
-      v2("PUT /api/v2/profile/sections", {
-        query: sectionScopeQuery(data.scope, data.library_id),
-        body: { overrides: data.overrides },
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
+/**
+ * Replaces the profile's overrides for one page. Not retry-safe and unguarded
+ * (last write wins), so callers serialize their own saves and refetch after.
+ */
+export function replaceProfileSectionOverrides(data: SaveOverridesRequest) {
+  return v2("PUT /api/v2/profile/sections", {
+    query: sectionScopeQuery(data.scope, data.library_id),
+    body: { overrides: data.overrides },
+    profileContext: data.profileContext,
   });
 }
 
-export function useResetProfileOverrides() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (params: { scope: ProfileSectionScope; libraryId?: string }) =>
-      v2("DELETE /api/v2/profile/sections", {
-        query: sectionScopeQuery(params.scope, params.libraryId),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sectionKeys.all });
-    },
+/** Drops every override the profile saved for one page. */
+export function resetProfileSectionOverrides(params: {
+  scope: ProfileSectionScope;
+  libraryId?: string;
+  profileContext?: ProfileRequestContextSnapshot;
+}) {
+  return v2("DELETE /api/v2/profile/sections", {
+    query: sectionScopeQuery(params.scope, params.libraryId),
+    profileContext: params.profileContext,
   });
 }
 
@@ -348,6 +315,7 @@ export function useRestoreDefaultSections() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
+    mutationKey: sectionKeys.adminWrite(),
     mutationFn: restoreAdminSections,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sectionKeys.all });

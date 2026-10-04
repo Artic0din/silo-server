@@ -29,7 +29,11 @@ import {
   filterRecipeCatalog,
   sectionTypeLabel,
 } from "@/lib/sectionTypes";
-import { buildAdminSectionPayload, buildProfileSectionSaveEntry } from "@/lib/homeRows/payloads";
+import {
+  buildAdminSectionPayload,
+  buildProfileSectionSaveEntry,
+  collectionIdOf,
+} from "@/lib/homeRows/payloads";
 import {
   matchRecipePreset,
   type Category,
@@ -55,13 +59,6 @@ const CATEGORY_LABELS: Record<Category, string> = {
   hand_picked: "Hand Picked",
   custom: "Custom",
 };
-
-function getCollectionId(config?: Record<string, unknown>): string {
-  const userValue = config?.user_collection_id;
-  if (typeof userValue === "string" && userValue) return userValue;
-  const libraryValue = config?.library_collection_id;
-  return typeof libraryValue === "string" ? libraryValue : "";
-}
 
 function isLegacyFilterType(type: string): boolean {
   return FILTER_SECTION_TYPES.has(type);
@@ -184,7 +181,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setFeatured(props.section.featured);
       setEnabled("enabled" in props.section ? Boolean(props.section.enabled) : true);
       setQueryDefinition(queryDefinitionFromSectionConfig(props.section.config));
-      setSelectedCollectionId(getCollectionId(props.section.config));
+      setSelectedCollectionId(collectionIdOf(props.section.config, props.mode));
       setRecipeParams(parseRecipeParams(props.section.config));
     } else {
       setSectionType("recently_added");
@@ -196,7 +193,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setSelectedCollectionId("");
       setRecipeParams({});
     }
-  }, [props.open, props.section]);
+  }, [props.open, props.section, props.mode]);
 
   useEffect(() => {
     if (!props.open || showCollectionPicker || showLegacyFilter) return;
@@ -251,8 +248,19 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
     }
   }
 
+  // The row keeps its stored collection until the user picks another one, so
+  // only a picked collection must come from the list (its source names the key).
+  const storedCollectionId =
+    props.section?.section_type === "collection"
+      ? collectionIdOf(props.section.config, props.mode)
+      : "";
+  const collectionUnsaveable =
+    collectionsLoading ||
+    !selectedCollectionId ||
+    (selectedCollectionId !== storedCollectionId &&
+      !collections.some((collection) => collection.id === selectedCollectionId));
   const saveDisabled =
-    (showCollectionPicker && !selectedCollectionId) ||
+    (showCollectionPicker && collectionUnsaveable) ||
     (props.mode === "admin" && props.scope === "library" && props.currentLibraryId == null);
 
   return (
@@ -377,8 +385,9 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
 
           {showCollectionPicker ? (
             <div className="space-y-2">
-              <Label>Collection</Label>
+              <Label htmlFor="section-collection">Collection</Label>
               <CollectionSearchableSelect
+                id="section-collection"
                 options={collections}
                 value={selectedCollectionId}
                 onChange={setSelectedCollectionId}
