@@ -8,10 +8,12 @@ import {
   closestCenter,
   useSensor,
   useSensors,
+  type Active,
   type Announcements,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
+  type Over,
   type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -40,6 +42,7 @@ import {
   ARRANGE_HINT,
   ARRANGE_SUBTITLE,
   MOVE_FAILED,
+  ORDER_CHANGED,
   arrangeHeading,
 } from "@/lib/collections/copy";
 import {
@@ -52,6 +55,7 @@ import {
   planShelfMove,
   shelfOf,
   shownCollections,
+  sortedBy,
   type BoardGroup,
   type CollectionMove,
   type Shelf,
@@ -70,6 +74,10 @@ const SCREEN_READER_INSTRUCTIONS =
   "To move a shelf or a collection, focus its handle and press Space or Enter. Use the arrow keys to move it, Space or Enter to drop it, or Escape to cancel. Every collection's ⋯ also has Move to shelf.";
 
 type OrderReads = Awaited<ReturnType<typeof fetchAdminBoardOrderSnapshot>>;
+type OrderRead = Awaited<ReturnType<typeof fetchAdminGroupOrderSnapshot>>;
+
+/** A fresh read found the order changed since the move was planned from it. */
+class OrderChanged extends Error {}
 
 function sameIds(actual: readonly string[], expected: readonly string[]) {
   return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
@@ -95,6 +103,12 @@ function readsMatch(reads: OrderReads, shelves: readonly Shelf[]) {
       );
     })
   );
+}
+
+/** The shelf a collection lands on, and the card it lands on (null for the shelf itself). */
+function collectionDrop(target: ArrangeDragData): { shelfId: string; overId: string | null } {
+  if (target.kind === "collection") return { shelfId: target.shelfId, overId: target.id };
+  return { shelfId: target.kind === "shelf" ? target.id : target.shelfId, overId: null };
 }
 
 /** A collection drag only meets cards and shelf bodies; a shelf drag only meets shelves. */
@@ -124,10 +138,12 @@ export interface GroupsBoardProps {
 /**
  * Arrange: one library's shelves top to bottom, the way viewers see them,
  * beside a preview of its Collections tab. Every change saves right away and
- * shows at once; a move that fails goes back and offers Try again. Drags are
- * checked against the order read when the board loaded, so a move never
- * lands on an order someone else changed in the meantime. Phones have no
- * drag: a card's ⋯ opens a sheet that moves it.
+ * shows at once; a move that fails goes back and offers Try again. Every
+ * move is checked against the order it was planned from: a drag against the
+ * order read when the board loaded, a menu move or Try again against a fresh
+ * read, so a move never lands on an order someone else changed in the
+ * meantime. Rename keeps the shelf's ETag from when its dialog opened. Phones
+ * have no drag: a card's ⋯ opens a sheet that moves it.
  */
 export function GroupsBoard({
   libraryID,
@@ -183,7 +199,7 @@ export function GroupsBoard({
   const reorderCollections = useReorderCollectionsInGroup(libraryID);
 
   const [naming, setNaming] = useState<
-    { mode: "create" } | { mode: "rename"; shelf: Shelf } | null
+    { mode: "create" } | { mode: "rename"; shelf: Shelf; name: string; etag: string } | null
   >(null);
   const [deleting, setDeleting] = useState<Shelf | null>(null);
   const [moving, setMoving] = useState<LibraryCollection | null>(null);
@@ -200,44 +216,74 @@ export function GroupsBoard({
     }
   }
 
-  function moveFailed(retry: () => Promise<unknown>) {
+  function moveFailed(error: unknown, retry: () => Promise<unknown>) {
+    if (error instanceof OrderChanged) {
+      toast.error(ORDER_CHANGED);
+      void invalidateAdminCollectionQueries(queryClient);
+      return;
+    }
     toast.error(MOVE_FAILED, {
       action: {
         label: "Try again",
-        onClick: () => void retry().catch(() => moveFailed(retry)),
+        onClick: () => void retry().catch((next: unknown) => moveFailed(next, retry)),
       },
     });
   }
 
-  /** Saves a collection's new shelf order. Without an ETag from a drag's reads, it reads a fresh one. */
+  /**
+   * Shows `next` and saves an order planned from `base`. A drag brings the
+   * ETag its reads matched; otherwise (menus, Try again) a fresh read must
+   * still show `base`, or the move stops and says someone else changed it.
+   */
+  function saveOrder(
+    next: Shelf[],
+    base: readonly string[],
+    read: () => Promise<OrderRead>,
+    put: (etag: string) => Promise<unknown>,
+    etag?: string,
+  ) {
+    const send = async (tag?: string) => {
+      if (tag === undefined) {
+        const fresh = await read();
+        if (fresh.has_more || !sameIds(fresh.ordered_ids, base)) throw new OrderChanged();
+        tag = fresh.etag;
+      }
+      return put(tag);
+    };
+    void change(next, () => send(etag)).catch((error: unknown) => moveFailed(error, () => send()));
+  }
+
   function saveCollectionMove(collectionId: string, plan: CollectionMove, etag?: string) {
-    const send = async (tag?: string) =>
-      reorderCollections.mutateAsync({
-        groupID: plan.shelfId,
-        orderedIDs: plan.orderedIds,
-        etag: tag ?? (await fetchAdminGroupCollectionOrderSnapshot(plan.shelfId, libraryID)).etag,
-        ...(plan.shelfId === UNGROUPED ? { libraryId: libraryID } : {}),
-      });
-    void change(applyCollectionMove(shelves, collectionId, plan), () => send(etag)).catch(() =>
-      moveFailed(() => send()),
+    const target = saved.find((shelf) => shelf.id === plan.shelfId);
+    saveOrder(
+      applyCollectionMove(saved, collectionId, plan),
+      target?.collections.map((entry) => entry.id) ?? [],
+      () => fetchAdminGroupCollectionOrderSnapshot(plan.shelfId, libraryID),
+      (tag) =>
+        reorderCollections.mutateAsync({
+          groupID: plan.shelfId,
+          orderedIDs: plan.orderedIds,
+          etag: tag,
+          ...(plan.shelfId === UNGROUPED ? { libraryId: libraryID } : {}),
+        }),
+      etag,
     );
   }
 
   function saveShelfOrder(orderedIds: string[], etag?: string) {
-    const send = async (tag?: string) =>
-      reorderGroups.mutateAsync({
-        orderedIDs: orderedIds,
-        etag: tag ?? (await fetchAdminGroupOrderSnapshot(libraryID)).etag,
-      });
-    void change(applyShelfMove(shelves, orderedIds), () => send(etag)).catch(() =>
-      moveFailed(() => send()),
+    saveOrder(
+      applyShelfMove(saved, orderedIds),
+      saved.map((shelf) => shelf.id),
+      () => fetchAdminGroupOrderSnapshot(libraryID),
+      (tag) => reorderGroups.mutateAsync({ orderedIDs: orderedIds, etag: tag }),
+      etag,
     );
   }
 
-  /** A shelf's ETag, read fresh before each change to it; a failed read says so. */
-  async function shelfETag(id: string) {
+  /** A shelf as the server has it now, with its ETag; a failed read says so. */
+  async function readShelf(id: string) {
     try {
-      return (await fetchAdminGroupSnapshot(id)).etag;
+      return await fetchAdminGroupSnapshot(id);
     } catch (error) {
       toast.error(adminMutationMessage(error, "Couldn't read the shelf"));
       throw error;
@@ -247,8 +293,17 @@ export function GroupsBoard({
   async function patchShelf(
     id: string,
     patch: { name?: string; default_sort_mode?: GroupSortMode },
+    etag?: string,
   ) {
-    await updateGroup.mutateAsync({ id, etag: await shelfETag(id), ...patch });
+    await updateGroup.mutateAsync({ id, etag: etag ?? (await readShelf(id)).etag, ...patch });
+  }
+
+  /** Rename saves against the shelf as the dialog first showed it. */
+  function openRename(shelf: Shelf) {
+    void readShelf(shelf.id).then(
+      ({ group, etag }) => setNaming({ mode: "rename", shelf, name: group.name, etag }),
+      () => undefined,
+    );
   }
 
   function changeSort(shelf: Shelf, mode: GroupSortMode) {
@@ -259,11 +314,11 @@ export function GroupsBoard({
   }
 
   async function removeShelf(shelf: Shelf) {
-    await deleteGroup.mutateAsync({ id: shelf.id, etag: await shelfETag(shelf.id) });
+    await deleteGroup.mutateAsync({ id: shelf.id, etag: (await readShelf(shelf.id)).etag });
   }
 
   function moveToShelf(collection: LibraryCollection, shelfId: string) {
-    const plan = planCollectionMove(shelves, collection.id, shelfId, null);
+    const plan = planCollectionMove(saved, collection.id, shelfId, null);
     if (plan) saveCollectionMove(collection.id, plan);
   }
 
@@ -305,13 +360,8 @@ export function GroupsBoard({
       return;
     }
     if (data.kind !== "collection") return;
-    const shelfId = target.kind === "shelf" ? target.id : target.shelfId;
-    const plan = planCollectionMove(
-      saved,
-      data.id,
-      shelfId,
-      target.kind === "collection" ? target.id : null,
-    );
+    const { shelfId, overId } = collectionDrop(target);
+    const plan = planCollectionMove(saved, data.id, shelfId, overId);
     if (plan) saveCollectionMove(data.id, plan, reads.collectionOrders.get(plan.shelfId)?.etag);
   }
 
@@ -346,6 +396,24 @@ export function GroupsBoard({
       const shelf = shelfById(over);
       return shelf !== undefined && !acceptsCollections(shelf);
     };
+    /** What a drop did; a collection drop that plans no move says why. */
+    const dropped = (active: Active, over: Over | null): string => {
+      if (!over) return `${name(active.id)} dropped. Nothing moved.`;
+      if (refused(active.id, over.id))
+        return `${name(active.id)} can't go on My collections. Nothing moved.`;
+      const target = over.data.current as ArrangeDragData | undefined;
+      if (String(active.id).startsWith("col:") && target) {
+        const { shelfId, overId } = collectionDrop(target);
+        if (!planCollectionMove(shelves, bare(active.id), shelfId, overId)) {
+          const shelf = shelfById(shelfId);
+          const by = shelf && sortedBy(shelf.sortMode);
+          if (by && shelfOf(shelves, bare(active.id)) === shelf)
+            return `${shelf.name} sorts by ${by}, so the order didn't change.`;
+          return `${name(active.id)} dropped. Nothing moved.`;
+        }
+      }
+      return `${name(active.id)} dropped at ${place(over.id)}.`;
+    };
     return {
       onDragStart: ({ active }) => {
         lastOver.current = active.id;
@@ -358,10 +426,7 @@ export function GroupsBoard({
           return `${name(active.id)} can't go on My collections. It holds viewers' own collections.`;
         return `${name(active.id)} is over ${place(over.id)}.`;
       },
-      onDragEnd: ({ active, over }) =>
-        over && !refused(active.id, over.id)
-          ? `${name(active.id)} dropped at ${place(over.id)}.`
-          : `${name(active.id)} dropped. Nothing moved.`,
+      onDragEnd: ({ active, over }) => dropped(active, over),
       onDragCancel: ({ active }) => `Moving ${name(active.id)} was canceled.`,
     };
   }, [shelves]);
@@ -464,13 +529,9 @@ export function GroupsBoard({
                         isFirst={index === 0}
                         isLast={index === shelves.length - 1}
                         disabled={!canEdit || changing}
-                        onRename={() => setNaming({ mode: "rename", shelf })}
+                        onRename={() => openRename(shelf)}
                         onMove={(to) => {
-                          const order = planShelfMove(
-                            shelves,
-                            shelf.id,
-                            to === "top" ? 0 : Infinity,
-                          );
+                          const order = planShelfMove(saved, shelf.id, to === "top" ? 0 : Infinity);
                           if (order) saveShelfOrder(order);
                         }}
                         onDelete={() => setDeleting(shelf)}
@@ -505,10 +566,10 @@ export function GroupsBoard({
         <ShelfNameDialog
           mode={naming.mode}
           libraryName={libraryName}
-          initialName={naming.mode === "rename" ? naming.shelf.name : ""}
+          initialName={naming.mode === "rename" ? naming.name : ""}
           onSave={async (name) => {
             if (naming.mode === "create") await createGroup.mutateAsync({ name });
-            else await patchShelf(naming.shelf.id, { name });
+            else await patchShelf(naming.shelf.id, { name }, naming.etag);
           }}
           onClose={() => setNaming(null)}
         />

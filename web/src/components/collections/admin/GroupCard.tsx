@@ -114,9 +114,10 @@ export function GroupCard({
     disabled: dragDisabled,
     data: { kind: "shelf", id: shelf.id } satisfies ArrangeDragData,
   });
+  // My collections' body stays a drop target so a card dragged there is
+  // announced as refused; the board never moves a server collection onto it.
   const { setNodeRef: setBodyRef, isOver } = useDroppable({
     id: `body:${shelf.id}`,
-    disabled: mine,
     data: { kind: "body", shelfId: shelf.id } satisfies ArrangeDragData,
   });
   const cards = shownCollections(shelf);
@@ -193,7 +194,10 @@ export function GroupCard({
       </div>
 
       {collapsed ? null : mine ? (
-        <p className="bg-muted/30 text-muted-foreground m-0 flex items-start gap-2.5 rounded-[14px] px-3.5 py-3 text-[13px] leading-normal">
+        <p
+          ref={setBodyRef}
+          className="bg-muted/30 text-muted-foreground m-0 flex items-start gap-2.5 rounded-[14px] px-3.5 py-3 text-[13px] leading-normal"
+        >
           <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
           {MY_COLLECTIONS_NOTE}
         </p>

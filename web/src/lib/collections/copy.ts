@@ -178,6 +178,9 @@ export const MY_COLLECTIONS_NOTE = `Each viewer's own collections land here when
 export const MY_COLLECTIONS_NO_DROP = "Viewers' own collections only";
 export const HIDDEN_TAG = "Hidden";
 export const MOVE_FAILED = "Couldn't move it";
+/** A move found the order changed by someone else since Arrange read it; nothing was saved. */
+export const ORDER_CHANGED =
+  "Someone else changed this order, so nothing moved. Arrange now shows their order; move it again.";
 
 export const VIEWER_PREVIEW_LABEL = "What viewers see";
 export const VIEWER_PREVIEW_MINE = "Each viewer's own";

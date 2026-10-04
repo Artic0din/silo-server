@@ -14,6 +14,7 @@ import getAdminCollectionOk from "../../../../../contracts/api/v2/fixtures/get_a
 import { adminCollectionFromV2 } from "@/api/adminCollections";
 import type { LibraryCollection, LibraryCollectionGroup } from "@/api/types";
 import { stubPhone } from "@/components/homeRows/phoneLayout.test-support";
+import { MOVE_FAILED, ORDER_CHANGED } from "@/lib/collections/copy";
 import { adminCapabilities } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import { GroupsBoard } from "./GroupsBoard";
@@ -136,7 +137,7 @@ const handlers = {
 };
 
 /** Renders the board; awaited, it returns once shelf changes are on (capabilities read). */
-async function renderBoard() {
+async function renderBoard(groups: Group[] = [franchises, mine]) {
   render(
     <QueryClientProvider
       client={
@@ -148,7 +149,7 @@ async function renderBoard() {
       <GroupsBoard
         libraryID={1}
         libraryName="Movies"
-        groups={[franchises, mine]}
+        groups={groups}
         ungrouped={ungrouped}
         ungroupedSortOrder={2}
         isVisible={(entry) => entry.visibility !== "hidden"}
@@ -199,6 +200,24 @@ async function press(code: string, times = 1) {
       fireEvent.keyDown(document.activeElement!, { code });
     });
   }
+}
+
+/** Answers the shelf order reads as if another admin had saved `orders` since the board loaded. */
+function someoneReorders(orders: Record<string, string[]>) {
+  v2Recorder.answer(
+    "GET /api/v2/admin/collection-groups/{group_id}/collections/order",
+    ({ path }: { path: string }) => {
+      const id = path.split("/")[5]!;
+      return {
+        library_id: "1",
+        group_id: id,
+        ordered_ids: orders[id] ?? ORDERS[id],
+        has_more: false,
+      };
+    },
+  );
+  for (const id of Object.keys(orders))
+    v2Recorder.bump(`/api/v2/admin/collection-groups/${id}/collections/order`);
 }
 
 async function openMenu(name: string) {
@@ -313,6 +332,114 @@ describe("GroupsBoard", () => {
     });
   });
 
+  it("doesn't retry a move over an order someone else changed meanwhile", async () => {
+    let fail: (error: Error) => void = () => {};
+    v2Recorder.answer(
+      "PUT /api/v2/admin/collection-groups/{group_id}/collections/order",
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    await renderBoard();
+    await grabWithKeyboard("Move Staff picks");
+    await press("ArrowDown", 4);
+    await press("Space");
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+
+    // Another admin reorders No heading, keeping the same collections.
+    someoneReorders({ ungrouped: ["c", "a", "b"] });
+    await act(async () => fail(new Error("precondition failed")));
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(MOVE_FAILED, expect.anything()),
+    );
+    const [, options] = vi.mocked(toast.error).mock.calls[0]!;
+    await act(async () => {
+      (options as unknown as { action: { onClick: () => void } }).action.onClick();
+    });
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(ORDER_CHANGED));
+    expect(v2Recorder.writes()).toHaveLength(1);
+  });
+
+  it("won't move a collection from its ⋯ onto an order someone else changed", async () => {
+    await renderBoard();
+    someoneReorders({ ungrouped: ["b", "a", "c"] });
+    const user = await openMenu("More for Alien");
+    (await screen.findByRole("menuitem", { name: "Move to shelf" })).focus();
+    await user.keyboard("{ArrowRight}");
+    await user.click(await screen.findByRole("menuitemradio", { name: "No heading" }));
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(ORDER_CHANGED));
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
+  it("won't move a shelf to the top over a shelf order someone else changed", async () => {
+    await renderBoard();
+    v2Recorder.answer("GET /api/v2/admin/libraries/{library_id}/collection-groups/order", {
+      library_id: "1",
+      group_id: "",
+      ordered_ids: ["ungrouped", "g1", "mine"],
+      has_more: false,
+    });
+    v2Recorder.bump("/api/v2/admin/libraries/1/collection-groups/order");
+    const user = await openMenu("More for shelf My collections");
+    await user.click(await screen.findByRole("menuitem", { name: "Move to top" }));
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(ORDER_CHANGED));
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
+  it("says a server collection can't go on My collections when it's dropped there", async () => {
+    await renderBoard();
+    const myShelf = screen.getByRole("region", { name: "Shelf My collections" });
+    // My collections sits just below the last card of No heading.
+    place(within(myShelf).getByText(/Each viewer's own collections land here/), 250, 40);
+    await grabWithKeyboard("Move Staff picks");
+    await press("ArrowDown", 6);
+    expect(
+      await screen.findByText(
+        "Staff picks can't go on My collections. It holds viewers' own collections.",
+      ),
+    ).toBeInTheDocument();
+    await press("Space");
+    expect(
+      await screen.findByText("Staff picks can't go on My collections. Nothing moved."),
+    ).toBeInTheDocument();
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
+  it("says a shelf sorted by name keeps its order when a card is dropped within it", async () => {
+    const sorted = {
+      ...franchises,
+      default_sort_mode: "name_asc",
+      collections: [collection("f2", "Blade Runner"), collection("f1", "Alien")],
+    } as Group;
+    v2Recorder.answer(
+      "GET /api/v2/admin/collection-groups/{group_id}/collections/order",
+      ({ path }: { path: string }) => {
+        const id = path.split("/")[5]!;
+        const ids = id === "g1" ? ["f2", "f1"] : ORDERS[id];
+        return { library_id: "1", group_id: id, ordered_ids: ids, has_more: false };
+      },
+    );
+    await renderBoard([sorted, mine]);
+    const shelf = screen.getByRole("region", { name: "Shelf Franchises" });
+    place(
+      within(shelf).getByRole("button", { name: "Move Blade Runner" }).parentElement!,
+      2250,
+      40,
+    );
+    await grabWithKeyboard("Move Alien");
+    await press("ArrowDown", 2);
+    await press("Space");
+
+    expect(
+      await screen.findByText("Franchises sorts by name, so the order didn't change."),
+    ).toBeInTheDocument();
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
   it("moves a collection to another shelf from its ⋯ with a fresh ETag", async () => {
     await renderBoard();
     const user = await openMenu("More for Alien");
@@ -372,6 +499,26 @@ describe("GroupsBoard", () => {
       body: { name: "Sagas" },
     });
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("renames with the shelf as it was when Rename opened, so a rename meanwhile conflicts", async () => {
+    await renderBoard();
+    const user = await openMenu("More for shelf Franchises");
+    await user.click(await screen.findByRole("menuitem", { name: "Rename shelf" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename shelf" });
+    // Another admin renames the shelf while this dialog is open.
+    v2Recorder.bump("/api/v2/admin/collection-groups/g1");
+    const name = within(dialog).getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "Sagas");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    expect(v2Recorder.writes()[0]!.headers).toEqual({
+      "If-Match": '"/api/v2/admin/collection-groups/g1#1"',
+    });
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.getByRole("dialog", { name: "Rename shelf" })).toBeInTheDocument();
   });
 
   it("saves a shelf's order for viewers when Order changes", async () => {
