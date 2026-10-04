@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Library, LibraryCollection, PageSectionConfig } from "@/api/types";
 import {
   useBulkCreateSections,
@@ -105,6 +105,11 @@ export default function AdminHomeRows() {
   const focus = useRowFocus(adapter.rows, adapter.pending);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const snapshotRequest = useRef(0);
+  // A row or order read started on one page must not open a dialog, or arm a
+  // confirmation, after the admin has moved to another page.
+  useLayoutEffect(() => {
+    snapshotRequest.current++;
+  }, [currentPageKey]);
   const [editingETag, setEditingETag] = useState<string | null>(null);
   const [editConflict, setEditConflict] = useState(false);
   const [deleteETag, setDeleteETag] = useState<string | null>(null);

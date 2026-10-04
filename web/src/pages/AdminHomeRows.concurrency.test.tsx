@@ -557,6 +557,41 @@ describe("admin Home rows list", () => {
     );
   });
 
+  it.each([
+    ["Delete row…", "GET /api/v2/admin/sections/{id}"],
+    ["Edit row…", "GET /api/v2/admin/sections/{id}"],
+    ["Restore Defaults", "GET /api/v2/admin/sections/order"],
+  ])("drops a %s read that finishes after switching pages", async (action, snapshotOperation) => {
+    await setup();
+    const implementation = mocks.request.getMockImplementation()!;
+    let finish: (() => void) | null = null;
+    mocks.request.mockImplementation((operation: string, args: Args = {}) => {
+      if (args.query?.scope === "library") {
+        args.onResponse?.(new Response(null, { headers: { ETag: '"library-1"' } }));
+        if (operation === "GET /api/v2/admin/sections/order")
+          return Promise.resolve({ scope: "library", library_id: "7", ordered_ids: ["lib"] });
+        if (operation === "GET /api/v2/admin/sections")
+          return Promise.resolve({
+            items: [{ ...initial("lib"), scope: "library", library_id: "7", title: "Movie row" }],
+          });
+      }
+      if (operation === snapshotOperation && finish === null)
+        return new Promise((resolve) => {
+          finish = () => resolve(implementation(operation, args));
+        });
+      return implementation(operation, args);
+    });
+    if (action === "Restore Defaults")
+      fireEvent.click(screen.getByRole("button", { name: "Restore Defaults" }));
+    else await chooseRowAction("Original A", action);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    fireEvent.click(screen.getByRole("button", { name: "Movies" }));
+    await screen.findByRole("button", { name: "More for Movie row" });
+    await act(async () => finish!());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
+
   it("opens the library page a ?page= link names", async () => {
     mocks.request.mockImplementation(
       (
