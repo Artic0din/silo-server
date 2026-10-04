@@ -34,7 +34,7 @@ export interface RecipeCatalogResponse {
   categories: Partial<Record<Category, RecipeDefinition[]>>;
 }
 
-// matchRecipePreset returns the gallery preset a section's config came from.
+// matchRecipePreset returns the preset a section's config came from.
 // Several presets can share one recipe type and differ only in their params
 // (TMDB Trending Today vs This Week), so the type alone cannot name the
 // section. The preset whose default params the config matches on the most

@@ -323,10 +323,10 @@ export function nextAppendPosition(positions: readonly number[]): number {
 }
 
 /**
- * The create request for a row added from the Add row dialog. The body is
- * the recipe gallery's, byte for byte, plus `position`: the server stores the
- * position a single create sends, so without it a new row would land near
- * the top of the page.
+ * The create request for a row added from the Add row dialog: the same body
+ * `buildGalleryCreateRequest` builds for a preset, plus `position`. The server
+ * stores the position a single create sends, so without it a new row would
+ * land near the top of the page.
  */
 export function buildRowCreateRequest(
   draft: RowDraft,
