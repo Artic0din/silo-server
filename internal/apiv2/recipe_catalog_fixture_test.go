@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/Silo-Server/silo-server/internal/api/handlers"
@@ -49,7 +50,16 @@ func TestRecipeCatalogMatchesWebFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	if !bytes.Equal(got.Bytes(), want) {
+	// Compare values, not bytes, so reformatting the fixture cannot fail
+	// the test without a catalog change.
+	var gotValue, wantValue any
+	if err := json.Unmarshal(got.Bytes(), &gotValue); err != nil {
+		t.Fatalf("decode catalog: %v", err)
+	}
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("decode fixture %s: %v", recipeCatalogFixture, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
 		t.Fatalf("the recipe catalog no longer matches %s; rerun with -update-recipe-catalog-fixture and review the diff", recipeCatalogFixture)
 	}
 }
