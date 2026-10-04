@@ -64,6 +64,10 @@ export interface AddRowDialogProps {
 /** What an existing row keeps when it changes to a kind the older editor handles. */
 export type BridgeCarry = Pick<RowDraft, "title" | "itemLimit" | "hero">;
 
+function bridgeCarry({ title, itemLimit, hero }: RowDraft): BridgeCarry {
+  return { title, itemLimit, hero };
+}
+
 function sentenceWithoutStop(sentence: string) {
   return sentence.replace(/\.$/, "");
 }
@@ -120,6 +124,19 @@ export function AddRowDialog({
     initialSession ? draftFromRow(initialSession.row, catalog) : null,
   );
   const [draft, setDraft] = useState<RowDraft | null>(original);
+  // A row opened before the kinds of rows loaded couldn't tell whether its name
+  // is still its variant's preset name; work that out once they arrive.
+  const [namedWithCatalog, setNamedWithCatalog] = useState(catalog !== undefined);
+  if (catalog && !namedWithCatalog) {
+    setNamedWithCatalog(true);
+    if (session && original && draft) {
+      const settled = draftFromRow(session.row, catalog);
+      setOriginal(settled);
+      if (draft.title === original.title) {
+        setDraft({ ...draft, titleFollowsVariant: settled.titleFollowsVariant });
+      }
+    }
+  }
   const [conflict, setConflict] = useState(false);
   const [changedUpstream, setChangedUpstream] = useState<DraftField[]>([]);
   const [busy, setBusy] = useState(false);
@@ -172,13 +189,7 @@ export function AddRowDialog({
 
   function pick(card: PickerCard, presetKey?: string) {
     if (BRIDGED_ROW_KINDS.has(card.type)) {
-      onBridge(
-        card.type,
-        editing ? session : null,
-        editing && draft
-          ? { title: draft.title, itemLimit: draft.itemLimit, hero: draft.hero }
-          : null,
-      );
+      onBridge(card.type, editing ? session : null, editing && draft ? bridgeCarry(draft) : null);
       return;
     }
     const preset = card.def.presets.find((entry) => entry.key === presetKey) ?? card.def.presets[0];
@@ -244,6 +255,12 @@ export function AddRowDialog({
         if (!mounted.current) return;
         const upstream = draftFromRow(next.row, catalog);
         const merged = mergeReloadedDraft(original, draft, upstream);
+        // Changed elsewhere into a kind this form can't edit (a collection, say):
+        // saving here would drop what it points at, so the older editor takes over.
+        if (BRIDGED_ROW_KINDS.has(merged.draft.sectionType)) {
+          onBridge(merged.draft.sectionType, next, bridgeCarry(merged.draft));
+          return;
+        }
         setSession(next);
         setOriginal(upstream);
         setDraft(merged.draft);
