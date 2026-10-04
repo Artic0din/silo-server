@@ -21,7 +21,6 @@ describe("Collections helpers", () => {
           name: "Shared Picks",
           collection_type: "smart",
           is_shared: true,
-          allowed_profile_ids: ["profile-1"],
           query_definition: {
             library_ids: [],
             match: "all",
@@ -39,16 +38,18 @@ describe("Collections helpers", () => {
     ).toBe(true);
   });
 
-  it("serializes smart collection access settings into the request body", () => {
+  it("serializes the sharing switch, and no profile list, into the request bodies", () => {
     const builder = toUserCollectionBuilderValue(null);
     builder.title = "Action Night";
-    builder.access = { is_shared: true, allowed_profile_ids: ["profile-1"] };
+    builder.is_shared = true;
 
     expect(toCreateCollectionBody(builder)).toMatchObject({
       name: "Action Night",
       is_shared: true,
-      allowed_profile_ids: ["profile-1"],
     });
+    expect(toCreateCollectionBody(builder)).not.toHaveProperty("allowed_profile_ids");
+    expect(toUpdateCollectionBody(builder)).toMatchObject({ is_shared: true });
+    expect(toUpdateCollectionBody(builder)).not.toHaveProperty("allowed_profile_ids");
   });
 
   it.each([

@@ -16,10 +16,13 @@ export function CollectionPosterCard({
   collection,
   kind,
   libraryId,
+  ownerName,
 }: {
   collection: LibraryTabCollection;
   kind: "regular" | "user_collections";
   libraryId: number;
+  /** Set on another profile's shared collection: shown as "by Name". */
+  ownerName?: string;
 }) {
   const { loaded, onLoad, onError } = useImageLoaded(collection.poster_url);
   const navigate = useViewTransitionNavigate();
@@ -60,7 +63,9 @@ export function CollectionPosterCard({
         {cardPresentation.caption !== "artwork" ? (
           <div className="px-0.5 pt-2.5">
             <div className="truncate text-[0.8125rem] font-semibold">{collection.title}</div>
-            {cardPresentation.caption === "title_metadata" && isUserCollection ? (
+            {ownerName ? (
+              <div className="text-muted-foreground truncate text-xs">by {ownerName}</div>
+            ) : cardPresentation.caption === "title_metadata" && isUserCollection ? (
               <div className="text-muted-foreground text-xs">User collection</div>
             ) : null}
           </div>

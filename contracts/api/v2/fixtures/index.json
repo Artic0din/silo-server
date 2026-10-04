@@ -3921,27 +3921,48 @@
       "body_file": "clear_file_marker_segment_ok.json"
     },
     {
-      "name": "collection_group_stale",
+      "name": "collection_group_unsupported",
       "operation_id": "updateCollectionGroup",
-      "scenario": "A stale group edit leaves the resource unchanged and supplies the current validator.",
+      "scenario": "Personal collection groups are no longer supported; every group operation answers capability_unsupported.",
       "request": {
         "method": "PATCH",
         "path": "/api/v2/collections/groups/g1",
         "headers": {
           "Authorization": "Bearer tok-member",
-          "If-Match": "\"stale\"",
+          "If-Match": "*",
           "X-Profile-Id": "p-owner"
         },
         "body": "{\"name\":\"Winter\"}"
       },
-      "expected_status": 412,
+      "expected_status": 501,
       "response_headers": {
-        "Content-Type": "application/problem+json",
-        "ETag": "\"a398556adb45deecf5779ee6.25gpp42zguq5f\""
+        "Content-Type": "application/problem+json"
       },
       "response_media_type": "application/problem+json",
       "schema": "#/components/schemas/Problem",
-      "body_file": "collection_group_stale.json"
+      "body_file": "collection_group_unsupported.json"
+    },
+    {
+      "name": "collection_order_foreign_id",
+      "operation_id": "reorderCollections",
+      "scenario": "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.",
+      "request": {
+        "method": "PUT",
+        "path": "/api/v2/collections/order",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "If-Match": "*",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"ordered_ids\":[\"c2\",\"c1\"]}"
+      },
+      "expected_status": 422,
+      "response_headers": {
+        "Content-Type": "application/problem+json"
+      },
+      "response_media_type": "application/problem+json",
+      "schema": "#/components/schemas/Problem",
+      "body_file": "collection_order_foreign_id.json"
     },
     {
       "name": "collection_order_precondition_required",
@@ -6139,7 +6160,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"c9356c656e9854bf58bcfd33570b062446c18d432910a3002553424c763ffa41\""
+        "ETag": "\"27f5d3b3334c752183303c80fdd319abd017a0db54bf475480858568706e56f1\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",
@@ -8833,7 +8854,7 @@
     {
       "name": "list_collections_ok",
       "operation_id": "listCollections",
-      "scenario": "Visible personal collections and account groups.",
+      "scenario": "The acting profile's own collections, then another profile's shared collection; groups is always empty.",
       "request": {
         "method": "GET",
         "path": "/api/v2/collections",

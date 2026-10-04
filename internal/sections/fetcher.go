@@ -1359,17 +1359,8 @@ func (f *Fetcher) fetchUserCollection(ctx context.Context, s ResolvedSection, li
 	}
 
 	// Verify the requesting profile can access this collection.
-	if collection.ProfileID != profileID && collection.CreatorProfileID != profileID {
-		canAccess := false
-		for _, allowed := range collection.AllowedProfileIDs {
-			if allowed == profileID {
-				canAccess = true
-				break
-			}
-		}
-		if !canAccess {
-			return []*models.MediaItem{}, 0, nil
-		}
+	if !collection.VisibleTo(profileID) {
+		return []*models.MediaItem{}, 0, nil
 	}
 	// Another profile's collection shows only what its owner can access too.
 	filter, err = catalog.PersonalCollectionFilter(ctx, f.CollectionOwners, filter, userID, profileID, collection.CreatorProfileID)
