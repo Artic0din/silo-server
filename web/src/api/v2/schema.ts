@@ -19596,7 +19596,7 @@ export interface components {
       /** @example true */
       collection_sort_preferences: boolean;
       /**
-       * @description createCollection accepts description
+       * @description createCollection stores a description for the acting account
        * @example true
        */
       create_description: boolean;
@@ -24490,7 +24490,7 @@ export interface components {
        */
       collection_type?: "manual" | "smart";
       /**
-       * @description Empty when omitted. Accepted when getCollectionCapabilities reports create_description
+       * @description Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails
        * @example For wet afternoons
        */
       description?: string;
@@ -85575,6 +85575,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };
