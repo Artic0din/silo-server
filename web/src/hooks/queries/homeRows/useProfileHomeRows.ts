@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { arrayMove } from "@dnd-kit/sortable";
 import { toast } from "sonner";
 import {
   captureProfileRequestContext,
@@ -91,8 +90,12 @@ export interface ProfileHomeRows {
   /** A save or reset, or the refetch after it, is still in flight. */
   pending: boolean;
   setHidden(id: string, hidden: boolean): void;
-  /** Moves `activeId` to where `overId` is. */
-  move(activeId: string, overId: string): void;
+  /**
+   * Moves `activeId` to where `orderedIds` (the order the user saw, after the
+   * move) puts it: before the next row there still on the page, else after
+   * the one before it. Rows that came or went since then don't shift it.
+   */
+  move(activeId: string, orderedIds: readonly string[]): void;
   /** Replaces the row with the same id, or adds it at the bottom. */
   saveSection(section: SettingsSectionEntry): void;
   /** Removes server rows from this page and deletes the profile's own rows, in one save. */
@@ -108,11 +111,13 @@ export interface ProfileHomeRows {
  * them. A save replaces the page's whole override set and the server checks no
  * version, so saves go out one at a time: changes made while one is in flight
  * merge into a single next save that carries every row they touched, and the
- * newest state wins. A failed save puts the last saved state back unless a
- * newer change is still to be sent, which then also carries the failed save's
- * rows. A change is written only as the profile that made it: one still queued
- * when another profile is picked is dropped. The page can't be switched until
- * its saves and the refetch after them land.
+ * newest state wins, naming the rows of the saves before it. A failed save
+ * puts the last saved state back unless a newer change is still to be sent,
+ * and edits then wait for the refetch, since the save may have landed. A
+ * change is written only as the profile that made it: one still queued when
+ * another profile is picked is dropped, and that profile's first change starts
+ * from its own rows. The page can't be switched until its saves and the
+ * refetch after them land.
  */
 export function useProfileHomeRows(): ProfileHomeRows {
   const queryClient = useQueryClient();
@@ -124,18 +129,22 @@ export function useProfileHomeRows(): ProfileHomeRows {
   const [draft, setDraftState] = useState<PageState | null>(null);
   // Mirrors `draft` so changes made in one event build on each other.
   const draftRef = useRef<PageState | null>(null);
+  // The profile whose changes the draft holds; another profile's change starts over.
+  const draftProfile = useRef<ProfileRequestContextSnapshot | null>(null);
   // The page as read when the draft was started. A refetch between saves may
   // bring an admin's edit; comparing the draft to it would pin the old value.
   const draftBaseline = useRef<SettingsSectionEntry[]>(NO_SECTIONS);
   const [pending, setPending] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  // Edits wait for the read after a reset or a failed save: until then they
+  // would be built on rows and overrides the server may already have changed.
+  const [editsHeld, setEditsHeld] = useState(false);
   const queue = useRef<SaveQueue>({ running: false, next: null });
   // New override IDs for admin rows on this page, reused until the page changes.
   const newOverrideId = useRef(createOverrideIdSource());
   const writes = useRef(new Map<string, number>());
 
   const ready = canMutateSectionSettings(settingsQuery, rawOverridesQuery);
-  const canEdit = ready && !resetting;
+  const canEdit = ready && !editsHeld;
 
   const setDraft = useCallback((next: PageState | null) => {
     draftRef.current = next;
@@ -198,23 +207,33 @@ export function useProfileHomeRows(): ProfileHomeRows {
           toast.error("Could not reset your rows");
         } else {
           toast.error(sectionSaveErrorMessage(error));
-          // A newer change still to be sent carries the user's latest state, this
-          // save's edits included; keep it, and name this save's rows in it.
-          // Read through the ref: that change arrived during the await.
-          const newer = queue.current.next;
-          if (newer?.kind === "save") {
-            for (const id of entry.changedIds) newer.changedIds.add(id);
-          } else if (!newer) {
+          // With no newer change to send, show the last saved state again. A
+          // failed save may still have landed, so edits wait for the refetch.
+          // Read through the ref: a newer change may have arrived during the await.
+          if (!queue.current.next) {
             setDraft(null);
+            setEditsHeld(true);
           }
         }
       }
       // A failed save may still have landed, so refetch after every attempt.
       await queryClient.invalidateQueries({ queryKey: sectionKeys.all });
+      // A newer change by the same profile carries the user's latest state,
+      // this save's edits included, so it names this save's rows too: the
+      // overrides it builds on may not hold them yet if the save failed or
+      // the refetch did. Read through the ref, as above.
+      const newer = queue.current.next;
+      if (
+        entry.kind === "save" &&
+        newer?.kind === "save" &&
+        newer.profile.profileId === entry.profile.profileId
+      ) {
+        for (const id of entry.changedIds) newer.changedIds.add(id);
+      }
     }
     q.running = false;
     setDraft(null);
-    setResetting(false);
+    setEditsHeld(false);
     setPending(false);
   }, [queryClient, send, setDraft]);
 
@@ -223,7 +242,10 @@ export function useProfileHomeRows(): ProfileHomeRows {
       if (!canEdit) return;
       const profile = captureProfileRequestContext();
       if (!profile) return;
-      const current = draftRef.current;
+      const current =
+        draftProfile.current && isCapturedProfileAuthorityActive(draftProfile.current)
+          ? draftRef.current
+          : null;
       const baseline = current ? draftBaseline.current : (serverSections ?? []);
       const base = current ?? {
         sections: baseline,
@@ -232,9 +254,15 @@ export function useProfileHomeRows(): ProfileHomeRows {
       const next = edit(base);
       if (!next) return;
       setDraft(next);
+      draftProfile.current = profile;
       draftBaseline.current = baseline;
       const q = queue.current;
-      const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
+      // A queued save by another profile is dropped, and its rows with it.
+      const queued =
+        q.next?.kind === "save" && q.next.profile.profileId === profile.profileId
+          ? q.next.changedIds
+          : [];
+      const changedIds = new Set(queued);
       for (const id of idList(ids)) changedIds.add(id);
       q.next = { kind: "save", page, profile, state: next, baseline, changedIds };
       void drain();
@@ -252,12 +280,25 @@ export function useProfileHomeRows(): ProfileHomeRows {
   );
 
   const move = useCallback(
-    (activeId: string, overId: string) =>
+    (activeId: string, orderedIds: readonly string[]) =>
       change(activeId, (state) => {
-        const from = state.sections.findIndex((s) => s.id === activeId);
-        const to = state.sections.findIndex((s) => s.id === overId);
-        if (from === -1 || to === -1 || from === to) return null;
-        return { ...state, sections: arrayMove(state.sections, from, to) };
+        const moved = state.sections.find((s) => s.id === activeId);
+        const at = orderedIds.indexOf(activeId);
+        if (!moved || at === -1) return null;
+        const rest = state.sections.filter((s) => s !== moved);
+        const indexOf = (id: string) => rest.findIndex((s) => s.id === id);
+        const after = orderedIds.slice(at + 1).find((id) => indexOf(id) !== -1);
+        const before = orderedIds
+          .slice(0, at)
+          .reverse()
+          .find((id) => indexOf(id) !== -1);
+        let to: number;
+        if (after !== undefined) to = indexOf(after);
+        else if (before !== undefined) to = indexOf(before) + 1;
+        else return null;
+        const sections = [...rest.slice(0, to), moved, ...rest.slice(to)];
+        if (sections.every((s, index) => s === state.sections[index])) return null;
+        return { ...state, sections };
       }),
     [change],
   );
@@ -297,7 +338,7 @@ export function useProfileHomeRows(): ProfileHomeRows {
     if (!profile) return;
     // Edits wait for the reset: until the page refetches they would be built on
     // the overrides it drops and save them again.
-    setResetting(true);
+    setEditsHeld(true);
     queue.current.next = { kind: "reset", page, profile };
     void drain();
   }, [canEdit, drain, page]);

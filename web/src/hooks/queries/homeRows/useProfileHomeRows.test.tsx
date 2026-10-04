@@ -181,7 +181,7 @@ describe("useProfileHomeRows", () => {
 
     act(() => result.current.setHidden("a", true));
     act(() => result.current.setHidden("b", true));
-    act(() => result.current.move("c", "a"));
+    act(() => result.current.move("c", ["c", "a", "b"]));
 
     await settle("PUT /api/v2/profile/sections");
     await settle("PUT /api/v2/profile/sections");
@@ -286,6 +286,114 @@ describe("useProfileHomeRows", () => {
     expect(calls.filter((c) => c === "PUT /api/v2/profile/sections")).toHaveLength(1);
   });
 
+  it("starts the next profile's change from its own rows while the last profile's save is in flight", async () => {
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.setHidden("a", true));
+    await waitFor(() => expect(held.get("PUT /api/v2/profile/sections")).toHaveLength(1));
+    setProfileId("child");
+    act(() => result.current.setHidden("b", true));
+    await settle("PUT /api/v2/profile/sections");
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    expect(puts.map((put) => [put.profileId, hiddenIds(put.overrides)])).toEqual([
+      ["parent", ["a"]],
+      ["child", ["b"]],
+    ]);
+  });
+
+  it("leaves the last profile's queued rows out of the next profile's save", async () => {
+    pages.home!.rows = [
+      entry("a"),
+      entry("trakt", { position: 1, config: { source: "trakt", list: "trending" } }),
+      entry("b", { position: 2 }),
+    ];
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.setHidden("a", true));
+    await waitFor(() => expect(held.get("PUT /api/v2/profile/sections")).toHaveLength(1));
+    // Queued behind the save in flight, then dropped by the profile switch.
+    act(() => result.current.saveSection({ ...result.current.sections[1]!, title: "Trakt" }));
+    setProfileId("child");
+    act(() => result.current.move("b", ["b", "a", "trakt"]));
+    await settle("PUT /api/v2/profile/sections");
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    expect(puts.map((put) => put.profileId)).toEqual(["parent", "child"]);
+    // The child never touched the legacy Trakt row, so its save leaves it out.
+    expect(puts[1]!.overrides.map((o) => o.section_id)).not.toContain("trakt");
+  });
+
+  it("holds edits after a failed save until the page is read again", async () => {
+    const { result } = await ready();
+    // The server applies the save, but its answer never arrives.
+    const implementation = mocks.request.getMockImplementation()!;
+    mocks.request.mockImplementationOnce(async (operation: string, args: Args = {}) => {
+      await implementation(operation, args);
+      throw new TypeError("Failed to fetch");
+    });
+    hold("GET /api/v2/profile/sections/settings");
+
+    act(() => result.current.setHidden("a", true));
+    await waitFor(() => expect(held.get("GET /api/v2/profile/sections/settings")).toHaveLength(1));
+    expect(result.current.canEdit).toBe(false);
+    act(() => result.current.setHidden("b", true));
+    await settle("GET /api/v2/profile/sections/settings");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    expect(puts).toHaveLength(1);
+    expect(result.current.canEdit).toBe(true);
+    expect(shownTitles(result.current.sections)).toEqual(["b", "c"]);
+    act(() => result.current.setHidden("b", true));
+    await waitFor(() => expect(puts).toHaveLength(2));
+    expect(hiddenIds(puts[1]!.overrides)).toEqual(["a", "b"]);
+  });
+
+  it("keeps a saved edit to a legacy Trakt row when the overrides fail to reload before the next save", async () => {
+    pages.home!.rows = [
+      entry("a"),
+      entry("trakt", { position: 1, config: { source: "trakt", list: "trending" } }),
+      entry("b", { position: 2 }),
+    ];
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.saveSection({ ...result.current.sections[1]!, title: "Trakt" }));
+    act(() => result.current.setHidden("b", true));
+    hold("GET /api/v2/profile/sections");
+    await settle("PUT /api/v2/profile/sections");
+    await settle("GET /api/v2/profile/sections", new TypeError("Failed to fetch"));
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(puts).toHaveLength(2));
+
+    expect(puts[1]!.overrides).toContainEqual(
+      expect.objectContaining({ section_id: "trakt", title: "Trakt" }),
+    );
+    expect(hiddenIds(puts[1]!.overrides)).toEqual(["b"]);
+  });
+
+  it("places a moved row by the order the user saw, after the rows change underneath", async () => {
+    const { result } = await ready();
+    // The user drags c between a and b while a refetch brings a new row x.
+    pages.home!.rows = [
+      entry("x"),
+      ...pages.home!.rows.map((row) => ({ ...row, position: row.position + 1 })),
+    ];
+    await act(async () => result.current.reload());
+    await waitFor(() =>
+      expect(result.current.sections.map((s) => s.id)).toEqual(["x", "a", "b", "c"]),
+    );
+
+    act(() => result.current.move("c", ["a", "c", "b"]));
+    expect(result.current.sections.map((s) => s.id)).toEqual(["x", "a", "c", "b"]);
+    await waitFor(() => expect(result.current.pending).toBe(false));
+    expect(puts).toHaveLength(1);
+  });
+
   it("refuses a page switch while the page still has saves to send", async () => {
     const { result } = await ready();
     hold("PUT /api/v2/profile/sections");
@@ -365,7 +473,7 @@ describe("useProfileHomeRows", () => {
     expect(result.current.ready).toBe(false);
     expect(result.current.canEdit).toBe(false);
     act(() => result.current.setHidden("a", true));
-    act(() => result.current.move("c", "a"));
+    act(() => result.current.move("c", ["c", "a", "b"]));
     act(() => result.current.reset());
     expect(calls).not.toContain("PUT /api/v2/profile/sections");
     expect(calls).not.toContain("DELETE /api/v2/profile/sections");

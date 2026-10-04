@@ -323,6 +323,31 @@ describe("useAdminHomeRows", () => {
     expect(result.current.adapter.rows.map((entry) => entry.id)).toEqual(["a", "b"]);
   });
 
+  it("rereads the page when a reorder's response is lost after the server applied it", async () => {
+    const { result } = setup();
+    await ready(result);
+    const implementation = mocks.request.getMockImplementation()!;
+    mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
+      const response = await implementation(operation, args);
+      if (operation === "PUT /api/v2/admin/sections/order") throw new TypeError("Failed to fetch");
+      return response;
+    });
+    await act(async () =>
+      result.current.adapter.reorder(["b", "a"], result.current.adapter.orderToken),
+    );
+    expect(mocks.error).toHaveBeenCalledWith("Failed to fetch");
+    expect(result.current.adapter.rows.map((entry) => entry.id)).toEqual(["b", "a"]);
+    expect(result.current.adapter.conflict).toBeNull();
+
+    mocks.request.mockImplementation(implementation);
+    await waitFor(() => expect(result.current.adapter.canReorder).toBe(true));
+    await act(async () =>
+      result.current.adapter.reorder(["a", "b"], result.current.adapter.orderToken),
+    );
+    expect(result.current.adapter.conflict).toBeNull();
+    expect(rows.map((entry) => entry.id)).toEqual(["a", "b"]);
+  });
+
   it("ignores a page switch while a write is pending", async () => {
     const { result } = setup();
     await ready(result);

@@ -213,6 +213,47 @@ describe("buildSectionOverrides against the page as it was read", () => {
     });
   });
 
+  describe("a row added since the page was read", () => {
+    const added = (id: string, position: number) =>
+      entry(id, { section_type: "random", title: id, is_custom: true, customized: true, position });
+
+    it("keeps the admin order while the new rows stay at the bottom in order", () => {
+      const overrides = build([...page, added("x", 3), added("y", 4)], {
+        changedSectionIds: new Set(["x", "y"]),
+      });
+      expect(overrides.map((o) => [o.section_id ?? o.id, o.position])).toEqual([
+        ["own", 2],
+        ["x", 3],
+        ["y", 4],
+      ]);
+    });
+
+    it("stores every position once a new row moves above another row", () => {
+      const overrides = build([page[0]!, added("x", 3), page[1]!, page[2]!], {
+        changedSectionId: "x",
+      });
+      expect(overrides.map((o) => [o.section_id ?? o.id, o.position])).toEqual([
+        ["a", 0],
+        ["x", 1],
+        ["b", 2],
+        ["own", 3],
+      ]);
+    });
+
+    it("stores every position once two new rows swap", () => {
+      const overrides = build([...page, added("y", 4), added("x", 3)], {
+        changedSectionIds: new Set(["x", "y"]),
+      });
+      expect(overrides.map((o) => [o.section_id ?? o.id, o.position])).toEqual([
+        ["a", 0],
+        ["b", 1],
+        ["own", 2],
+        ["y", 3],
+        ["x", 4],
+      ]);
+    });
+  });
+
   it("stores a removed server row as removed and nothing for rows left alone", () => {
     expect(build(page.slice(1), { changedSectionId: "a" }, [{ id: "a" }])).toEqual([
       ownOverride,

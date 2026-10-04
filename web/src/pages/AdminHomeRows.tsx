@@ -31,7 +31,7 @@ import {
   adminSectionMutationMessage,
   fetchAdminSectionSnapshot,
   fetchAdminSectionDeleteTargets,
-  fetchAdminSectionOrderSnapshot,
+  fetchAdminSections,
 } from "@/api/adminSections";
 import { V2ProblemError } from "@/api/v2/request";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
@@ -96,9 +96,15 @@ export default function AdminHomeRows() {
   const [deleteTargets, setDeleteTargets] = useState<
     Awaited<ReturnType<typeof fetchAdminSectionDeleteTargets>>
   >([]);
-  const [restoreSnapshot, setRestoreSnapshot] = useState<Awaited<
-    ReturnType<typeof fetchAdminSectionOrderSnapshot>
-  > | null>(null);
+  // The page's rows and version as Restore read them: the dialog names what
+  // this version holds, and the restore is checked against the same version.
+  const [restoreSnapshot, setRestoreSnapshot] = useState<
+    | (Awaited<ReturnType<typeof fetchAdminSections>> & {
+        scope: typeof scope;
+        libraryId: number | undefined;
+      })
+    | null
+  >(null);
   const [restoreConflict, setRestoreConflict] = useState(false);
   const { data: collectionsData } = useAdminCollections();
   const { data: recipeCatalog, isError: recipeCatalogFailed } = useQuery({
@@ -147,7 +153,7 @@ export default function AdminHomeRows() {
   const [turningRuleRowsOff, setTurningRuleRowsOff] = useState(false);
   /** The library pages a row on this page fits, this page included. */
   const copyPagesFor = (row: HomeRow) =>
-    activeLibraryId === null ? [] : copyTargetPages(row.config, libraryPages, activeLibraryId);
+    activeLibraryId === null ? [] : copyTargetPages(row, libraryPages, activeLibraryId);
 
   const rowIds = useMemo(() => adapter.rows.map((row) => row.id), [adapter.rows]);
   const selectedSections = useMemo(
@@ -275,9 +281,10 @@ export default function AdminHomeRows() {
   function openRestore() {
     const request = ++snapshotRequest.current;
     void prepareSnapshot(async () => {
-      const snapshot = await fetchAdminSectionOrderSnapshot(scope, activeLibraryId ?? undefined);
+      const libraryId = activeLibraryId ?? undefined;
+      const snapshot = await fetchAdminSections(scope, libraryId);
       if (request !== snapshotRequest.current) return;
-      setRestoreSnapshot(snapshot);
+      setRestoreSnapshot({ ...snapshot, scope, libraryId });
       setRestoreConflict(false);
       setConfirmRestoreOpen(true);
     });
@@ -294,9 +301,7 @@ export default function AdminHomeRows() {
     restoreDefaultsMutation.mutate(
       {
         scope: restoreSnapshot.scope,
-        ...(restoreSnapshot.library_id != null
-          ? { library_id: Number(restoreSnapshot.library_id) }
-          : {}),
+        library_id: restoreSnapshot.libraryId,
         etag: restoreSnapshot.etag,
         reset_profiles: Boolean(capabilities?.reset_profiles && resetProfiles),
       },
@@ -317,9 +322,9 @@ export default function AdminHomeRows() {
   }
 
   // What Restore replaces, as of the version the dialog read.
-  const restoreRowIds = new Set(restoreSnapshot?.ordered_ids ?? []);
-  const restoreCollectionTitles = adapter.sections
-    .filter((section) => restoreRowIds.has(section.id) && section.section_type === "collection")
+  const restoreSections = restoreSnapshot?.sections ?? [];
+  const restoreCollectionTitles = restoreSections
+    .filter((section) => section.section_type === "collection")
     .map((section) => section.title);
 
   const moreItems: PageMoreMenuItem[] = [
@@ -530,7 +535,7 @@ export default function AdminHomeRows() {
               (option) => option.ref.kind === "library" && !samePage(option.ref, adapter.page),
             )
             .map((option) => option.label)}
-          rowCount={restoreRowIds.size}
+          rowCount={restoreSections.length}
           collectionRowTitles={restoreCollectionTitles}
           resetSupported={Boolean(capabilities?.reset_profiles)}
           resetProfiles={resetProfiles}

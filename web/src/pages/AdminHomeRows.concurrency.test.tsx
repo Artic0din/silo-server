@@ -303,6 +303,21 @@ describe("admin section captured snapshots", () => {
     ]);
     expect(writes[0]!.args.body?.reset_profiles).toBe(true);
   });
+  it("names the collection rows as of the version Restore replaces", async () => {
+    await setup();
+    // Another admin adds a collection row after this page loaded.
+    rows.push({ ...initial("c"), title: "Studio Ghibli", section_type: "collection" });
+    revision = 2;
+    await chooseMoreAction("Restore defaults…");
+    const dialog = await screen.findByRole("dialog", { name: "Restore Home to the default rows?" });
+    expect(dialog).toHaveTextContent("The 3 rows on Home are replaced by Silo's default rows.");
+    expect(dialog).toHaveTextContent(
+      "Studio Ghibli shows a collection and is removed. The collection itself stays in Collections.",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore defaults" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.args.headers?.["If-Match"]).toBe('"rev-2"');
+  });
   it("names the other library pages when restoring a library page", async () => {
     libraries.push({ id: 8, name: "TV Shows", type: "tv" });
     const implementation = mocks.request.getMockImplementation()!;

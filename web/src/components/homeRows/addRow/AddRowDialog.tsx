@@ -178,19 +178,21 @@ export function AddRowDialog({
   );
   const collections = adapter.collections ?? NO_COLLECTIONS;
   const collectionChoices = useMemo<CollectionChoices>(() => {
-    const currentId = draft?.sectionType === "collection" ? collectionIdOf(draft.config) : "";
+    const value =
+      draft?.sectionType === "collection" ? collectionIdOf(draft.config, adapter.surface) : "";
     return {
       collections,
       pageLabel: page,
       onPageIds: new Set(
         adapter.rows
           .filter((row) => row.sectionType === "collection")
-          .map((row) => collectionIdOf(row.config)),
+          .map((row) => collectionIdOf(row.config, adapter.surface)),
       ),
-      current: collections.options.find((option) => option.id === currentId),
+      value,
+      current: collections.options.find((option) => option.id === value),
     };
-  }, [collections, page, adapter.rows, draft]);
-  const previewWait = draft ? previewWaitText(draft) : null;
+  }, [collections, page, adapter.rows, adapter.surface, draft]);
+  const previewWait = draft ? previewWaitText(draft, adapter.surface) : null;
   // Why the strip shows no titles: this surface has no preview, or the draft can't have one yet.
   let previewOffText = "Previews aren't available on this server.";
   if (adapter.surface === "profile")
@@ -207,7 +209,7 @@ export function AddRowDialog({
     adapter.page.kind === "library" &&
     draft !== null &&
     canCopyToLibraries(draft)
-      ? copyTargetPages(draft.config, libraryPages, adapter.page.libraryId)
+      ? copyTargetPages(draft, libraryPages, adapter.page.libraryId)
       : [];
   const copyPages =
     adapter.page.kind === "library" && targetPages.length > 1
@@ -222,7 +224,7 @@ export function AddRowDialog({
 
   const def = draft ? findRecipe(catalog, draft.sectionType) : undefined;
   const locked = draft ? variantLocked(draft.sectionType, draft.config) : false;
-  const canSave = draft !== null && canSaveDraft(draft);
+  const canSave = draft !== null && canSaveDraft(draft, adapter.surface);
 
   function pick(card: PickerCard, presetKey?: string) {
     const preset = card.def.presets.find((entry) => entry.key === presetKey) ?? card.def.presets[0];

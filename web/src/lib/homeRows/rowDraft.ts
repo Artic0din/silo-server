@@ -5,7 +5,7 @@ import { FILTER_SECTION_TYPES } from "@/lib/sectionTypes";
 import { rowKindLabel } from "./catalog";
 import { collectionIdOf, withPickedCollection, withQueryDefinition } from "./payloads";
 import { stableJson } from "./stableJson";
-import type { HomeRow } from "./types";
+import type { HomeRow, Surface } from "./types";
 import { applyVariant, variantFamily, variantOf } from "./variants";
 
 /** What the Add row / Edit row form holds while the user edits it. */
@@ -140,15 +140,18 @@ export function savedTitle(
   );
 }
 
-/** Whether the server would accept the draft; the form says what is missing. */
-export function canSaveDraft(draft: RowDraft): boolean {
+/**
+ * Whether the server would accept the draft; the form says what is missing.
+ * `surface` decides which collection key counts as a selection (see collectionIdOf).
+ */
+export function canSaveDraft(draft: RowDraft, surface: Surface = "profile"): boolean {
   const { config } = draft;
   switch (draft.sectionType) {
     case "seasonal_themed":
       // An empty holiday list with no legacy theme.
       return !(Array.isArray(config.enabled_themes) && config.enabled_themes.length === 0);
     case "collection":
-      return collectionIdOf(config) !== "";
+      return collectionIdOf(config, surface) !== "";
     case "admin_curated_list":
       return Array.isArray(config.item_ids) && config.item_ids.length > 0;
     default:
@@ -161,8 +164,8 @@ export function canSaveDraft(draft: RowDraft): boolean {
  * collection is picked (the server refuses that preview), or an Editor's
  * Picks row with no titles.
  */
-export function previewWaitText(draft: RowDraft): string | null {
-  if (draft.sectionType === "collection" && collectionIdOf(draft.config) === "")
+export function previewWaitText(draft: RowDraft, surface: Surface = "profile"): string | null {
+  if (draft.sectionType === "collection" && collectionIdOf(draft.config, surface) === "")
     return "Pick a collection to see its titles here.";
   if (draft.sectionType === "admin_curated_list" && !canSaveDraft(draft))
     return "Add titles to see them here.";

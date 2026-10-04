@@ -356,8 +356,11 @@ export function useAdminHomeRows(): AdminHomeRows {
           if (isStale(error)) {
             setConflict({ scope: "page" });
           } else {
-            setDraft(null);
             toast.error(adminSectionMutationMessage(error, "Could not move this row"));
+            // Without a server answer the order may still have changed, so read
+            // the page again before dropping the order on screen.
+            if (!(error instanceof V2ProblemError)) await refresh();
+            setDraft(null);
           }
         }
       });

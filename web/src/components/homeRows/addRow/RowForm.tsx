@@ -7,7 +7,6 @@ import type { PreviewState } from "@/hooks/queries/homeRows/useRowPreview";
 import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import type { RecipeCatalogResponse } from "@/lib/recipes";
 import { ruleSortSummary } from "@/lib/homeRows/describe";
-import { collectionIdOf } from "@/lib/homeRows/payloads";
 import {
   savedTitle,
   withCollection,
@@ -40,6 +39,8 @@ export interface CollectionChoices {
   collections: RowCollections;
   onPageIds: ReadonlySet<string>;
   pageLabel: string;
+  /** The collection the draft shows now as this surface reads it, or "". */
+  value: string;
   /** The collection the draft shows now, when it is in the list. */
   current: CollectionOption | undefined;
 }
@@ -78,7 +79,7 @@ function KindControl({
     return (
       <CollectionPicker
         collections={choices.collections}
-        value={collectionIdOf(draft.config)}
+        value={choices.value}
         onPageIds={choices.onPageIds}
         pageLabel={choices.pageLabel}
         locked={kindLocked(draft.config)}
