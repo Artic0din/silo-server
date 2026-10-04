@@ -132,6 +132,11 @@ export interface CollectionScope<Raw extends WireCollection = WireCollection> {
   readonly itemSource: "library" | "user";
   readonly artworkSlots: readonly ArtworkSlot[];
   readonly requireLibraries: boolean;
+  /**
+   * True when the editor read carries no artwork, so the editor waits for the
+   * list before it opens. A personal read carries its own poster and opens at once.
+   */
+  readonly editorAwaitsList: boolean;
   readonly allowPersonalizedRules: boolean;
 
   paths: {
@@ -282,6 +287,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
   itemSource: "library",
   artworkSlots: ["poster", "backdrop"],
   requireLibraries: true,
+  editorAwaitsList: true,
   allowPersonalizedRules: false,
 
   paths: {
@@ -405,6 +411,7 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
   itemSource: "user",
   artworkSlots: ["poster"],
   requireLibraries: false,
+  editorAwaitsList: false,
   allowPersonalizedRules: true,
 
   paths: {
