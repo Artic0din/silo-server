@@ -14,6 +14,7 @@ import (
 	"github.com/Silo-Server/silo-server/internal/collections/templates"
 	"github.com/Silo-Server/silo-server/internal/mdblist"
 	"github.com/Silo-Server/silo-server/internal/usercollections"
+	"github.com/Silo-Server/silo-server/internal/userstore"
 )
 
 // fakePersonalCollections records the last command and answers fixtures.
@@ -22,6 +23,11 @@ type fakePersonalCollections struct {
 	list       handlers.PersonalCollectionListView
 	lastCreate handlers.PersonalCollectionCreateCommand
 	lastOrder  []string
+	features   userstore.CollectionFeatures
+}
+
+func (f *fakePersonalCollections) PersonalCollectionFeatures(context.Context, int) (userstore.CollectionFeatures, error) {
+	return f.features, nil
 }
 
 func (f *fakePersonalCollections) ListPersonalCollections(_ context.Context, _ int, profileID string) (handlers.PersonalCollectionListView, error) {
@@ -53,6 +59,7 @@ func (f *fakePersonalCollections) CreatePersonalCollection(_ context.Context, cm
 	}
 	v := fixtureCollectionView()
 	v.Name = cmd.Request.Name
+	v.Description = cmd.Request.Description
 	v.CollectionType = cmd.Request.CollectionType
 	v.IsShared = cmd.Request.IsShared
 	return v, nil
@@ -210,14 +217,21 @@ func TestListCollections(t *testing.T) {
 }
 
 func TestGetCollectionCapabilities(t *testing.T) {
-	deps, _, _ := collectionDeps(t)
+	deps, pc, _ := collectionDeps(t)
+	pc.features.Description = true
 	rec := do(t, newTestHandler(t, deps), http.MethodGet, "/api/v2/collections/capabilities", "", viewerHeaders())
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"]}` + "\n"
+	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"preview_posters":true}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+	// A store that does not persist descriptions does not advertise them.
+	pc.features.Description = false
+	rec = do(t, newTestHandler(t, deps), http.MethodGet, "/api/v2/collections/capabilities", "", viewerHeaders())
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"create_description":false`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -235,9 +249,24 @@ func TestCreateCollection(t *testing.T) {
 	if cmd.UserID != 1 || cmd.ProfileID != "p-owner" || cmd.PosterFile != nil || !cmd.Request.IsShared || string(cmd.Request.QueryDefinition) != `{"filters":[]}` {
 		t.Fatalf("command = %+v", cmd)
 	}
+	if cmd.Request.Description != "" {
+		t.Fatalf("description without one in the body = %q, want empty", cmd.Request.Description)
+	}
+	// A description is stored with the new collection and echoed back.
+	rec = do(t, h, http.MethodPost, "/api/v2/collections", `{"name":"Rainy days","description":"For wet afternoons"}`, viewerHeaders())
+	if rec.Code != 201 || !strings.Contains(rec.Body.String(), `"name":"Rainy days","description":"For wet afternoons"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if got := pc.lastCreate.Request.Description; got != "For wet afternoons" {
+		t.Fatalf("description = %q", got)
+	}
+	p := requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"name":"x","description":null}`, viewerHeaders()), TypeValidationFailed)
+	if len(p.Errors) != 1 || p.Errors[0].Location != "body.description" || p.Errors[0].Code != codeInvalidType {
+		t.Fatalf("errors = %+v", p.Errors)
+	}
 	// Validation: the schema (missing name), the seam (empty name), an
 	// unknown enum, and null on a non-nullable member.
-	p := requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"collection_type":"manual"}`, viewerHeaders()), TypeValidationFailed)
+	p = requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"collection_type":"manual"}`, viewerHeaders()), TypeValidationFailed)
 	if len(p.Errors) != 1 || p.Errors[0].Location != "body.name" || p.Errors[0].Code != codeRequired {
 		t.Fatalf("errors = %+v", p.Errors)
 	}

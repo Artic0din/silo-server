@@ -21,6 +21,7 @@ import (
 	"github.com/Silo-Server/silo-server/internal/adminjob"
 	"github.com/Silo-Server/silo-server/internal/api/handlers"
 	catalogsvc "github.com/Silo-Server/silo-server/internal/catalog"
+	"github.com/Silo-Server/silo-server/internal/collections/templates"
 	"github.com/Silo-Server/silo-server/internal/downloads"
 	"github.com/Silo-Server/silo-server/internal/librarymonitor"
 	"github.com/Silo-Server/silo-server/internal/models"
@@ -1738,7 +1739,47 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, adminTrickplayFixtureCases()...)
 	cases = append(cases, deviceSignInFixtureCases()...)
 	cases = append(cases, externalSignInFixtureCases()...)
-	return append(cases, fixtureCase{name: "collection_order_foreign_id", operationID: "reorderCollections", scenario: "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c2","c1"]}`, headers: with(viewer, "If-Match", "*"), status: 422, assertHeaders: []string{"Content-Type"}, schema: problem})
+	cases = append(cases, fixtureCase{name: "collection_order_foreign_id", operationID: "reorderCollections", scenario: "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c2","c1"]}`, headers: with(viewer, "If-Match", "*"), status: 422, assertHeaders: []string{"Content-Type"}, schema: problem})
+	cases = append(cases, personalCollectionCreateFixtureCases()...)
+	cases = append(cases, personalCollectionPreviewFixtureCases()...)
+	return append(cases, adminTemplateBundleFixtureCases()...)
+}
+
+// adminTemplateBundleFixtureCases pin a bundle list whose bundles carry a
+// summary of each template, with the franchise placeholder marked as needing
+// setup.
+func adminTemplateBundleFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "list_admin_collection_template_bundles_ok", operationID: "listAdminCollectionTemplateBundles", scenario: "Template bundles with a summary of each template in bundle order; a template that cannot sync until an administrator sets its source needs setup.", method: http.MethodGet, path: "/api/v2/admin/collections/template-bundles", headers: bearer(adminToken), status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/BundleCatalog"},
+	}
+}
+
+// fixtureTemplateBundles is a two-template franchise bundle: one curated
+// franchise with a poster and the placeholder an administrator completes.
+func fixtureTemplateBundles() []templates.BundleWithTemplates {
+	registry := templates.NewRegistry()
+	registry.Register(templates.Template{ID: "tmdb_franchise_star_wars", Title: "Star Wars", Category: templates.CategoryEditorial, Source: templates.SourceTMDBCollection, MediaKind: templates.MediaMovie, Featured: true, PosterPath: "/images/collection-templates/tmdb_franchise_star_wars.jpg", TMDBCollection: &templates.TMDBCollectionSpec{CollectionID: 10}})
+	registry.Register(templates.Template{ID: "tmdb_franchise_placeholder", Title: "TMDB Franchise", Category: templates.CategoryEditorial, Source: templates.SourceTMDBCollection, MediaKind: templates.MediaMovie, TMDBCollection: &templates.TMDBCollectionSpec{}})
+	registry.RegisterBundle(templates.Bundle{ID: "franchise_collections", Title: "Franchise Collections", Description: "TMDB franchise and saga collections.", TemplateIDs: []string{"tmdb_franchise_star_wars", "tmdb_franchise_placeholder"}})
+	return registry.BundlesWithTemplates()
+}
+
+// personalCollectionPreviewFixtureCases pin a smart preview whose items carry
+// a poster URL when they have a poster and omit it otherwise.
+func personalCollectionPreviewFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "preview_collection_ok", operationID: "previewCollection", scenario: "A smart query's first matches within the acting profile's access, each with its poster when it has one.", method: http.MethodPost, path: "/api/v2/collections/preview", body: `{"query_definition":{"match":"all","groups":[]},"limit":2}`, headers: viewerHeaders(), status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/PersonalCollectionPreviewOutputBody"},
+	}
+}
+
+// personalCollectionCreateFixtureCases pin a create that carries a
+// description and the capability that advertises it.
+func personalCollectionCreateFixtureCases() []fixtureCase {
+	viewer := viewerHeaders()
+	return []fixtureCase{
+		{name: "create_collection_with_description_ok", operationID: "createCollection", scenario: "A manual collection created with its description.", method: http.MethodPost, path: "/api/v2/collections", body: `{"name":"Rainy days","description":"For wet afternoons","collection_type":"manual"}`, headers: viewer, status: 201, assertHeaders: []string{"Content-Type", "Location"}, schema: "#/components/schemas/PersonalCollection"},
+		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create and preview posters.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
+	}
 }
 
 // deviceSignInFixtureCases covers the TV sign-in additions: the opened
@@ -1801,7 +1842,7 @@ func fixtureDeps() Dependencies {
 	deps.ProgressBootstrap = &fakeBootstrap{}
 	sharedCollection := fixtureCollectionView()
 	sharedCollection.ID, sharedCollection.ProfileID, sharedCollection.CreatorProfileID, sharedCollection.Name, sharedCollection.IsShared = "c2", "p-primary", "p-primary", "Family night", true
-	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}}}
+	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}, features: userstore.CollectionFeatures{Description: true}}, previewCollections: previewCollections{view: fixturePreviewView()}}
 	deps.CollectionImports = &fakeCollectionImports{configured: true}
 	deps, _ = withLibraryAdmin(deps)
 	deps.LibraryMonitoring = &fakeLibraryMonitoring{snap: librarymonitor.StatusSnapshot{
@@ -1818,6 +1859,7 @@ func fixtureDeps() Dependencies {
 	adminCollections.view.SortConfig = json.RawMessage(`{}`)
 	adminCollections.view.SourceConfig = json.RawMessage(`{}`)
 	adminCollections.job = &models.AdminJob{ID: "collection-job", JobType: adminjob.JobTypeTemplateBundleApply, Status: adminjob.StatusQueued, RequestedAt: fixedTime()}
+	adminCollections.bundles = fixtureTemplateBundles()
 	deps.AdminCollections = adminCollections
 	deps.AdminSections = newFakeAdminSections()
 	adminPolicy := newFakeAdminPolicy()
@@ -2118,7 +2160,10 @@ func TestContractFixturesAreDeterministic(t *testing.T) {
 	}
 }
 
-type fixturePersonalCollections struct{ fakePersonalCollections }
+type fixturePersonalCollections struct {
+	fakePersonalCollections
+	previewCollections
+}
 
 func (f *fixturePersonalCollections) PersonalCollectionItemsPage(context.Context, int, string, string, catalogsvc.AccessFilter, userstore.CollectionItemsPageOptions, *catalogsvc.QueryCursor) (handlers.PersonalCollectionPageView, error) {
 	return handlers.PersonalCollectionPageView{Items: []handlers.PersonalCollectionItemView{{CollectionID: "c1", MediaItemID: "movie:heat-1995", Position: 0, AddedAt: "2026-01-02T03:04:05.000Z"}}, Revision: 1}, nil

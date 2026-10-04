@@ -69,6 +69,7 @@ export default function LibraryMultiSelect({
   ineligibleReason,
   triggerClassName,
   disabled,
+  triggerLabel,
 }: {
   libraries: LibraryOption[];
   value: number[];
@@ -79,6 +80,8 @@ export default function LibraryMultiSelect({
   ineligibleReason?: string;
   triggerClassName?: string;
   disabled?: boolean;
+  /** Read before the summary by screen readers, when no visible label names the button. */
+  triggerLabel?: string;
 }) {
   const hasIneligible =
     Array.isArray(eligibleKinds) &&
@@ -95,6 +98,7 @@ export default function LibraryMultiSelect({
           disabled={disabled}
         >
           <span className="truncate">
+            {triggerLabel ? <span className="sr-only">{`${triggerLabel}: `}</span> : null}
             {formatLibraryFilterSummary(value, libraries, emptyLabel)}
           </span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0" />

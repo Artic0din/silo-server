@@ -3436,6 +3436,13 @@
               "unsupported"
             ],
             "type": "string"
+          },
+          "template_summaries": {
+            "description": "listAdminCollectionTemplateBundles returns each bundle's templates",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           }
         },
         "required": [
@@ -3444,6 +3451,7 @@
           "import_sources",
           "artwork",
           "item_reorder",
+          "template_summaries",
           "revision",
           "state",
           "allowed"
@@ -22469,6 +22477,13 @@
             ],
             "type": "boolean"
           },
+          "create_description": {
+            "description": "createCollection stores a description for the acting account",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "display_filter_fields": {
             "description": "Catalog query fields a display filter may use",
             "examples": [
@@ -22526,6 +22541,13 @@
             "description": "is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it",
             "type": "boolean"
           },
+          "preview_posters": {
+            "description": "previewCollection items carry poster_url when the title has a poster",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
@@ -22569,6 +22591,8 @@
           "collection_sort_preferences",
           "effective_collection_sort",
           "sort_preference_kinds",
+          "create_description",
+          "preview_posters",
           "revision",
           "state",
           "allowed"
@@ -23229,11 +23253,19 @@
             },
             "type": "array"
           },
+          "templates": {
+            "description": "The bundle's templates, in template_ids order.",
+            "items": {
+              "$ref": "#/components/schemas/CollectionTemplateSummary"
+            },
+            "type": "array"
+          },
           "title": {
             "type": "string"
           }
         },
         "required": [
+          "templates",
           "id",
           "title",
           "description",
@@ -23253,6 +23285,44 @@
         },
         "required": [
           "categories"
+        ],
+        "type": "object"
+      },
+      "CollectionTemplateSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "featured": {
+            "description": "Collections created from this template are pinned first on their shelf.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "needs_setup": {
+            "description": "Applying the template creates an empty collection that cannot sync until an administrator sets its source.",
+            "type": "boolean"
+          },
+          "poster_path": {
+            "description": "Server-relative path of the template's poster image.",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source",
+          "media_kind",
+          "featured",
+          "needs_setup"
         ],
         "type": "object"
       },
@@ -34664,6 +34734,13 @@
             ],
             "type": "string"
           },
+          "description": {
+            "description": "Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails",
+            "examples": [
+              "For wet afternoons"
+            ],
+            "type": "string"
+          },
           "display_query_definition": {
             "description": "Display filter fragment"
           },
@@ -34812,6 +34889,10 @@
               "1"
             ],
             "minLength": 1,
+            "type": "string"
+          },
+          "poster_url": {
+            "description": "Card-size poster URL; omitted when the item has none",
             "type": "string"
           },
           "title": {
@@ -37692,6 +37773,13 @@
             ],
             "type": "boolean"
           },
+          "default_title": {
+            "description": "The administrator's title for this row; title shows it unless the profile saved a title override. Empty for a section the profile built",
+            "examples": [
+              "Continue Watching"
+            ],
+            "type": "string"
+          },
           "featured": {
             "examples": [
               false
@@ -37740,6 +37828,7 @@
             "type": "string"
           },
           "title": {
+            "description": "The title this profile sees: its own title override, or the administrator's title",
             "examples": [
               "Continue Watching"
             ],
@@ -37750,6 +37839,7 @@
           "id",
           "section_type",
           "title",
+          "default_title",
           "featured",
           "item_limit",
           "hidden",
@@ -60640,7 +60730,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List collection template bundles.",
+        "summary": "List collection template bundles, each with a summary of its templates.",
         "tags": [
           "admin-collections"
         ],
@@ -129643,6 +129733,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "503": {
             "content": {
