@@ -1,5 +1,5 @@
 {
-  "revision": "210da97e0cc8f852a8a8a38893a1a8da504a7f5ac4eb61710888f7c6a114c345",
+  "revision": "1bb5c36abc96c374a8959ef2d7d7b27e9777bdce8f335f65c4c322291bb5aa8a",
   "state": "available",
   "allowed": true,
   "groups": false,
@@ -32,5 +32,6 @@
     "watchlist",
     "favorites"
   ],
-  "create_description": true
+  "create_description": true,
+  "preview_posters": true
 }

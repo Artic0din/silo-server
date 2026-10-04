@@ -22529,6 +22529,13 @@
             "description": "The acting account supports reordering collection items",
             "type": "boolean"
           },
+          "preview_posters": {
+            "description": "previewCollection items carry poster_url when the title has a poster",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
@@ -22572,6 +22579,7 @@
           "effective_collection_sort",
           "sort_preference_kinds",
           "create_description",
+          "preview_posters",
           "revision",
           "state",
           "allowed"

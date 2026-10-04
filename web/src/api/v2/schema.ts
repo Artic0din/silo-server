@@ -19626,6 +19626,11 @@ export interface components {
       imports: boolean;
       /** @description The acting account supports reordering collection items */
       item_reorder: boolean;
+      /**
+       * @description previewCollection items carry poster_url when the title has a poster
+       * @example true
+       */
+      preview_posters: boolean;
       /** @description Opaque revision of this document */
       revision: string;
       /**

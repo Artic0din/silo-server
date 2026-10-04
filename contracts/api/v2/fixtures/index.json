@@ -6105,7 +6105,7 @@
     {
       "name": "get_collection_capabilities_ok",
       "operation_id": "getCollectionCapabilities",
-      "scenario": "Personal collection features, including a description on create.",
+      "scenario": "Personal collection features, including a description on create and preview posters.",
       "request": {
         "method": "GET",
         "path": "/api/v2/collections/capabilities",
@@ -6118,7 +6118,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"92aca442aaaf91295c9d76550bae4f28ad8f76f333cec7fb7ec9d90baec9ee61\""
+        "ETag": "\"87dfe743d18e18115694d72af6f7deec8caaacd02b3fee7de554a31df1b25fee\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",

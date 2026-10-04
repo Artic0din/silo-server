@@ -1777,7 +1777,7 @@ func personalCollectionCreateFixtureCases() []fixtureCase {
 	viewer := viewerHeaders()
 	return []fixtureCase{
 		{name: "create_collection_with_description_ok", operationID: "createCollection", scenario: "A manual collection created with its description.", method: http.MethodPost, path: "/api/v2/collections", body: `{"name":"Rainy days","description":"For wet afternoons","collection_type":"manual"}`, headers: viewer, status: 201, assertHeaders: []string{"Content-Type", "Location"}, schema: "#/components/schemas/PersonalCollection"},
-		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
+		{name: "get_collection_capabilities_ok", operationID: "getCollectionCapabilities", scenario: "Personal collection features, including a description on create and preview posters.", method: http.MethodGet, path: "/api/v2/collections/capabilities", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag"}, schema: "#/components/schemas/CollectionCapabilities"},
 	}
 }
 
