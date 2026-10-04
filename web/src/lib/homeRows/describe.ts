@@ -27,6 +27,18 @@ const SCOPE_NOUNS: Record<string, string> = {
   video: "videos",
 };
 
+/** How a rule row with no rules is ordered, keyed "field:order". The default (newest added) says nothing. */
+const SORT_PHRASES: Record<string, string> = {
+  "rating_imdb:desc": "highest rated first",
+  "rating_tmdb:desc": "highest rated first",
+  "rating_rt_critic:desc": "highest rated first",
+  "rating_rt_audience:desc": "highest rated first",
+  "release_date:desc": "newest released first",
+  "year:desc": "newest released first",
+  "plays:desc": "most played first",
+  "title:asc": "A to Z",
+};
+
 const FORMAT_NAMES: Record<string, string> = {
   "4k": "4K",
   dolby_vision: "Dolby Vision",
@@ -72,7 +84,15 @@ function describeRules(config: Record<string, unknown>): string {
   const query = queryDefinitionFromSectionConfig(config);
   const noun = SCOPE_NOUNS[query.media_scope ?? ""] ?? "titles";
   const rules = query.groups.reduce((count, group) => count + group.rules.length, 0);
-  return rules === 0 ? `All ${noun}` : `${capitalize(noun)} matching ${plural(rules, "rule")}`;
+  if (rules > 0) return `${capitalize(noun)} matching ${plural(rules, "rule")}`;
+  const { field, order } = query.sort;
+  if (field === "added_at" && order === "desc") return `All ${noun}`;
+  const phrase = SORT_PHRASES[`${field}:${order}`];
+  return phrase ? `All ${noun}, ${phrase}` : `${capitalize(noun)} in a chosen order`;
+}
+
+function scopeNoun(config: Record<string, unknown>): string | undefined {
+  return SCOPE_NOUNS[queryDefinitionFromSectionConfig(config).media_scope ?? ""];
 }
 
 function describeSpotlight(config: Record<string, unknown>): string {
@@ -114,7 +134,10 @@ export function describeRow(row: HomeRow, context: DescribeContext): Description
     case "favorites":
       return ["Each viewer's favorites"];
     case "recently_added": {
-      if (!onHome) return ["Newest additions to this library"];
+      if (!onHome) {
+        const noun = scopeNoun(config);
+        return [noun ? `Newest ${noun} in this library` : "Newest additions to this library"];
+      }
       const libraries = queryDefinitionFromSectionConfig(config).library_ids.length;
       if (libraries === 0) return ["Newest movies and episodes from all libraries"];
       return [`Newest additions from ${libraries === 1 ? "1 library" : `${libraries} libraries`}`];
