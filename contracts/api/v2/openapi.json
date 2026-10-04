@@ -22653,6 +22653,13 @@
             ],
             "type": "boolean"
           },
+          "preview_posters": {
+            "description": "previewCollection items carry poster_url when the title has a poster",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
@@ -22709,6 +22716,7 @@
           "mdblist_search",
           "schedule_time_zone",
           "sync_schedule_editable",
+          "preview_posters",
           "revision",
           "state",
           "allowed"

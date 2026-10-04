@@ -142,8 +142,10 @@ the multipart `data` field alike; the collection is created with an empty descri
 
 `previewCollection` (`POST /api/v2/collections/preview`) returns the first titles a smart query
 matches within the acting profile's access. Each item carries `poster_url`, a card-size poster URL,
-when the title has a poster, and omits the member when it has none. The URL can be signed and
-expire, like other artwork URLs, so read a fresh preview rather than storing it.
+when the title has a poster, and omits the member when it has none. A missing `poster_url` alone
+does not show whether the server returns posters: check `preview_posters` in the
+`getCollectionCapabilities` document. The URL can be signed and expire, like other artwork URLs,
+so read a fresh preview rather than storing it.
 `previewAdminCollection` items carry the same field.
 
 The frozen `/api/v1/collections/preview` response is unchanged and carries no poster.
@@ -197,9 +199,9 @@ Collection reads carry `sync_cadence`, the cadence `sync_schedule` names: `daily
 `monthly`, `""` when the collection is not synced, or `custom` for a stored schedule no cadence
 name produces. Read it instead of matching cron expressions.
 
-A sync that is running when the schedule changes, on any node, records its result but leaves the
-`next_sync_at` the change set. A failed scheduled sync retries after the minimum interval only
-when the schedule was not changed while it ran.
+A sync that is running when `sync_schedule` is saved, on any node, records its result but leaves
+the `next_sync_at` the save set, even when the save kept the same cadence. A failed scheduled sync
+retries after the minimum interval only when the schedule was not saved while it ran.
 
 The frozen `/api/v1/collections/{id}` update ignores a `sync_schedule` member, and `/api/v1`
 collection responses carry no `sync_cadence`.
