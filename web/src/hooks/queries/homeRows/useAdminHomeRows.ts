@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   adminSectionMutationMessage,
+  createAdminSection,
   fetchAdminSectionSnapshot,
   reorderAdminSections,
   updateAdminSection,
@@ -15,12 +16,20 @@ import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
 import { pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
-import type {
-  HomeRow,
-  HomeRowsAdapter,
-  HomeRowsConflict,
-  HomeRowsPageOption,
-  PageRef,
+import {
+  buildRowCreateRequest,
+  buildRowUpdateRequest,
+  nextAppendPosition,
+} from "@/lib/homeRows/payloads";
+import { stableJson, type RowDraft } from "@/lib/homeRows/rowDraft";
+import {
+  RowChangedError,
+  type EditSession,
+  type HomeRow,
+  type HomeRowsAdapter,
+  type HomeRowsConflict,
+  type HomeRowsPageOption,
+  type PageRef,
 } from "@/lib/homeRows/types";
 import { isTraktConfig } from "@/lib/sectionTypes";
 
@@ -44,17 +53,6 @@ function toHomeRow(section: PageSectionConfig): HomeRow {
   };
 }
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
-  }
-  return JSON.stringify(value ?? null);
-}
-
 /** Whether the row the server holds now is the row this page is showing. */
 function sameRow(a: PageSectionConfig, b: PageSectionConfig): boolean {
   return (
@@ -75,6 +73,16 @@ function orderRows(sections: PageSectionConfig[], draft: string[] | null): PageS
   return [...ordered, ...sections.filter((section) => !placed.has(section.id))];
 }
 
+/** What an admin Edit row session keeps: the stored row and the version it was read at. */
+interface AdminEditToken {
+  section: PageSectionConfig;
+  etag: string;
+}
+
+function adminSession(section: PageSectionConfig, etag: string): EditSession {
+  return { row: toHomeRow(section), token: { section, etag } satisfies AdminEditToken };
+}
+
 /** The row or page moved on (412), or the row is gone (404). */
 function isStale(error: unknown) {
   return error instanceof V2ProblemError && (error.status === 412 || error.status === 404);
@@ -85,7 +93,7 @@ export interface AdminHomeRows extends HomeRowsAdapter {
   libraryId: number | undefined;
   /** The page's rows as the server sent them, for the edit and delete flows. */
   sections: PageSectionConfig[];
-  capabilities: ReturnType<typeof useAdminSectionCapabilities>["data"];
+  serverCapabilities: ReturnType<typeof useAdminSectionCapabilities>["data"];
 }
 
 /**
@@ -174,10 +182,13 @@ export function useAdminHomeRows(): AdminHomeRows {
     Boolean(list.data?.etag) &&
     rows.length <= MAX_REORDER_ROWS;
 
-  const enqueue = useCallback((job: () => Promise<void>) => {
+  const enqueue = useCallback(<T>(job: () => Promise<T>): Promise<T> => {
     setPendingCount((count) => count + 1);
     const run = queue.current.then(job).finally(() => setPendingCount((count) => count - 1));
-    queue.current = run.catch(() => undefined);
+    queue.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }, []);
 
@@ -265,6 +276,49 @@ export function useAdminHomeRows(): AdminHomeRows {
     [enqueue, libraryId, list.data?.etag, refresh, scope],
   );
 
+  const create = useCallback(
+    (draft: RowDraft) =>
+      enqueue(async () => {
+        // Read the position when the write runs, after any write queued before it.
+        const position = nextAppendPosition(currentList().map((section) => section.position));
+        const created = await createAdminSection(
+          buildRowCreateRequest(draft, draft.title, page, position),
+        );
+        await refresh();
+        return { newIds: [created.id] };
+      }),
+    [currentList, enqueue, page, refresh],
+  );
+
+  const openEdit = useCallback(async (id: string) => {
+    const snapshot = await fetchAdminSectionSnapshot(id);
+    return adminSession(snapshot.section, snapshot.etag);
+  }, []);
+
+  const reloadEdit = useCallback(
+    (session: EditSession) => openEdit((session.token as AdminEditToken).section.id),
+    [openEdit],
+  );
+
+  const save = useCallback(
+    (session: EditSession, draft: RowDraft) =>
+      enqueue(async () => {
+        const { section, etag } = session.token as AdminEditToken;
+        try {
+          await updateAdminSection({
+            ...buildRowUpdateRequest(section, draft, draft.title),
+            id: section.id,
+            etag,
+          });
+        } catch (error) {
+          if (error instanceof V2ProblemError && error.status === 412) throw new RowChangedError();
+          throw error;
+        }
+        await refresh();
+      }),
+    [enqueue, refresh],
+  );
+
   const reload = useCallback(async () => {
     if (librariesFailed) {
       await librariesQuery.refetch();
@@ -312,9 +366,14 @@ export function useAdminHomeRows(): AdminHomeRows {
     reorder,
     setShown: (id, shown) => quickAction(id, "shown", shown),
     setHero: (id, hero) => quickAction(id, "hero", hero),
+    capabilities: { draftPreview: Boolean(capabilities?.preview), ruleRows: true },
+    create,
+    openEdit,
+    reloadEdit,
+    save,
     scope,
     libraryId,
     sections,
-    capabilities,
+    serverCapabilities: capabilities,
   };
 }

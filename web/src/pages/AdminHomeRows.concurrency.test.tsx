@@ -10,7 +10,6 @@ import AdminHomeRows from "./AdminHomeRows";
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
-  importCollection: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
   collectionOptions: [] as string[],
@@ -27,7 +26,6 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollections: () => ({ data: collections }),
-  useImportTraktCollection: () => ({ mutateAsync: mocks.importCollection }),
 }));
 vi.mock("@/hooks/queries/collectionSurfaceRefresh", () => ({
   invalidateAdminCollectionQueries: vi.fn(),
@@ -41,43 +39,13 @@ vi.mock("@/hooks/queries/useAllUserCollections", () => ({
     isLoading: false,
   }),
 }));
-vi.mock("@/lib/recipes", () => ({ fetchRecipeCatalog: async () => ({ categories: {} }) }));
+vi.mock("@/lib/recipes", () => ({
+  fetchRecipeCatalog: async () => ({ categories: {} }),
+  previewSection: async () => ({ items: [], total_count: 0 }),
+}));
 vi.mock("@/components/collections/CollectionRulesEditor", () => ({ default: () => null }));
 vi.mock("@/components/LibraryMultiSelect", () => ({ default: () => null }));
 vi.mock("@/components/RecipeGallery/RecipeParamFields", () => ({ default: () => null }));
-vi.mock("@/components/RecipeGallery/RecipeGalleryModal", () => ({
-  default: ({
-    open,
-    onPick,
-  }: {
-    open: boolean;
-    onPick: (def: unknown, preset: unknown) => void;
-  }) =>
-    open ? (
-      <button onClick={() => onPick({ type: "collection" }, { display_name: "Trakt" })}>
-        Choose Trakt recipe
-      </button>
-    ) : null,
-}));
-vi.mock("@/components/RecipeGallery/RecipeConfigDrawer", () => ({
-  default: ({ onAdd }: { onAdd: (payload: unknown) => Promise<void> }) => (
-    <button
-      onClick={() =>
-        void onAdd({
-          section_type: "collection",
-          title: "Trakt picks",
-          item_limit: 20,
-          featured: false,
-          enabled: true,
-          config: { source_provider: "trakt", source_preset: "popular", media_type: "movie" },
-          library_ids: [7, 8],
-        })
-      }
-    >
-      Create Trakt sections
-    </button>
-  ),
-}));
 vi.mock("@/components/CollectionSearchableSelect", () => ({
   CollectionSearchableSelect: ({ options }: { options: { id: string }[] }) => {
     mocks.collectionOptions = options.map((option) => option.id);
@@ -196,7 +164,7 @@ async function setup(waitForRows = true, entry = "/admin/home-rows") {
   );
   if (waitForRows) {
     await screen.findByRole("button", { name: "More for Original A" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add Section" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add row" })).toBeEnabled());
   }
   return client;
 }
@@ -212,26 +180,29 @@ async function refresh(client: QueryClient) {
 }
 
 describe("admin section captured snapshots", () => {
-  it("keeps the real editor draft and original validator through refetch and 412, then reloads explicitly", async () => {
+  it("keeps the edit draft and its version through refetch and 412, then reloads explicitly", async () => {
     const client = await setup();
     await chooseRowAction("Original A", "Edit row…");
     const title = await screen.findByDisplayValue("Original A");
     fireEvent.change(title, { target: { value: "My draft" } });
     revision = 2;
-    rows = rows.map((row) => ({ ...row, title: "Remote title" }));
+    rows = rows.map((row) => ({ ...row, title: "Remote title", item_limit: 40 }));
     await refresh(client);
     expect(screen.getByDisplayValue("My draft")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/Your draft is preserved/);
+    await screen.findByText(/This row changed since you opened it/);
     expect(writes[0]!.args.headers?.["If-Match"]).toBe('"rev-1"');
     expect(writes).toHaveLength(1);
     expect(screen.getByDisplayValue("My draft")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Reload section" }));
-    await screen.findByDisplayValue("Remote title");
+    fireEvent.click(screen.getByRole("button", { name: "Reload row" }));
+    // The name the user typed stays; what they left alone takes the new value.
+    await screen.findByText("Changed elsewhere: Row name, Number of titles");
+    expect(screen.getByDisplayValue("My draft")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]!.args.headers?.["If-Match"]).toBe('"rev-2"');
+    expect(writes[1]!.args.body).toMatchObject({ title: "My draft", item_limit: 40 });
   });
   it("freezes single-delete confirmation and requires explicit reload after 412", async () => {
     await setup();
@@ -340,7 +311,7 @@ describe("admin section captured snapshots", () => {
     await screen.findByDisplayValue("Original A");
     revision = 2;
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/Your draft is preserved/);
+    await screen.findByText(/This row changed since you opened it/);
     const implementation = mocks.request.getMockImplementation()!;
     let finish!: () => void;
     mocks.request.mockImplementation((operation: string, args: Args) =>
@@ -350,7 +321,7 @@ describe("admin section captured snapshots", () => {
           })
         : implementation(operation, args),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Reload section" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload row" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await act(async () => {
       finish();
@@ -435,38 +406,7 @@ describe("admin section captured snapshots", () => {
     await setup(false);
     await screen.findByText("Read unavailable");
     expect(screen.queryByText(/No rows on/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add Section" })).toBeDisabled();
-  });
-
-  it("retains imported IDs and completed targets when retrying a later Trakt section failure", async () => {
-    let imports = 0;
-    mocks.importCollection.mockImplementation(async () => ({
-      collection: { id: `import-${++imports}` },
-    }));
-    const implementation = mocks.request.getMockImplementation()!;
-    const creates: Record<string, unknown>[] = [];
-    mocks.request.mockImplementation((operation: string, args: Args) => {
-      if (operation !== "POST /api/v2/admin/sections") return implementation(operation, args);
-      creates.push(args.body!);
-      if (creates.length === 2)
-        return Promise.reject(v2Problem(422, "validation_failed", "Fix section first"));
-      return Promise.resolve({ ...initial(`created-${creates.length}`), ...args.body });
-    });
-    await setup();
-    fireEvent.click(screen.getByRole("button", { name: "Add from Gallery" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Choose Trakt recipe" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create Trakt sections" }));
-    await screen.findByText('1 of 2 sections created for "Trakt picks".');
-    expect(screen.getByText(/Collection import-2/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add from Gallery" })).toBeDisabled();
-    expect(imports).toBe(2);
-    fireEvent.click(screen.getByRole("button", { name: "Retry remaining sections" }));
-    await screen.findByText('2 of 2 sections created for "Trakt picks".');
-    expect(imports).toBe(2);
-    expect(creates).toHaveLength(3);
-    expect(creates[0]?.config).toMatchObject({ library_collection_id: "import-1" });
-    expect(creates[1]?.config).toMatchObject({ library_collection_id: "import-2" });
-    expect(creates[2]?.config).toMatchObject({ library_collection_id: "import-2" });
+    expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
   });
 });
 
@@ -536,7 +476,7 @@ describe("admin Home rows list", () => {
     );
   });
 
-  it("moves focus to the next row's menu after a delete, or to Add Section after the last", async () => {
+  it("moves focus to the next row's menu after a delete, or to Add row after the last", async () => {
     await setup();
     await chooseRowAction("Original A", "Delete row…");
     fireEvent.click(
@@ -553,7 +493,7 @@ describe("admin Home rows list", () => {
     );
     await screen.findByText("No rows on Home yet.");
     await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add Section" })),
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add row" })),
     );
   });
 

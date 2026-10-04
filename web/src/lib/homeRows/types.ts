@@ -4,6 +4,8 @@
  * adapter hook, so nothing under components/homeRows reads an account role or
  * an API type.
  */
+import type { RowDraft } from "./rowDraft";
+
 export type Surface = "admin" | "profile";
 
 export type PageRef = { kind: "home" } | { kind: "library"; libraryId: number };
@@ -26,6 +28,28 @@ export interface HomeRow {
   own: boolean;
   /** A legacy Trakt row: the server refuses config changes and turning it back on. */
   legacyTrakt: boolean;
+}
+
+/** An open Edit row: the row as it was read, plus whatever the surface needs to save over it. */
+export interface EditSession {
+  row: HomeRow;
+  /** Surface-private: the admin keeps the stored row and its version here. */
+  token: unknown;
+}
+
+/** Thrown by `save` when the row changed since the edit session was read. */
+export class RowChangedError extends Error {
+  constructor() {
+    super("This row changed since you opened it.");
+    this.name = "RowChangedError";
+  }
+}
+
+export interface HomeRowsCapabilities {
+  /** Step 2 and Edit row show a live preview of the draft. */
+  draftPreview: boolean;
+  /** "Titles matching rules" may be added. */
+  ruleRows: boolean;
 }
 
 export type HomeRowsConflict = null | { scope: "page" | "row"; rowId?: string };
@@ -57,4 +81,13 @@ export interface HomeRowsAdapter {
   reorder(orderedIds: string[], orderToken?: unknown): Promise<void>;
   setShown(id: string, shown: boolean): Promise<void>;
   setHero(id: string, hero: boolean): Promise<void>;
+  capabilities: HomeRowsCapabilities;
+  /** Adds a row at the bottom of the page. Rejects when the server refuses it. */
+  create(draft: RowDraft): Promise<{ newIds: string[] }>;
+  /** Reads the row as it is now, for Edit row. */
+  openEdit(id: string): Promise<EditSession>;
+  /** Re-reads a row after a save was refused, for a new session over its latest version. */
+  reloadEdit(session: EditSession): Promise<EditSession>;
+  /** Saves over the session's version; rejects with RowChangedError when it moved on. */
+  save(session: EditSession, draft: RowDraft): Promise<void>;
 }

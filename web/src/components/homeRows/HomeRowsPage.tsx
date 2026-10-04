@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowDownToLine, ArrowUpToLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { describeRow, type DescribeContext } from "@/lib/homeRows/describe";
@@ -40,6 +40,7 @@ export function HomeRowsPage({
   collectionTitle,
   selection,
   focus,
+  highlightRowId,
   children,
 }: {
   adapter: HomeRowsAdapter;
@@ -52,9 +53,22 @@ export function HomeRowsPage({
   collectionTitle?: DescribeContext["collectionTitle"];
   selection?: HomeRowsSelection;
   focus: RowFocus;
+  /** A row just added: scrolled into view and briefly highlighted. */
+  highlightRowId?: string | null;
   children?: ReactNode;
 }) {
   const dragging = useRef(false);
+  const list = useRef<HTMLDivElement>(null);
+  const highlightShown = Boolean(
+    highlightRowId && adapter.rows.some((row) => row.id === highlightRowId),
+  );
+
+  useEffect(() => {
+    if (!highlightShown || !highlightRowId) return;
+    list.current
+      ?.querySelector(`[data-row-id=${JSON.stringify(highlightRowId)}]`)
+      ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [highlightRowId, highlightShown]);
   const { rows, surface, page } = adapter;
   const label = pageLabel(page, adapter.pages);
   const shownCount = rows.filter((row) => row.shown).length;
@@ -142,7 +156,11 @@ export function HomeRowsPage({
           Loading rows…
         </p>
       ) : (
-        <div className="surface-panel rounded-[26px] p-1.5" onKeyDown={handleListKeyDown}>
+        <div
+          ref={list}
+          className="surface-panel rounded-[26px] p-1.5"
+          onKeyDown={handleListKeyDown}
+        >
           {rows.length === 0 ? (
             <p className="text-muted-foreground px-[18px] py-8 text-center text-sm">
               No rows on {label} yet.
@@ -164,6 +182,7 @@ export function HomeRowsPage({
                     key={row.id}
                     {...sortable}
                     row={row}
+                    highlighted={row.id === highlightRowId}
                     surface={surface}
                     pageLabel={label}
                     description={describeRow(row, describeContext)}

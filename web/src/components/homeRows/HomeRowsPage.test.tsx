@@ -97,6 +97,15 @@ function FakePage({
     setShown: async (id, shown) =>
       setRows((current) => current.map((row) => (row.id === id ? { ...row, shown } : row))),
     setHero: async () => {},
+    capabilities: { draftPreview: false, ruleRows: true },
+    create: async () => ({ newIds: [] }),
+    openEdit: async () => {
+      throw new Error("not used");
+    },
+    reloadEdit: async () => {
+      throw new Error("not used");
+    },
+    save: async () => {},
   };
   const focus = useRowFocus(rows, pending);
   const { attachAddButton } = focus;
