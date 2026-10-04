@@ -14,9 +14,10 @@ import (
 
 // TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync pins the
 // compare-and-set on sync completion: a sync writes next_sync_at only while
-// the stored schedule is the one it started with, so an edit made while it
-// ran, on any node, keeps the next_sync_at the edit computed. The rest of
-// the sync state is written either way.
+// the stored schedule and next_sync_at are the ones it started with, so an
+// edit made while it ran, on any node, keeps the next_sync_at the edit
+// computed, even when the edit saved the same cadence again. The rest of the
+// sync state is written either way.
 func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing.T) {
 	dsn := os.Getenv("SILO_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -44,6 +45,7 @@ func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing
 	daily, weekly := "30 4 * * *", "30 4 * * 0"
 	base := time.Date(2026, 10, 4, 4, 30, 0, 0, time.UTC)
 	dailyNext, weeklyNext, syncNext := base.Add(24*time.Hour), base.Add(7*24*time.Hour), base.Add(25*time.Hour)
+	editNext := base.Add(23 * time.Hour)
 
 	create := func(t *testing.T) *userstore.Collection {
 		t.Helper()
@@ -57,15 +59,17 @@ func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing
 		}
 		return c
 	}
-	finish := func(t *testing.T, id string, scheduleAtStart *string) *userstore.Collection {
+	// finish completes a sync that started on start's schedule and next run.
+	finish := func(t *testing.T, start *userstore.Collection) *userstore.Collection {
 		t.Helper()
 		if err := store.UpdateCollectionSyncState(ctx, userstore.UpdateCollectionSyncStateInput{
-			ID: id, Status: "success", Message: "Matched 3 of 3 entries", ItemCount: 3,
-			LastSyncAt: base, NextSyncAt: &syncNext, ScheduleAtStart: scheduleAtStart,
+			ID: start.ID, Status: "success", Message: "Matched 3 of 3 entries", ItemCount: 3,
+			LastSyncAt: base, NextSyncAt: &syncNext,
+			ScheduleAtStart: start.SyncSchedule, NextSyncAtAtStart: start.NextSyncAt,
 		}); err != nil {
 			t.Fatal(err)
 		}
-		c, err := store.GetCollection(ctx, id)
+		c, err := store.GetCollection(ctx, start.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +81,7 @@ func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing
 
 	t.Run("an unchanged schedule takes the sync's next run", func(t *testing.T) {
 		c := create(t)
-		got := finish(t, c.ID, c.SyncSchedule)
+		got := finish(t, c)
 		if got.NextSyncAt == nil || !got.NextSyncAt.Equal(syncNext) {
 			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, syncNext)
 		}
@@ -87,7 +91,7 @@ func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing
 		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: c.ID, RequestProfileID: profile, ClearSyncSchedule: true, ClearNextSyncAt: true}); err != nil {
 			t.Fatal(err)
 		}
-		got := finish(t, c.ID, c.SyncSchedule)
+		got := finish(t, c)
 		if got.SyncSchedule != nil || got.NextSyncAt != nil {
 			t.Fatalf("schedule %v, next_sync_at %v; want both null", got.SyncSchedule, got.NextSyncAt)
 		}
@@ -97,7 +101,7 @@ func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing
 		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: c.ID, RequestProfileID: profile, SyncSchedule: &weekly, NextSyncAt: &weeklyNext}); err != nil {
 			t.Fatal(err)
 		}
-		got := finish(t, c.ID, c.SyncSchedule)
+		got := finish(t, c)
 		if got.SyncSchedule == nil || *got.SyncSchedule != weekly || got.NextSyncAt == nil || !got.NextSyncAt.Equal(weeklyNext) {
 			t.Fatalf("schedule %v, next_sync_at %v; want %q, %v", got.SyncSchedule, got.NextSyncAt, weekly, weeklyNext)
 		}
@@ -114,9 +118,32 @@ func TestPostgresCollectionSyncStateKeepsAScheduleEditedDuringTheSync(t *testing
 		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: c.ID, RequestProfileID: profile, SyncSchedule: &weekly, NextSyncAt: &weeklyNext}); err != nil {
 			t.Fatal(err)
 		}
-		got := finish(t, c.ID, off.SyncSchedule)
+		got := finish(t, off)
 		if got.NextSyncAt == nil || !got.NextSyncAt.Equal(weeklyNext) {
 			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, weeklyNext)
+		}
+	})
+	t.Run("a schedule saved again during the sync keeps the edit's next run", func(t *testing.T) {
+		c := create(t)
+		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: c.ID, RequestProfileID: profile, SyncSchedule: &daily, NextSyncAt: &editNext}); err != nil {
+			t.Fatal(err)
+		}
+		got := finish(t, c)
+		if got.NextSyncAt == nil || !got.NextSyncAt.Equal(editNext) {
+			t.Fatalf("next_sync_at = %v, want %v", got.NextSyncAt, editNext)
+		}
+	})
+	t.Run("a schedule changed and changed back during the sync keeps the edit's next run", func(t *testing.T) {
+		c := create(t)
+		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: c.ID, RequestProfileID: profile, SyncSchedule: &weekly, NextSyncAt: &weeklyNext}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpdateCollection(ctx, userstore.UpdateCollectionInput{ID: c.ID, RequestProfileID: profile, SyncSchedule: &daily, NextSyncAt: &editNext}); err != nil {
+			t.Fatal(err)
+		}
+		got := finish(t, c)
+		if got.SyncSchedule == nil || *got.SyncSchedule != daily || got.NextSyncAt == nil || !got.NextSyncAt.Equal(editNext) {
+			t.Fatalf("schedule %v, next_sync_at %v; want %q, %v", got.SyncSchedule, got.NextSyncAt, daily, editNext)
 		}
 	})
 }

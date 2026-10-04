@@ -195,9 +195,9 @@ Collection reads carry `sync_cadence`, the cadence `sync_schedule` names: `daily
 `monthly`, `""` when the collection is not synced, or `custom` for a stored schedule no cadence
 name produces. Read it instead of matching cron expressions.
 
-A sync that is running when the schedule changes, on any node, records its result but leaves the
-`next_sync_at` the change set. A failed scheduled sync retries after the minimum interval only
-when the schedule was not changed while it ran.
+A sync that is running when `sync_schedule` is saved, on any node, records its result but leaves
+the `next_sync_at` the save set, even when the save kept the same cadence. A failed scheduled sync
+retries after the minimum interval only when the schedule was not saved while it ran.
 
 The frozen `/api/v1/collections/{id}` update ignores a `sync_schedule` member, and `/api/v1`
 collection responses carry no `sync_cadence`.
