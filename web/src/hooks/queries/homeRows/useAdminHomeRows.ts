@@ -99,12 +99,15 @@ export interface AdminHomeRows extends HomeRowsAdapter {
 export function useAdminHomeRows(): AdminHomeRows {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: librariesData } = useAdminLibraries();
+  const librariesQuery = useAdminLibraries();
+  const librariesData = librariesQuery.data;
   const libraries = useMemo(() => librariesData ?? [], [librariesData]);
   const rawPage = searchParams.get("page");
   // A library link can only be checked once the libraries load; until then the
-  // page waits instead of showing Home for a moment.
+  // page waits instead of showing Home for a moment. If they fail to load, the
+  // page reports that and Reload retries them.
   const pageKnown = librariesData !== undefined || rawPage === null || rawPage === "home";
+  const librariesFailed = !pageKnown && librariesQuery.isError;
   const page = parsePageParam(
     rawPage,
     libraries.map((library) => library.id),
@@ -154,8 +157,10 @@ export function useAdminHomeRows(): AdminHomeRows {
     [sections, draft, optimistic],
   );
 
-  const status: HomeRowsAdapter["status"] =
-    !pageKnown || list.isLoading ? "loading" : list.isError && !list.data ? "error" : "ready";
+  let status: HomeRowsAdapter["status"] = "ready";
+  if (librariesFailed || (list.isError && !list.data)) status = "error";
+  else if (!pageKnown || list.isLoading) status = "loading";
+  const readError = librariesFailed ? librariesQuery.error : list.error;
   // A refetch that fails after a good read (for example "Sections changed while
   // loading") keeps the old rows on screen but marks them out of date.
   const effectiveConflict: HomeRowsConflict =
@@ -258,12 +263,16 @@ export function useAdminHomeRows(): AdminHomeRows {
   );
 
   const reload = useCallback(async () => {
+    if (librariesFailed) {
+      await librariesQuery.refetch();
+      return;
+    }
     const result = await list.refetch();
     if (!result.isError) {
       setConflict(null);
       setDraft(null);
     }
-  }, [list]);
+  }, [librariesFailed, librariesQuery, list]);
 
   const setPage = useCallback(
     (ref: PageRef) => {
@@ -289,7 +298,7 @@ export function useAdminHomeRows(): AdminHomeRows {
     pages,
     setPage,
     status,
-    error: list.error instanceof Error ? list.error.message : null,
+    error: readError instanceof Error ? readError.message : null,
     canEdit,
     rows,
     pending,

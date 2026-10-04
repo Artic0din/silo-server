@@ -7,14 +7,18 @@ import { v2Problem } from "@/api/v2/problems.test-support";
 import { useDeleteSection } from "@/hooks/queries/sections";
 import { useAdminHomeRows } from "./useAdminHomeRows";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  request: vi.fn(),
+  error: vi.fn(),
+  libraries: vi.fn(),
+}));
 vi.mock("@/api/v2/request", async () => ({
   ...(await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request")),
   v2: mocks.request,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: mocks.error, warning: vi.fn() } }));
 vi.mock("@/hooks/queries/admin/libraries", () => ({
-  useAdminLibraries: () => ({ data: [{ id: 7, name: "Movies", type: "movies" }] }),
+  useAdminLibraries: () => mocks.libraries(),
 }));
 vi.mock("@/hooks/queries/collectionSurfaceRefresh", () => ({
   invalidateAdminCollectionQueries: vi.fn(),
@@ -74,6 +78,7 @@ beforeEach(() => {
   revision = 1;
   calls = [];
   hold = null;
+  mocks.libraries.mockReturnValue({ data: [{ id: 7, name: "Movies", type: "movies" }] });
   mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
     calls.push({ operation, args });
     if (hold && hold.operation === operation) {
@@ -347,5 +352,21 @@ describe("useAdminHomeRows", () => {
     await act(async () => on);
     expect(result.current.adapter.rows[0]!.shown).toBe(true);
     expect(writes().map((call) => call.args.body)).toEqual([{ enabled: false }, { enabled: true }]);
+  });
+
+  it("reports a library link as an error with a retry when the libraries fail to load", async () => {
+    const refetch = vi.fn(async () => undefined);
+    mocks.libraries.mockReturnValue({
+      data: undefined,
+      isError: true,
+      error: new Error("Libraries unavailable"),
+      refetch,
+    });
+    const { result } = setup("/admin/home-rows?page=7");
+    await waitFor(() => expect(result.current.adapter.status).toBe("error"));
+    expect(result.current.adapter.error).toBe("Libraries unavailable");
+    expect(result.current.adapter.canEdit).toBe(false);
+    await act(async () => result.current.adapter.reload());
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });
