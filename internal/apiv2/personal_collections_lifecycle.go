@@ -43,6 +43,7 @@ type PersonalCollectionUpdate struct {
 	IncludeInServerCollections *bool           `json:"include_in_server_collections,omitempty" nullable:"false"`
 	PosterSourceURL            *string         `json:"poster_source_url,omitempty" nullable:"false"`
 	GroupID                    *ID             `json:"group_id,omitempty" nullable:"true" doc:"Omit: personal collection groups are no longer supported, and setting it answers capability_unsupported"`
+	SyncSchedule               *string         `json:"sync_schedule,omitempty" nullable:"false" enum:",daily,weekly,monthly" doc:"A synced list's cadence; empty stops scheduled syncs. Cron expressions are refused. Accepted when getCollectionCapabilities reports sync_schedule_editable" example:"weekly"`
 }
 type PersonalCollectionUpdateInput struct {
 	IfMatch     string `header:"If-Match"`
@@ -80,6 +81,7 @@ type PersonalCollectionPreviewItem struct {
 	ContentID ID     `json:"content_id"`
 	Title     string `json:"title"`
 	Type      string `json:"type"`
+	PosterURL string `json:"poster_url,omitempty" doc:"Card-size poster URL; omitted when the item has none"`
 }
 type PersonalCollectionPreviewOutput struct {
 	Body struct {
@@ -208,7 +210,7 @@ func (reg *Registry) updatePersonalCollection(ctx context.Context, in *PersonalC
 		return nil, NewProblem(TypeValidationFailed, "Update artwork using the separate poster operation.")
 	}
 	b := in.Body
-	r := handlers.PersonalCollectionUpdateRequest{Name: b.Name, Description: b.Description, IsShared: b.IsShared, QueryDefinition: b.QueryDefinition, SortConfig: b.SortConfig, SourceURL: b.SourceURL, MaxItems: b.MaxItems, DisplayQueryDefinition: b.DisplayQueryDefinition, IncludeInServerCollections: b.IncludeInServerCollections, PosterSourceURL: b.PosterSourceURL}
+	r := handlers.PersonalCollectionUpdateRequest{Name: b.Name, Description: b.Description, IsShared: b.IsShared, QueryDefinition: b.QueryDefinition, SortConfig: b.SortConfig, SourceURL: b.SourceURL, MaxItems: b.MaxItems, DisplayQueryDefinition: b.DisplayQueryDefinition, IncludeInServerCollections: b.IncludeInServerCollections, PosterSourceURL: b.PosterSourceURL, SyncSchedule: b.SyncSchedule}
 	if b.LibraryIDs != nil {
 		ids, p := intsOfIDs(*b.LibraryIDs, "library_ids")
 		if p != nil {
@@ -292,13 +294,13 @@ func (reg *Registry) previewPersonalCollection(ctx context.Context, in *Personal
 	if p != nil {
 		return nil, p
 	}
-	v, e := s.PreviewPersonalCollection(ctx, handlers.PersonalCollectionPreviewRequest{QueryDefinition: in.Body.QueryDefinition, Limit: in.Body.Limit}, handlers.AccessFilterFromContext(ctx, ""))
+	v, e := s.PreviewPersonalCollection(ctx, handlers.PersonalCollectionPreviewRequest{QueryDefinition: in.Body.QueryDefinition, Limit: in.Body.Limit, WithPosters: true}, handlers.AccessFilterFromContext(ctx, ""))
 	if e != nil {
 		return nil, collectionProblem(e)
 	}
 	items := make([]PersonalCollectionPreviewItem, 0, len(v.Items))
 	for _, i := range v.Items {
-		items = append(items, PersonalCollectionPreviewItem{ContentID: ID(i.ContentID), Title: i.Title, Type: i.Type})
+		items = append(items, PersonalCollectionPreviewItem{ContentID: ID(i.ContentID), Title: i.Title, Type: i.Type, PosterURL: i.PosterURL})
 	}
 	out := &PersonalCollectionPreviewOutput{}
 	out.Body.Collection = NewCollection(items)

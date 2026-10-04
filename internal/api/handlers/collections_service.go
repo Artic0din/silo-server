@@ -57,6 +57,39 @@ func (h *CollectionHandler) ListPersonalCollections(ctx context.Context, userID 
 	}, nil
 }
 
+// PersonalCollectionsHoldingItem returns the ids of profileID's own manual
+// collections that hold itemID. It returns none when the request's viewer
+// cannot access the title, so the answer never reveals that a hidden title
+// exists or which collections still hold it.
+func (h *CollectionHandler) PersonalCollectionsHoldingItem(ctx context.Context, userID int, profileID, itemID string) (map[string]bool, error) {
+	if profileID == "" || itemID == "" {
+		return map[string]bool{}, nil
+	}
+	if err := h.requireVisibleCollectionItem(ctx, itemID); err != nil {
+		if apiErr, ok := errors.AsType[*APIError](err); ok && apiErr.Status == http.StatusNotFound {
+			return map[string]bool{}, nil
+		}
+		return nil, err
+	}
+	store, err := h.storeProvider.ForUser(ctx, userID)
+	if err != nil {
+		return nil, apiError(http.StatusInternalServerError, "internal_error", "Failed to access user store")
+	}
+	reader, ok := store.(userstore.CollectionMembershipReader)
+	if !ok {
+		return nil, apiError(http.StatusNotImplemented, "unsupported", "This store cannot report collection membership")
+	}
+	ids, err := reader.ManualCollectionsHolding(ctx, profileID, itemID)
+	if err != nil {
+		return nil, apiError(http.StatusInternalServerError, "internal_error", "Failed to read collection membership")
+	}
+	holding := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		holding[id] = true
+	}
+	return holding, nil
+}
+
 // Capabilities is the additive feature support collection clients detect.
 func (h *CollectionHandler) Capabilities() CollectionCapabilitiesView {
 	return CollectionCapabilitiesView{
@@ -116,6 +149,7 @@ func (h *CollectionHandler) CreatePersonalCollection(ctx context.Context, cmd Pe
 	collection, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 		CreatorProfileID:           cmd.ProfileID,
 		Name:                       req.Name,
+		Description:                req.Description,
 		CollectionType:             collectionType,
 		IsShared:                   req.IsShared,
 		QueryDefinition:            queryDefinition,

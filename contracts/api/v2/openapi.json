@@ -3229,6 +3229,12 @@
               "null"
             ]
           },
+          "home_row_count": {
+            "description": "Turned-on rows on the administrator Home page that show this collection; turned-off rows are not counted. Set on listAdminCollections items only. Rows profiles added themselves are not counted.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "id": {
             "description": "Opaque identifier",
             "examples": [
@@ -3297,6 +3303,12 @@
             "type": "string"
           },
           "query_definition": {},
+          "row_count": {
+            "description": "Rows on the administrator Home and library pages that show this collection, turned-off rows included. Set on listAdminCollections items only. Rows profiles added themselves are not counted.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "slug": {
             "type": "string"
           },
@@ -3423,9 +3435,26 @@
           "item_reorder": {
             "type": "boolean"
           },
+          "mdblist_search": {
+            "description": "searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
+          },
+          "schedule_time_zone": {
+            "$ref": "#/components/schemas/CollectionScheduleTimeZone"
+          },
+          "section_references": {
+            "description": "listAdminCollectionSections lists the rows that show a collection, and listAdminCollections items carry home_row_count and row_count",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           },
           "state": {
             "description": "Support and configuration state, not health",
@@ -3444,6 +3473,9 @@
           "import_sources",
           "artwork",
           "item_reorder",
+          "mdblist_search",
+          "schedule_time_zone",
+          "section_references",
           "revision",
           "state",
           "allowed"
@@ -3832,6 +3864,71 @@
         "required": [
           "total",
           "items"
+        ],
+        "type": "object"
+      },
+      "AdminCollectionSection": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "featured": {
+            "description": "The row is its page's hero banner.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Opaque identifier",
+            "examples": [
+              "1"
+            ],
+            "minLength": 1,
+            "type": "string"
+          },
+          "library_id": {
+            "description": "The library whose page holds the row; null for a Home row.",
+            "examples": [
+              "1"
+            ],
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_row_count": {
+            "description": "Rows on the page that holds this row, turned-off rows included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "home",
+              "library"
+            ],
+            "type": "string"
+          },
+          "section_type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "library_id",
+          "section_type",
+          "title",
+          "featured",
+          "enabled",
+          "position",
+          "page_row_count"
         ],
         "type": "object"
       },
@@ -21806,6 +21903,26 @@
         ],
         "type": "object"
       },
+      "CollectionAdminCollectionSection": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "The page's items; empty, never null",
+            "items": {
+              "$ref": "#/components/schemas/AdminCollectionSection"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo",
+            "description": "Cursor state; absent for bounded unpaginated collections"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "CollectionAdminDeviceMetadata": {
         "additionalProperties": false,
         "properties": {
@@ -22469,6 +22586,20 @@
             ],
             "type": "boolean"
           },
+          "contains_item": {
+            "description": "listCollections accepts contains_item and marks the acting profile's own manual collections with contains",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "create_description": {
+            "description": "createCollection accepts description",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "display_filter_fields": {
             "description": "Catalog query fields a display filter may use",
             "examples": [
@@ -22526,9 +22657,26 @@
             "description": "is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it",
             "type": "boolean"
           },
+          "mdblist_search": {
+            "description": "searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "preview_posters": {
+            "description": "previewCollection items carry poster_url when the title has a poster",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
+          },
+          "schedule_time_zone": {
+            "$ref": "#/components/schemas/CollectionScheduleTimeZone"
           },
           "sort_preference_kinds": {
             "description": "collection_kind values the sort-preference operations accept",
@@ -22554,6 +22702,13 @@
               "unsupported"
             ],
             "type": "string"
+          },
+          "sync_schedule_editable": {
+            "description": "updateCollection accepts sync_schedule on a synced list; false when imports is false",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           }
         },
         "required": [
@@ -22569,6 +22724,12 @@
           "collection_sort_preferences",
           "effective_collection_sort",
           "sort_preference_kinds",
+          "create_description",
+          "mdblist_search",
+          "schedule_time_zone",
+          "sync_schedule_editable",
+          "contains_item",
+          "preview_posters",
           "revision",
           "state",
           "allowed"
@@ -23034,6 +23195,38 @@
         ],
         "type": "object"
       },
+      "CollectionScheduleTimeZone": {
+        "additionalProperties": false,
+        "properties": {
+          "abbreviation": {
+            "description": "Current zone abbreviation as the node's time zone database reports it; some zones report a numeric form such as -03",
+            "examples": [
+              "CDT"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "IANA zone name, from the node's TZ environment variable or UTC when TZ is empty or names no known zone; omitted when the node uses its system default zone or a TZ file path",
+            "examples": [
+              "America/Chicago"
+            ],
+            "type": "string"
+          },
+          "utc_offset": {
+            "description": "Current offset from UTC, daylight saving time included",
+            "examples": [
+              "-05:00"
+            ],
+            "pattern": "^[+-][0-9]{2}:[0-9]{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "utc_offset",
+          "abbreviation"
+        ],
+        "type": "object"
+      },
       "CollectionSortPreference": {
         "additionalProperties": false,
         "properties": {
@@ -23229,11 +23422,19 @@
             },
             "type": "array"
           },
+          "templates": {
+            "description": "The bundle's templates, in template_ids order.",
+            "items": {
+              "$ref": "#/components/schemas/CollectionTemplateSummary"
+            },
+            "type": "array"
+          },
           "title": {
             "type": "string"
           }
         },
         "required": [
+          "templates",
           "id",
           "title",
           "description",
@@ -23253,6 +23454,44 @@
         },
         "required": [
           "categories"
+        ],
+        "type": "object"
+      },
+      "CollectionTemplateSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "featured": {
+            "description": "Collections created from this template are pinned first on their shelf.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media_kind": {
+            "type": "string"
+          },
+          "needs_setup": {
+            "description": "Applying the template creates an empty collection that cannot sync until an administrator sets its source.",
+            "type": "boolean"
+          },
+          "poster_path": {
+            "description": "Server-relative path of the template's poster image.",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source",
+          "media_kind",
+          "featured",
+          "needs_setup"
         ],
         "type": "object"
       },
@@ -34407,6 +34646,13 @@
             ],
             "type": "string"
           },
+          "contains": {
+            "description": "Whether the collection holds the listCollections contains_item title. Present only when contains_item is sent, and then only on the acting profile's own manual collections; false for a title the profile cannot access",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "created_at": {
             "description": "RFC 3339 instant in UTC with millisecond precision",
             "examples": [
@@ -34563,6 +34809,20 @@
             ],
             "type": "string"
           },
+          "sync_cadence": {
+            "description": "The cadence sync_schedule names; empty when the collection is not synced, custom for a schedule no cadence name produces",
+            "enum": [
+              "",
+              "daily",
+              "weekly",
+              "monthly",
+              "custom"
+            ],
+            "examples": [
+              ""
+            ],
+            "type": "string"
+          },
           "sync_schedule": {
             "description": "Empty when the collection is not synced",
             "examples": [
@@ -34595,6 +34855,7 @@
           "group_id",
           "source_url",
           "sync_schedule",
+          "sync_cadence",
           "next_sync_at",
           "last_sync_at",
           "last_sync_status",
@@ -34661,6 +34922,13 @@
             ],
             "examples": [
               "manual"
+            ],
+            "type": "string"
+          },
+          "description": {
+            "description": "Empty when omitted. Accepted when getCollectionCapabilities reports create_description",
+            "examples": [
+              "For wet afternoons"
             ],
             "type": "string"
           },
@@ -34814,6 +35082,10 @@
             "minLength": 1,
             "type": "string"
           },
+          "poster_url": {
+            "description": "Card-size poster URL; omitted when the item has none",
+            "type": "string"
+          },
           "title": {
             "type": "string"
           },
@@ -34904,6 +35176,19 @@
           "query_definition": {},
           "sort_config": {},
           "source_url": {
+            "type": "string"
+          },
+          "sync_schedule": {
+            "description": "A synced list's cadence; empty stops scheduled syncs. Cron expressions are refused. Accepted when getCollectionCapabilities reports sync_schedule_editable",
+            "enum": [
+              "",
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "examples": [
+              "weekly"
+            ],
             "type": "string"
           }
         },
@@ -60649,7 +60934,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List collection template bundles.",
+        "summary": "List collection template bundles, each with a summary of its templates.",
         "tags": [
           "admin-collections"
         ],
@@ -63381,6 +63666,176 @@
         "x-silo-class": "acting_admin",
         "x-silo-demo-restricted": true,
         "x-silo-retry-safety": "non_retryable",
+        "x-silo-service-backed": true
+      }
+    },
+    "/api/v2/admin/collections/{id}/sections": {
+      "get": {
+        "operationId": "listAdminCollectionSections",
+        "parameters": [
+          {
+            "description": "Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted.",
+            "in": "header",
+            "name": "X-Profile-Id",
+            "schema": {
+              "examples": [
+                "1"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked",
+            "in": "header",
+            "name": "X-Profile-Token",
+            "schema": {
+              "examples": [
+                "pvt_5f3a9c1e7b2d4e8fa0c6"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Opaque identifier",
+              "examples": [
+                "1"
+              ],
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAdminCollectionSection"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List the administrator Home and library page rows that show a collection. Rows profiles added themselves are not listed.",
+        "tags": [
+          "admin-collections"
+        ],
+        "x-silo-class": "acting_admin",
         "x-silo-service-backed": true
       }
     },
@@ -129368,6 +129823,19 @@
             "schema": {
               "examples": [
                 "pvt_5f3a9c1e7b2d4e8fa0c6"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "A title's content id. Each of the acting profile's own manual collections then carries contains. Accepted when getCollectionCapabilities reports contains_item",
+            "explode": false,
+            "in": "query",
+            "name": "contains_item",
+            "schema": {
+              "description": "A title's content id. Each of the acting profile's own manual collections then carries contains. Accepted when getCollectionCapabilities reports contains_item",
+              "examples": [
+                "01J9Z8C3W4R5T6Y7U8I9O0P1Q5"
               ],
               "type": "string"
             }

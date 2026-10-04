@@ -142,11 +142,16 @@ func (s *Scheduler) syncOne(ctx context.Context, dc dueCollection, mu *sync.Mute
 }
 
 // advanceAfterFailure pushes next_sync_at forward by the user-sync minimum
-// interval so a broken source does not thrash the scheduler.
+// interval so a broken source does not thrash the scheduler. It moves only a
+// next_sync_at that is still due: a schedule turned off or changed while the
+// sync ran, on any node, keeps what the edit wrote. "Still due" uses the
+// database clock, as listDue does, so a node whose clock runs behind still
+// pushes the retry back.
 func (s *Scheduler) advanceAfterFailure(ctx context.Context, dc dueCollection, after time.Time) {
 	next := after.Add(time.Duration(MinSyncIntervalHours) * time.Hour)
 	if _, err := s.pool.Exec(ctx,
-		`UPDATE user_personal_collections SET next_sync_at = $1 WHERE user_id = $2 AND id = $3`,
+		`UPDATE user_personal_collections SET next_sync_at = $1
+		 WHERE user_id = $2 AND id = $3 AND next_sync_at <= NOW()`,
 		next, dc.UserID, dc.CollectionID,
 	); err != nil {
 		s.logger.ErrorContext(ctx, "user collection sync scheduler: failed to advance next_sync_at after failure",

@@ -1,0 +1,21 @@
+{
+  "revision": "42413f6fd70d65edf7fbf1bd14ace0fcb84d70029a786dd506e4dc61baeb6dfc",
+  "state": "available",
+  "allowed": true,
+  "groups": true,
+  "imports": true,
+  "import_sources": [
+    "mdblist",
+    "tmdb",
+    "tmdb_list"
+  ],
+  "artwork": true,
+  "item_reorder": true,
+  "mdblist_search": true,
+  "schedule_time_zone": {
+    "utc_offset": "-05:00",
+    "abbreviation": "CDT",
+    "name": "America/Chicago"
+  },
+  "section_references": true
+}

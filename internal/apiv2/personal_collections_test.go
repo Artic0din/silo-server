@@ -22,6 +22,11 @@ type fakePersonalCollections struct {
 	list       handlers.PersonalCollectionListView
 	lastCreate handlers.PersonalCollectionCreateCommand
 	lastOrder  []string
+	// holding answers PersonalCollectionsHoldingItem; holdingCalls records
+	// each call's profile and item.
+	holding      map[string]bool
+	holdingErr   error
+	holdingCalls []string
 }
 
 func (f *fakePersonalCollections) ListPersonalCollections(_ context.Context, _ int, profileID string) (handlers.PersonalCollectionListView, error) {
@@ -32,6 +37,14 @@ func (f *fakePersonalCollections) ListPersonalCollections(_ context.Context, _ i
 		return handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{}, Groups: []handlers.CollectionGroupView{}}, nil
 	}
 	return f.list, nil
+}
+
+func (f *fakePersonalCollections) PersonalCollectionsHoldingItem(_ context.Context, _ int, profileID, itemID string) (map[string]bool, error) {
+	f.holdingCalls = append(f.holdingCalls, profileID+"/"+itemID)
+	if f.holdingErr != nil {
+		return nil, f.holdingErr
+	}
+	return f.holding, nil
 }
 
 func (f *fakePersonalCollections) Capabilities() handlers.CollectionCapabilitiesView {
@@ -53,6 +66,7 @@ func (f *fakePersonalCollections) CreatePersonalCollection(_ context.Context, cm
 	}
 	v := fixtureCollectionView()
 	v.Name = cmd.Request.Name
+	v.Description = cmd.Request.Description
 	v.CollectionType = cmd.Request.CollectionType
 	v.IsShared = cmd.Request.IsShared
 	return v, nil
@@ -184,8 +198,8 @@ func TestListCollections(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"items":[{"id":"c1","profile_id":"p-owner","creator_profile_id":"p-owner","name":"Rainy days","description":"","collection_type":"manual","is_shared":false,"query_definition":{},"sort_config":{},"sort_order":0,"group_id":null,"source_url":"","sync_schedule":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"},` +
-		`{"id":"c2","profile_id":"p-primary","creator_profile_id":"p-primary","name":"Family night","description":"","collection_type":"manual","is_shared":true,"query_definition":{},"sort_config":{},"sort_order":0,"group_id":null,"source_url":"","sync_schedule":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"}],` +
+	want := `{"items":[{"id":"c1","profile_id":"p-owner","creator_profile_id":"p-owner","name":"Rainy days","description":"","collection_type":"manual","is_shared":false,"query_definition":{},"sort_config":{},"sort_order":0,"group_id":null,"source_url":"","sync_schedule":"","sync_cadence":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"},` +
+		`{"id":"c2","profile_id":"p-primary","creator_profile_id":"p-primary","name":"Family night","description":"","collection_type":"manual","is_shared":true,"query_definition":{},"sort_config":{},"sort_order":0,"group_id":null,"source_url":"","sync_schedule":"","sync_cadence":"","next_sync_at":null,"last_sync_at":null,"last_sync_status":"","last_sync_message":"","item_count":4,"include_in_server_collections":false,"poster_url":"","poster_thumbhash":"","created_at":"2026-01-02T03:04:05.678Z","updated_at":"2026-01-02T03:04:05.678Z"}],` +
 		`"groups":[]}` + "\n"
 	if rec.Body.String() != want {
 		t.Fatalf("body = %s", rec.Body.String())
@@ -211,11 +225,12 @@ func TestListCollections(t *testing.T) {
 
 func TestGetCollectionCapabilities(t *testing.T) {
 	deps, _, _ := collectionDeps(t)
+	deps.ScheduleZone = fixtureScheduleTimeZone
 	rec := do(t, newTestHandler(t, deps), http.MethodGet, "/api/v2/collections/capabilities", "", viewerHeaders())
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"]}` + "\n"
+	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"mdblist_search":true,"schedule_time_zone":{"utc_offset":"-05:00","abbreviation":"CDT","name":"America/Chicago"},"sync_schedule_editable":false,"contains_item":true,"preview_posters":true}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
@@ -235,9 +250,24 @@ func TestCreateCollection(t *testing.T) {
 	if cmd.UserID != 1 || cmd.ProfileID != "p-owner" || cmd.PosterFile != nil || !cmd.Request.IsShared || string(cmd.Request.QueryDefinition) != `{"filters":[]}` {
 		t.Fatalf("command = %+v", cmd)
 	}
+	if cmd.Request.Description != "" {
+		t.Fatalf("description without one in the body = %q, want empty", cmd.Request.Description)
+	}
+	// A description is stored with the new collection and echoed back.
+	rec = do(t, h, http.MethodPost, "/api/v2/collections", `{"name":"Rainy days","description":"For wet afternoons"}`, viewerHeaders())
+	if rec.Code != 201 || !strings.Contains(rec.Body.String(), `"name":"Rainy days","description":"For wet afternoons"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if got := pc.lastCreate.Request.Description; got != "For wet afternoons" {
+		t.Fatalf("description = %q", got)
+	}
+	p := requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"name":"x","description":null}`, viewerHeaders()), TypeValidationFailed)
+	if len(p.Errors) != 1 || p.Errors[0].Location != "body.description" || p.Errors[0].Code != codeInvalidType {
+		t.Fatalf("errors = %+v", p.Errors)
+	}
 	// Validation: the schema (missing name), the seam (empty name), an
 	// unknown enum, and null on a non-nullable member.
-	p := requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"collection_type":"manual"}`, viewerHeaders()), TypeValidationFailed)
+	p = requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"collection_type":"manual"}`, viewerHeaders()), TypeValidationFailed)
 	if len(p.Errors) != 1 || p.Errors[0].Location != "body.name" || p.Errors[0].Code != codeRequired {
 		t.Fatalf("errors = %+v", p.Errors)
 	}

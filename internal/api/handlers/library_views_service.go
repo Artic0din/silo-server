@@ -175,7 +175,7 @@ func (h *SectionHandler) LibrarySectionItems(ctx context.Context, libraryID int,
 		}
 		withItems, fetchErr := h.fetcher.FetchOne(ctx, s, &libraryID, nil, userID, profileID, accessFilter)
 		if fetchErr != nil {
-			slog.ErrorContext(ctx, "fetching section items", "component", "api", "section_id", s.ID, "type", s.SectionType, "error", fetchErr)
+			sections.LogFetchError(ctx, "api", s, fetchErr)
 			withItems = sections.SectionWithItems{
 				ResolvedSection: s,
 				Items:           []*models.MediaItem{},

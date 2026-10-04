@@ -37,6 +37,7 @@ type PersonalCollection struct {
 	SourceURL                  string          `json:"source_url" doc:"Where an imported collection is synced from; empty otherwise" example:""`
 	SourceConfig               json.RawMessage `json:"source_config,omitempty" doc:"Import source document; absent for a manual or smart collection"`
 	SyncSchedule               string          `json:"sync_schedule" doc:"Empty when the collection is not synced" example:""`
+	SyncCadence                string          `json:"sync_cadence" enum:",daily,weekly,monthly,custom" doc:"The cadence sync_schedule names; empty when the collection is not synced, custom for a schedule no cadence name produces" example:""`
 	NextSyncAt                 *Instant        `json:"next_sync_at" nullable:"true" example:"2026-01-02T03:04:05.678Z"`
 	LastSyncAt                 *Instant        `json:"last_sync_at" nullable:"true" example:"2026-01-02T03:04:05.678Z"`
 	LastSyncStatus             string          `json:"last_sync_status" doc:"Empty until the first sync" example:""`
@@ -48,6 +49,7 @@ type PersonalCollection struct {
 	PosterThumbhash            string          `json:"poster_thumbhash" example:""`
 	CreatedAt                  Instant         `json:"created_at" example:"2026-01-02T03:04:05.678Z"`
 	UpdatedAt                  Instant         `json:"updated_at" example:"2026-01-02T03:04:05.678Z"`
+	Contains                   *bool           `json:"contains,omitempty" doc:"Whether the collection holds the listCollections contains_item title. Present only when contains_item is sent, and then only on the acting profile's own manual collections; false for a title the profile cannot access" example:"true"`
 }
 
 // CollectionGroup is an account-wide grouping of personal collections.
@@ -65,6 +67,11 @@ type CollectionGroup struct {
 type PersonalCollectionCollection struct {
 	Collection[PersonalCollection]
 	Groups []CollectionGroup `json:"groups" doc:"Always empty: personal collection groups are no longer supported"`
+}
+
+// PersonalCollectionListInput is the listCollections request.
+type PersonalCollectionListInput struct {
+	ContainsItem string `query:"contains_item" doc:"A title's content id. Each of the acting profile's own manual collections then carries contains. Accepted when getCollectionCapabilities reports contains_item" example:"01J9Z8C3W4R5T6Y7U8I9O0P1Q5"`
 }
 
 // PersonalCollectionCollectionOutput is the listCollections response.
@@ -87,6 +94,7 @@ type PersonalCollectionCreatedOutput struct {
 // PersonalCollectionCreate is the createCollection body.
 type PersonalCollectionCreate struct {
 	Name                       string          `json:"name" minLength:"1" example:"Rainy days"`
+	Description                *string         `json:"description,omitempty" nullable:"false" doc:"Empty when omitted. Accepted when getCollectionCapabilities reports create_description" example:"For wet afternoons"`
 	CollectionType             *string         `json:"collection_type,omitempty" nullable:"false" enum:"manual,smart" doc:"Defaults to manual" example:"manual"`
 	IsShared                   *bool           `json:"is_shared,omitempty" nullable:"false" doc:"Show the collection to every profile on the login; defaults to false" example:"false"`
 	QueryDefinition            json.RawMessage `json:"query_definition,omitempty" doc:"Smart-collection query document; required to be valid when collection_type is smart"`
@@ -131,6 +139,12 @@ type CollectionCapabilities struct {
 	CollectionSortPreferences bool                           `json:"collection_sort_preferences" example:"true"`
 	EffectiveCollectionSort   bool                           `json:"effective_collection_sort" example:"true"`
 	SortPreferenceKinds       []string                       `json:"sort_preference_kinds" doc:"collection_kind values the sort-preference operations accept" example:"[\"library\",\"user\",\"watchlist\",\"favorites\"]"`
+	CreateDescription         bool                           `json:"create_description" doc:"createCollection accepts description" example:"true"`
+	MDBListSearch             bool                           `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
+	ScheduleTimeZone          CollectionScheduleTimeZone     `json:"schedule_time_zone"`
+	SyncScheduleEditable      bool                           `json:"sync_schedule_editable" doc:"updateCollection accepts sync_schedule on a synced list; false when imports is false" example:"true"`
+	ContainsItem              bool                           `json:"contains_item" doc:"listCollections accepts contains_item and marks the acting profile's own manual collections with contains" example:"true"`
+	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
 // importableCollectionSources are the import sources a new collection can be
@@ -144,6 +158,10 @@ const (
 	importSourceTMDB     = "tmdb"
 	importSourceTMDBList = "tmdb_list"
 )
+
+// collectionTypeManual is the collection_type of a collection whose titles
+// are added by hand.
+const collectionTypeManual = "manual"
 
 // collectionImportSources reports importableCollectionSources when imports
 // are supported and an empty list otherwise.
@@ -347,6 +365,7 @@ type MDBListSearchInput struct {
 // handler writes and an *handlers.APIError on failure.
 type PersonalCollectionService interface {
 	ListPersonalCollections(ctx context.Context, userID int, profileID string) (handlers.PersonalCollectionListView, error)
+	PersonalCollectionsHoldingItem(ctx context.Context, userID int, profileID, itemID string) (map[string]bool, error)
 	Capabilities() handlers.CollectionCapabilitiesView
 	CreatePersonalCollection(ctx context.Context, cmd handlers.PersonalCollectionCreateCommand) (handlers.PersonalCollectionView, error)
 	ReorderPersonalCollections(ctx context.Context, userID int, profileID string, orderedIDs []string) error
@@ -366,6 +385,7 @@ type CollectionImportService interface {
 	ImportTrakt(ctx context.Context, userID int, profileID string, req handlers.UserImportTraktRequest) (handlers.UserImportView, error)
 	SearchMDBList(ctx context.Context, query string) (handlers.MDBListDiscoveryView, error)
 	TopMDBList(ctx context.Context) (handlers.MDBListDiscoveryView, error)
+	MDBListConfigured() bool
 }
 
 // groupsRemovedSummary describes each personal collection group operation,
@@ -499,7 +519,7 @@ func personalCollectionOf(v handlers.PersonalCollectionView) PersonalCollection 
 		ID: ID(v.ID), ProfileID: ID(v.ProfileID), CreatorProfileID: ID(v.CreatorProfileID),
 		Name: v.Name, Description: v.Description, CollectionType: v.CollectionType, IsShared: v.IsShared,
 		QueryDefinition: jsonDocument(v.QueryDefinition), SortConfig: jsonDocument(v.SortConfig),
-		SortOrder: v.SortOrder, SourceURL: v.SourceURL, SyncSchedule: v.SyncSchedule,
+		SortOrder: v.SortOrder, SourceURL: v.SourceURL, SyncSchedule: v.SyncSchedule, SyncCadence: usercollections.CadenceOf(v.SyncSchedule),
 		NextSyncAt: instantOfStamp(v.NextSyncAt), LastSyncAt: instantOfStamp(v.LastSyncAt),
 		LastSyncStatus: v.LastSyncStatus, LastSyncMessage: v.LastSyncMessage,
 		ItemCount: v.ItemCount, IncludeInServerCollections: v.IncludeInServerCollections,
@@ -550,7 +570,7 @@ func intsOfIDs(ids []ID, member string) ([]int, *Problem) {
 	return out, nil
 }
 
-func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*PersonalCollectionCollectionOutput, error) {
+func (reg *Registry) listCollections(ctx context.Context, in *PersonalCollectionListInput) (*PersonalCollectionCollectionOutput, error) {
 	svc, p := reg.personalCollections()
 	if p != nil {
 		return nil, p
@@ -559,13 +579,27 @@ func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*Persona
 	if p != nil {
 		return nil, p
 	}
-	view, err := svc.ListPersonalCollections(ctx, userID, profileFrom(ctx))
+	profileID := profileFrom(ctx)
+	view, err := svc.ListPersonalCollections(ctx, userID, profileID)
 	if err != nil {
 		return nil, collectionProblem(err)
 	}
+	marking := in.ContainsItem != ""
+	var holding map[string]bool
+	if marking {
+		if holding, err = svc.PersonalCollectionsHoldingItem(ctx, userID, profileID, in.ContainsItem); err != nil {
+			return nil, collectionProblem(err)
+		}
+	}
 	items := make([]PersonalCollection, 0, len(view.Collections))
 	for _, c := range view.Collections {
-		items = append(items, personalCollectionOf(c))
+		item := personalCollectionOf(c)
+		// Only the profile's own manual collections take a title from Add
+		// to collection; every other collection leaves contains out.
+		if marking && c.CreatorProfileID == profileID && c.CollectionType == collectionTypeManual {
+			item.Contains = new(holding[c.ID])
+		}
+		items = append(items, item)
 	}
 	groups := make([]CollectionGroup, 0, len(view.Groups))
 	for _, g := range view.Groups {
@@ -577,7 +611,7 @@ func (reg *Registry) listCollections(ctx context.Context, _ *struct{}) (*Persona
 func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *CapabilityInput) (*CollectionCapabilitiesOutput, error) {
 	svc := reg.deps.PersonalCollections
 	if svc == nil {
-		return &CollectionCapabilitiesOutput{Body: CollectionCapabilities{Capability: Capability{State: StateNotConfigured}, DisplayFilterFields: []string{}, DisplayFilterPresets: CollectionDisplayFilterPresets{Watched: []string{}, Media: []string{}}, SortPreferenceKinds: []string{}}}, nil
+		return &CollectionCapabilitiesOutput{Body: CollectionCapabilities{Capability: Capability{State: StateNotConfigured}, DisplayFilterFields: []string{}, DisplayFilterPresets: CollectionDisplayFilterPresets{Watched: []string{}, Media: []string{}}, SortPreferenceKinds: []string{}, MDBListSearch: reg.mdblistSearch(), ScheduleTimeZone: reg.scheduleTimeZone()}}, nil
 	}
 	v := svc.Capabilities()
 	features := userstore.CollectionFeatures{}
@@ -605,6 +639,12 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		CollectionSortPreferences: v.CollectionSortPreferences,
 		EffectiveCollectionSort:   v.EffectiveCollectionSort,
 		SortPreferenceKinds:       NonNil(v.SortPreferenceKinds),
+		CreateDescription:         true,
+		MDBListSearch:             reg.mdblistSearch(),
+		ScheduleTimeZone:          reg.scheduleTimeZone(),
+		SyncScheduleEditable:      features.Imports,
+		ContainsItem:              true,
+		PreviewPosters:            true,
 	}}, nil
 }
 
@@ -630,6 +670,9 @@ func (reg *Registry) createCollection(ctx context.Context, in *PersonalCollectio
 		QueryDefinition:        b.QueryDefinition,
 		SortConfig:             b.SortConfig,
 		DisplayQueryDefinition: b.DisplayQueryDefinition,
+	}
+	if b.Description != nil {
+		req.Description = *b.Description
 	}
 	if b.CollectionType != nil {
 		req.CollectionType = *b.CollectionType

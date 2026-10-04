@@ -4251,6 +4251,28 @@
       "body_file": "create_collection_ok.json"
     },
     {
+      "name": "create_collection_with_description_ok",
+      "operation_id": "createCollection",
+      "scenario": "A manual collection created with its description.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"name\":\"Rainy days\",\"description\":\"For wet afternoons\",\"collection_type\":\"manual\"}"
+      },
+      "expected_status": 201,
+      "response_headers": {
+        "Content-Type": "application/json",
+        "Location": "/api/v2/collections/c1"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollection",
+      "body_file": "create_collection_with_description_ok.json"
+    },
+    {
       "name": "create_library_ok",
       "operation_id": "createLibrary",
       "scenario": "A new movie library: 201 with the library and its Location.",
@@ -5737,6 +5759,27 @@
       "body_file": "get_account_password_capability_secondary_profile.json"
     },
     {
+      "name": "get_admin_collection_capabilities_ok",
+      "operation_id": "getAdminCollectionCapabilities",
+      "scenario": "Administrator collection features, including MDBList search and the time zone the answering node runs cron schedules in.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections/capabilities",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Cache-Control": "private, no-cache",
+        "Content-Type": "application/json",
+        "ETag": "\"5d8efd021ae97bb7d8649f799567c1ed48695ab9266ff53852739ba461eac6bd\""
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/AdminCollectionCapabilityOutputBody",
+      "body_file": "get_admin_collection_capabilities_ok.json"
+    },
+    {
       "name": "get_admin_collection_ok",
       "operation_id": "getAdminCollection",
       "scenario": "Canonical administrator collection editor uses string library identifiers and a strong validator, without expiring artwork URLs.",
@@ -6100,6 +6143,28 @@
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CatalogSearchCapabilities",
       "body_file": "get_catalog_search_capabilities_ok.json"
+    },
+    {
+      "name": "get_collection_capabilities_ok",
+      "operation_id": "getCollectionCapabilities",
+      "scenario": "Personal collection features, including a description on create, MDBList search, the time zone the answering node runs cron schedules in, and preview posters.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/collections/capabilities",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Cache-Control": "private, no-cache",
+        "Content-Type": "application/json",
+        "ETag": "\"93ecb020c0ee1de4843994c2fcd59a94742c8b0a5ea3fd5e27e4fb52f4575693\""
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/CollectionCapabilities",
+      "body_file": "get_collection_capabilities_ok.json"
     },
     {
       "name": "get_collection_items_ok",
@@ -8243,6 +8308,63 @@
       "body_file": "list_account_identities_ok.json"
     },
     {
+      "name": "list_admin_collection_sections_ok",
+      "operation_id": "listAdminCollectionSections",
+      "scenario": "Rows that show a collection: Home rows first with a null library, including a starter-pack hero row, then library page rows, each with its page's row count.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections/c1/sections",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/CollectionAdminCollectionSection",
+      "body_file": "list_admin_collection_sections_ok.json"
+    },
+    {
+      "name": "list_admin_collection_template_bundles_ok",
+      "operation_id": "listAdminCollectionTemplateBundles",
+      "scenario": "Template bundles with a summary of each template in bundle order; a template that cannot sync until an administrator sets its source needs setup.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections/template-bundles",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/BundleCatalog",
+      "body_file": "list_admin_collection_template_bundles_ok.json"
+    },
+    {
+      "name": "list_admin_collections_ok",
+      "operation_id": "listAdminCollections",
+      "scenario": "Administrator collections with the number of Home rows and of all administrator page rows that show each one; a collection no row shows counts zero.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections?library_id=1",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/AdminCollectionList",
+      "body_file": "list_admin_collections_ok.json"
+    },
+    {
       "name": "list_admin_playback_history_ok",
       "operation_id": "listAdminPlaybackHistory",
       "scenario": "Administrator playback history page carries string IDs, instants, a nullable duration and a scoped cursor.",
@@ -8766,6 +8888,27 @@
       "response_media_type": "application/problem+json",
       "schema": "#/components/schemas/Problem",
       "body_file": "list_catalog_items_unknown_sort_field.json"
+    },
+    {
+      "name": "list_collections_contains_item_ok",
+      "operation_id": "listCollections",
+      "scenario": "Visible personal collections, each of the profile's own manual collections marked with whether it holds the title.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/collections?contains_item=movie-1",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollectionCollection",
+      "body_file": "list_collections_contains_item_ok.json"
     },
     {
       "name": "list_collections_ok",
@@ -11865,6 +12008,27 @@
       "response_media_type": "application/problem+json",
       "schema": "#/components/schemas/Problem",
       "body_file": "precondition_required.json"
+    },
+    {
+      "name": "preview_collection_ok",
+      "operation_id": "previewCollection",
+      "scenario": "A smart query's first matches within the acting profile's access, each with its poster when it has one.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v2/collections/preview",
+        "headers": {
+          "Authorization": "Bearer tok-member",
+          "X-Profile-Id": "p-owner"
+        },
+        "body": "{\"query_definition\":{\"match\":\"all\",\"groups\":[]},\"limit\":2}"
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/PersonalCollectionPreviewOutputBody",
+      "body_file": "preview_collection_ok.json"
     },
     {
       "name": "profile_verification_required",
