@@ -4,7 +4,11 @@ import { pageParam, samePage } from "@/lib/homeRows/pages";
 import type { HomeRowsPageOption, PageRef } from "@/lib/homeRows/types";
 import { cn } from "@/lib/utils";
 
-/** Pills for Home and each library page, with the page's row count on the right. */
+/**
+ * Pills for Home and each library page, with the page's row count on the
+ * right. On phones the pills take the whole width and scroll, and the count
+ * drops to the line below.
+ */
 export function PageSwitcher({
   pages,
   value,
@@ -19,11 +23,11 @@ export function PageSwitcher({
   summary?: string;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <div
         role="group"
         aria-label="Page"
-        className="-mx-1 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-1 py-1"
+        className="-mx-1 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-1 py-1 max-sm:basis-full"
       >
         {pages.map((page, index) => {
           const pressed = samePage(page.ref, value);
