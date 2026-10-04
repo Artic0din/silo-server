@@ -180,6 +180,25 @@ function AddToCollectionPanel({
     );
   }
 
+  if (list.isError && !list.data) {
+    return (
+      <>
+        <ItemChip title={itemTitle} />
+        <div role="alert" className="grid justify-items-center gap-3 py-8 text-center">
+          <p className="font-semibold">Couldn't load your collections</p>
+          <Button variant="outline" onClick={() => void list.refetch()}>
+            Try again
+          </Button>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
+
   if (own.length === 0) {
     return (
       <>
@@ -312,6 +331,8 @@ function CollectionChoice({
   const saving = add.isPending || remove.isPending;
 
   function toggle(next: boolean) {
+    // The box stays focusable while it saves, so a press during the save is ignored here.
+    if (saving) return;
     onTick(collection.id, next);
     const settle = {
       onSuccess: () => onSaved(collection.id, next),
@@ -330,11 +351,11 @@ function CollectionChoice({
         <Checkbox
           id={boxId}
           checked={ticked}
-          disabled={saving}
+          aria-disabled={saving}
           aria-label={collection.name}
           aria-describedby={metaId}
           onCheckedChange={(checked) => toggle(checked === true)}
-          className="size-[18px] rounded-[5px]"
+          className="size-[18px] rounded-[5px] aria-disabled:opacity-50"
         />
         {collection.poster_url || collection.poster_thumbhash ? (
           <PosterArt
