@@ -1742,7 +1742,17 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, personalCollectionCreateFixtureCases()...)
 	cases = append(cases, personalCollectionPreviewFixtureCases()...)
 	cases = append(cases, adminTemplateBundleFixtureCases()...)
+	cases = append(cases, adminCollectionRowFixtureCases()...)
 	return append(cases, adminCollectionCapabilityFixtureCases()...)
+}
+
+// adminCollectionRowFixtureCases pin the rows that show a server collection:
+// the counted administrator list and the rows list of one collection.
+func adminCollectionRowFixtureCases() []fixtureCase {
+	return []fixtureCase{
+		{name: "list_admin_collections_ok", operationID: "listAdminCollections", scenario: "Administrator collections with the number of Home rows and of all administrator page rows that show each one; a collection no row shows counts zero.", method: http.MethodGet, path: "/api/v2/admin/collections?library_id=1", headers: bearer(adminToken), status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/AdminCollectionList"},
+		{name: "list_admin_collection_sections_ok", operationID: "listAdminCollectionSections", scenario: "Rows that show a collection: Home rows first with a null library, including a starter-pack hero row, then library page rows, each with its page's row count.", method: http.MethodGet, path: "/api/v2/admin/collections/c1/sections", headers: bearer(adminToken), status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/CollectionAdminCollectionSection"},
+	}
 }
 
 // adminCollectionCapabilityFixtureCases pin the administrator collection
@@ -1873,6 +1883,8 @@ func fixtureDeps() Dependencies {
 	adminCollections.view.SourceConfig = json.RawMessage(`{}`)
 	adminCollections.job = &models.AdminJob{ID: "collection-job", JobType: adminjob.JobTypeTemplateBundleApply, Status: adminjob.StatusQueued, RequestedAt: fixedTime()}
 	adminCollections.bundles = fixtureTemplateBundles()
+	rows := fakeRowReferences()
+	adminCollections.listed, adminCollections.sections, adminCollections.rowCounts = rows.listed, rows.sections, rows.rowCounts
 	deps.ScheduleZone = fixtureScheduleTimeZone
 	deps.AdminCollections = adminCollections
 	deps.AdminSections = newFakeAdminSections()

@@ -1,5 +1,5 @@
 {
-  "revision": "ca54654d20d4f884f98c0ed84a050aef85c79a074bd6879e812fcdfd6913318d",
+  "revision": "42413f6fd70d65edf7fbf1bd14ace0fcb84d70029a786dd506e4dc61baeb6dfc",
   "state": "available",
   "allowed": true,
   "groups": true,
@@ -16,5 +16,6 @@
     "utc_offset": "-05:00",
     "abbreviation": "CDT",
     "name": "America/Chicago"
-  }
+  },
+  "section_references": true
 }

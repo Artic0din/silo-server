@@ -5752,7 +5752,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"2e24790d74548b33794feb4b30d6218697419e0921d19a8363f0d08b9991f99f\""
+        "ETag": "\"5d8efd021ae97bb7d8649f799567c1ed48695ab9266ff53852739ba461eac6bd\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/AdminCollectionCapabilityOutputBody",
@@ -8287,6 +8287,25 @@
       "body_file": "list_account_identities_ok.json"
     },
     {
+      "name": "list_admin_collection_sections_ok",
+      "operation_id": "listAdminCollectionSections",
+      "scenario": "Rows that show a collection: Home rows first with a null library, including a starter-pack hero row, then library page rows, each with its page's row count.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections/c1/sections",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/CollectionAdminCollectionSection",
+      "body_file": "list_admin_collection_sections_ok.json"
+    },
+    {
       "name": "list_admin_collection_template_bundles_ok",
       "operation_id": "listAdminCollectionTemplateBundles",
       "scenario": "Template bundles with a summary of each template in bundle order; a template that cannot sync until an administrator sets its source needs setup.",
@@ -8304,6 +8323,25 @@
       "response_media_type": "application/json",
       "schema": "#/components/schemas/BundleCatalog",
       "body_file": "list_admin_collection_template_bundles_ok.json"
+    },
+    {
+      "name": "list_admin_collections_ok",
+      "operation_id": "listAdminCollections",
+      "scenario": "Administrator collections with the number of Home rows and of all administrator page rows that show each one; a collection no row shows counts zero.",
+      "request": {
+        "method": "GET",
+        "path": "/api/v2/admin/collections?library_id=1",
+        "headers": {
+          "Authorization": "Bearer tok-admin"
+        }
+      },
+      "expected_status": 200,
+      "response_headers": {
+        "Content-Type": "application/json"
+      },
+      "response_media_type": "application/json",
+      "schema": "#/components/schemas/AdminCollectionList",
+      "body_file": "list_admin_collections_ok.json"
     },
     {
       "name": "list_admin_playback_history_ok",

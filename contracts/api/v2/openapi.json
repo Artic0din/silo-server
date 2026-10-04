@@ -3229,6 +3229,12 @@
               "null"
             ]
           },
+          "home_row_count": {
+            "description": "Rows on the administrator Home page that show this collection, turned-off rows included. Set on listAdminCollections items only. Rows profiles added themselves are not counted.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "id": {
             "description": "Opaque identifier",
             "examples": [
@@ -3297,6 +3303,12 @@
             "type": "string"
           },
           "query_definition": {},
+          "row_count": {
+            "description": "Rows on the administrator Home and library pages that show this collection, turned-off rows included. Set on listAdminCollections items only. Rows profiles added themselves are not counted.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "slug": {
             "type": "string"
           },
@@ -3437,6 +3449,13 @@
           "schedule_time_zone": {
             "$ref": "#/components/schemas/CollectionScheduleTimeZone"
           },
+          "section_references": {
+            "description": "listAdminCollectionSections lists the rows that show a collection, and listAdminCollections items carry home_row_count and row_count",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "state": {
             "description": "Support and configuration state, not health",
             "enum": [
@@ -3456,6 +3475,7 @@
           "item_reorder",
           "mdblist_search",
           "schedule_time_zone",
+          "section_references",
           "revision",
           "state",
           "allowed"
@@ -3844,6 +3864,71 @@
         "required": [
           "total",
           "items"
+        ],
+        "type": "object"
+      },
+      "AdminCollectionSection": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "featured": {
+            "description": "The row is its page's hero banner.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Opaque identifier",
+            "examples": [
+              "1"
+            ],
+            "minLength": 1,
+            "type": "string"
+          },
+          "library_id": {
+            "description": "The library whose page holds the row; null for a Home row.",
+            "examples": [
+              "1"
+            ],
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_row_count": {
+            "description": "Rows on the page that holds this row, turned-off rows included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "home",
+              "library"
+            ],
+            "type": "string"
+          },
+          "section_type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "library_id",
+          "section_type",
+          "title",
+          "featured",
+          "enabled",
+          "position",
+          "page_row_count"
         ],
         "type": "object"
       },
@@ -21805,6 +21890,26 @@
             "description": "The page's items; empty, never null",
             "items": {
               "$ref": "#/components/schemas/AdminCollectionMember"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo",
+            "description": "Cursor state; absent for bounded unpaginated collections"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CollectionAdminCollectionSection": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "The page's items; empty, never null",
+            "items": {
+              "$ref": "#/components/schemas/AdminCollectionSection"
             },
             "type": "array"
           },
@@ -63558,6 +63663,176 @@
         "x-silo-class": "acting_admin",
         "x-silo-demo-restricted": true,
         "x-silo-retry-safety": "non_retryable",
+        "x-silo-service-backed": true
+      }
+    },
+    "/api/v2/admin/collections/{id}/sections": {
+      "get": {
+        "operationId": "listAdminCollectionSections",
+        "parameters": [
+          {
+            "description": "Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted.",
+            "in": "header",
+            "name": "X-Profile-Id",
+            "schema": {
+              "examples": [
+                "1"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked",
+            "in": "header",
+            "name": "X-Profile-Token",
+            "schema": {
+              "examples": [
+                "pvt_5f3a9c1e7b2d4e8fa0c6"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque identifier",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Opaque identifier",
+              "examples": [
+                "1"
+              ],
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAdminCollectionSection"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List the administrator Home and library page rows that show a collection. Rows profiles added themselves are not listed.",
+        "tags": [
+          "admin-collections"
+        ],
+        "x-silo-class": "acting_admin",
         "x-silo-service-backed": true
       }
     },

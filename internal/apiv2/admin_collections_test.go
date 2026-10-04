@@ -29,6 +29,11 @@ type fakeAdminCollections struct {
 	bundles                                            []templates.BundleWithTemplates
 	bundleReads                                        int
 	featureReads                                       int
+	listed                                             []handlers.AdminCollection
+	listReads, sectionReads, countReads                int
+	countedIDs                                         []string
+	sections                                           []handlers.AdminCollectionSection
+	rowCounts                                          map[string]handlers.AdminCollectionRowCount
 }
 
 func newFakeAdminCollections() *fakeAdminCollections {
