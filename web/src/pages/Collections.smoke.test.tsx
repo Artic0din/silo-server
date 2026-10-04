@@ -151,7 +151,7 @@ describe("Your collections", () => {
     });
     // The pick-up announcement is replaced in the same render by the first
     // "is over", so assistive technology hears these three, by name and
-    // position (spec §7).
+    // position.
     expect(announcements).toEqual([
       "Rainy days is over position 1 of 2.",
       "Rainy days is over position 2 of 2.",

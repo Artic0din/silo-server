@@ -1,7 +1,7 @@
 /**
- * Your collections cards drag from anywhere on the card (spec §5.3), so the
+ * Your collections cards drag from anywhere on the card, so the
  * card must not open after a drag, a press inside its ⋯ menu must not drag it,
- * and its confirm dialogs hand focus back to the ⋯ that opened them (spec §7).
+ * and its confirm dialogs hand focus back to the ⋯ that opened them.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";

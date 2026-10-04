@@ -67,7 +67,7 @@ import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { COLLECTION_KIND_LABEL, collectionKindOf } from "@/lib/collections/types";
 import { cn } from "@/lib/utils";
 
-/** Seven posters a row on desktop, three on phones (spec §5.3, §8). */
+/** Seven posters a row on desktop, five on medium widths, three on phones. */
 const POSTER_GRID = "grid grid-cols-3 gap-x-3.5 gap-y-5 sm:grid-cols-5 lg:grid-cols-7";
 /** One POSTER_GRID column, for cards laid out in a flex row inside an `@container`. */
 const GRID_COLUMN_WIDTH =
@@ -88,7 +88,7 @@ export default function Collections() {
   const otherProfileNames = profiles
     .filter((entry) => entry.id !== profile?.id)
     .map((entry) => entry.name);
-  // Sharing means nothing on a one-profile account (plan D2).
+  // A one-profile account has nobody to share with: no sharing switch, no Shared with me.
   const multiProfile = otherProfileNames.length > 0;
   const [galleryOpen, setGalleryOpen] = useState(false);
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -303,7 +303,7 @@ function YourCollections({
   const dragSnapshot = useRef<Promise<string>>(undefined);
   const ids = collections.map((collection) => collection.id);
   // The confirm dialogs open from a menu item that is gone once they close,
-  // so focus goes back to the ⋯ of the collection they were about (spec §7).
+  // so focus goes back to the ⋯ of the collection they were about.
   const menuTriggers = useRef(new Map<string, HTMLButtonElement>());
   const confirmFor = useRef<string>(undefined);
   function focusMenuTrigger(event: Event) {
@@ -633,7 +633,7 @@ const ALL_LIBRARIES = "all";
 
 /**
  * Server collections: library pills, one row of cards, and See all for the
- * chosen library. Hidden when no library has any (plan D2), on every account.
+ * chosen library. Hidden only when no library has any, so one-profile accounts see it too.
  */
 function ServerCollectionsSection() {
   const { data, isLoading } = useServerCollections();

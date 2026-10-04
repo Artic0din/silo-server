@@ -1,5 +1,5 @@
 /**
- * The Collections page's card actions and sections (spec §5.3, plan D2):
+ * The Collections page's card actions and sections:
  * each own card's ⋯ menu, the sharing switch in it, Sync now, and when
  * Shared with me and Server collections show.
  */
