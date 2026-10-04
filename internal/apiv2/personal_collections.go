@@ -84,6 +84,7 @@ type PersonalCollectionCreatedOutput struct {
 // PersonalCollectionCreate is the createCollection body.
 type PersonalCollectionCreate struct {
 	Name                       string          `json:"name" minLength:"1" example:"Rainy days"`
+	Description                *string         `json:"description,omitempty" nullable:"false" doc:"Empty when omitted. Accepted when getCollectionCapabilities reports create_description" example:"For wet afternoons"`
 	CollectionType             *string         `json:"collection_type,omitempty" nullable:"false" enum:"manual,smart" doc:"Defaults to manual" example:"manual"`
 	IsShared                   *bool           `json:"is_shared,omitempty" nullable:"false" example:"false"`
 	AllowedProfileIDs          *[]ID           `json:"allowed_profile_ids,omitempty" nullable:"false" doc:"Profiles a shared collection is limited to" example:"[]"`
@@ -128,6 +129,7 @@ type CollectionCapabilities struct {
 	CollectionSortPreferences bool                           `json:"collection_sort_preferences" example:"true"`
 	EffectiveCollectionSort   bool                           `json:"effective_collection_sort" example:"true"`
 	SortPreferenceKinds       []string                       `json:"sort_preference_kinds" doc:"collection_kind values the sort-preference operations accept" example:"[\"library\",\"user\",\"watchlist\",\"favorites\"]"`
+	CreateDescription         bool                           `json:"create_description" doc:"createCollection accepts description" example:"true"`
 }
 
 // importableCollectionSources are the import sources a new collection can be
@@ -597,6 +599,7 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		CollectionSortPreferences: v.CollectionSortPreferences,
 		EffectiveCollectionSort:   v.EffectiveCollectionSort,
 		SortPreferenceKinds:       NonNil(v.SortPreferenceKinds),
+		CreateDescription:         true,
 	}}, nil
 }
 
@@ -622,6 +625,9 @@ func (reg *Registry) createCollection(ctx context.Context, in *PersonalCollectio
 		QueryDefinition:        b.QueryDefinition,
 		SortConfig:             b.SortConfig,
 		DisplayQueryDefinition: b.DisplayQueryDefinition,
+	}
+	if b.Description != nil {
+		req.Description = *b.Description
 	}
 	if b.CollectionType != nil {
 		req.CollectionType = *b.CollectionType

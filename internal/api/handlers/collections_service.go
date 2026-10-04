@@ -142,6 +142,7 @@ func (h *CollectionHandler) CreatePersonalCollection(ctx context.Context, cmd Pe
 	collection, err := store.CreateCollection(ctx, userstore.CreateCollectionInput{
 		CreatorProfileID:           cmd.ProfileID,
 		Name:                       req.Name,
+		Description:                req.Description,
 		CollectionType:             collectionType,
 		IsShared:                   req.IsShared,
 		AllowedProfileIDs:          req.AllowedProfileIDs,

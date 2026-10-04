@@ -19596,6 +19596,11 @@ export interface components {
       /** @example true */
       collection_sort_preferences: boolean;
       /**
+       * @description createCollection accepts description
+       * @example true
+       */
+      create_description: boolean;
+      /**
        * @description Catalog query fields a display filter may use
        * @example [
        *       "type",
@@ -24485,6 +24490,11 @@ export interface components {
        * @enum {string}
        */
       collection_type?: "manual" | "smart";
+      /**
+       * @description Empty when omitted. Accepted when getCollectionCapabilities reports create_description
+       * @example For wet afternoons
+       */
+      description?: string;
       /** @description Display filter fragment */
       display_query_definition?: unknown;
       /** @example false */

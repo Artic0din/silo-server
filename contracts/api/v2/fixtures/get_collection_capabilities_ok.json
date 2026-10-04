@@ -1,0 +1,36 @@
+{
+  "revision": "210da97e0cc8f852a8a8a38893a1a8da504a7f5ac4eb61710888f7c6a114c345",
+  "state": "available",
+  "allowed": true,
+  "groups": false,
+  "imports": false,
+  "import_sources": [],
+  "artwork": false,
+  "item_reorder": false,
+  "display_filter_fields": [
+    "type",
+    "watched"
+  ],
+  "display_filter_presets": {
+    "watched": [
+      "all",
+      "watched",
+      "unwatched"
+    ],
+    "media": [
+      "all",
+      "movie",
+      "series"
+    ]
+  },
+  "collection_default_sort": true,
+  "collection_sort_preferences": true,
+  "effective_collection_sort": true,
+  "sort_preference_kinds": [
+    "library",
+    "user",
+    "watchlist",
+    "favorites"
+  ],
+  "create_description": true
+}

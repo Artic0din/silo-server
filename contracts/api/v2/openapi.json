@@ -22469,6 +22469,13 @@
             ],
             "type": "boolean"
           },
+          "create_description": {
+            "description": "createCollection accepts description",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "display_filter_fields": {
             "description": "Catalog query fields a display filter may use",
             "examples": [
@@ -22564,6 +22571,7 @@
           "collection_sort_preferences",
           "effective_collection_sort",
           "sort_preference_kinds",
+          "create_description",
           "revision",
           "state",
           "allowed"
@@ -34684,6 +34692,13 @@
             ],
             "examples": [
               "manual"
+            ],
+            "type": "string"
+          },
+          "description": {
+            "description": "Empty when omitted. Accepted when getCollectionCapabilities reports create_description",
+            "examples": [
+              "For wet afternoons"
             ],
             "type": "string"
           },

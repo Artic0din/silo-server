@@ -56,6 +56,7 @@ func (f *fakePersonalCollections) CreatePersonalCollection(_ context.Context, cm
 	}
 	v := fixtureCollectionView()
 	v.Name = cmd.Request.Name
+	v.Description = cmd.Request.Description
 	v.CollectionType = cmd.Request.CollectionType
 	v.AllowedProfileIDs = cmd.Request.AllowedProfileIDs
 	return v, nil
@@ -228,7 +229,7 @@ func TestGetCollectionCapabilities(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"groups":false,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"]}` + "\n"
+	want := `{"groups":false,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
@@ -248,9 +249,24 @@ func TestCreateCollection(t *testing.T) {
 	if cmd.UserID != 1 || cmd.ProfileID != "p-owner" || cmd.PosterFile != nil || !cmd.Request.IsShared || string(cmd.Request.QueryDefinition) != `{"filters":[]}` {
 		t.Fatalf("command = %+v", cmd)
 	}
+	if cmd.Request.Description != "" {
+		t.Fatalf("description without one in the body = %q, want empty", cmd.Request.Description)
+	}
+	// A description is stored with the new collection and echoed back.
+	rec = do(t, h, http.MethodPost, "/api/v2/collections", `{"name":"Rainy days","description":"For wet afternoons"}`, viewerHeaders())
+	if rec.Code != 201 || !strings.Contains(rec.Body.String(), `"name":"Rainy days","description":"For wet afternoons"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if got := pc.lastCreate.Request.Description; got != "For wet afternoons" {
+		t.Fatalf("description = %q", got)
+	}
+	p := requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"name":"x","description":null}`, viewerHeaders()), TypeValidationFailed)
+	if len(p.Errors) != 1 || p.Errors[0].Location != "body.description" || p.Errors[0].Code != codeInvalidType {
+		t.Fatalf("errors = %+v", p.Errors)
+	}
 	// Validation: the schema (missing name), the seam (empty name), an
 	// unknown enum, and null on a non-nullable member.
-	p := requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"collection_type":"manual"}`, viewerHeaders()), TypeValidationFailed)
+	p = requireProblem(t, do(t, h, http.MethodPost, "/api/v2/collections", `{"collection_type":"manual"}`, viewerHeaders()), TypeValidationFailed)
 	if len(p.Errors) != 1 || p.Errors[0].Location != "body.name" || p.Errors[0].Code != codeRequired {
 		t.Fatalf("errors = %+v", p.Errors)
 	}
