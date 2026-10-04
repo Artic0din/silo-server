@@ -16,8 +16,12 @@ installV2Recorder();
 const ETAG = '"/api/v2/collections/c1#1"';
 let client: QueryClient;
 
-function open(id: string | undefined, scope: CollectionScope = PERSONAL_SCOPE) {
-  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function open(
+  id: string | undefined,
+  scope: CollectionScope = PERSONAL_SCOPE,
+  existing = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
+  client = existing;
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
@@ -103,6 +107,32 @@ describe("useScopeEditor (personal)", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.snapshot).toBeUndefined();
     expect(v2Recorder.callsOf("GET /api/v2/collections/{id}")).toEqual([]);
+  });
+
+  it("reads the collection again when it opens on a copy another page cached", async () => {
+    // The collection page read it moments ago, well inside the app's staleTime.
+    const cached = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 2 * 60_000 } },
+    });
+    await cached.fetchQuery({
+      queryKey: PERSONAL_SCOPE.keys.snapshot("c1"),
+      queryFn: () => PERSONAL_SCOPE.fetchSnapshot("c1"),
+    });
+    v2Recorder.answer("GET /api/v2/collections/{id}", {
+      ...getCollectionOk,
+      name: "Renamed elsewhere",
+    });
+    v2Recorder.bump("/api/v2/collections/c1");
+
+    const { result } = open("c1", PERSONAL_SCOPE, cached);
+
+    expect(result.current.snapshot).toBeUndefined();
+    expect(result.current.isLoading).toBe(true);
+    await waitFor(() => expect(result.current.snapshot).toBeDefined());
+    expect(v2Recorder.callsOf("GET /api/v2/collections/{id}")).toHaveLength(2);
+    expect(result.current.snapshot!.etag).toBe('"/api/v2/collections/c1#2"');
+    expect(result.current.snapshot!.view.name).toBe("Renamed elsewhere");
+    expect(result.current.isLoading).toBe(false);
   });
 
   it("drops the kept snapshot when the page moves to another collection", async () => {

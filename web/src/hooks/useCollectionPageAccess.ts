@@ -36,12 +36,12 @@ export function useCollectionPageAccess(target: CollectionPageTarget | null): Co
   const actingAdmin = useIsActingAdmin();
   const { profile } = useCurrentProfile();
   const profiles = useProfiles();
-  const server = useScopeSnapshot(
-    SERVER_SCOPE,
-    target?.id,
-    target?.scope === "server" && actingAdmin,
-  );
-  const personal = useScopeSnapshot(PERSONAL_SCOPE, target?.id, target?.scope === "personal");
+  const server = useScopeSnapshot(SERVER_SCOPE, target?.id, {
+    enabled: target?.scope === "server" && actingAdmin,
+  });
+  const personal = useScopeSnapshot(PERSONAL_SCOPE, target?.id, {
+    enabled: target?.scope === "personal",
+  });
 
   if (!target) return NONE;
   // Acting admin, never the account role: a restricted or non-primary profile
