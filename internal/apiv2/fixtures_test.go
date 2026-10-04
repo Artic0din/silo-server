@@ -1172,11 +1172,11 @@ func fixtureCases() []fixtureCase {
 			scenario: "Import runs belong to the authenticated account and use bounded keyset paging.",
 			method:   http.MethodGet, path: "/api/v2/history-imports/runs", headers: bearer(memberToken),
 			status: http.StatusOK, assertHeaders: []string{"Content-Type", "Cache-Control"}, schema: "#/components/schemas/HistoryImportRunCollection"},
-		{name: "list_collections_ok", operationID: "listCollections", scenario: "Visible personal collections and account groups.", method: http.MethodGet, path: "/api/v2/collections", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control"}, schema: "#/components/schemas/PersonalCollectionCollection"},
+		{name: "list_collections_ok", operationID: "listCollections", scenario: "The acting profile's own collections, then another profile's shared collection; groups is always empty.", method: http.MethodGet, path: "/api/v2/collections", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "Cache-Control"}, schema: "#/components/schemas/PersonalCollectionCollection"},
 		{name: "get_collection_ok", operationID: "getCollection", scenario: "Canonical collection editor and strong validator.", method: http.MethodGet, path: "/api/v2/collections/c1", headers: viewer, status: 200, assertHeaders: []string{"Content-Type", "ETag"}, schema: "#/components/schemas/PersonalCollection"},
 		{name: "create_collection_ok", operationID: "createCollection", scenario: "A non-retryable manual collection creation.", method: http.MethodPost, path: "/api/v2/collections", body: `{"name":"Rainy days","collection_type":"manual"}`, headers: viewer, status: 201, assertHeaders: []string{"Content-Type", "Location"}, schema: "#/components/schemas/PersonalCollection"},
 		{name: "collection_order_precondition_required", operationID: "reorderCollections", scenario: "Ordering needs the validator observed before the edit.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c1"]}`, headers: viewer, status: 428, assertHeaders: []string{"Content-Type"}, schema: problem},
-		{name: "collection_group_stale", operationID: "updateCollectionGroup", scenario: "A stale group edit leaves the resource unchanged and supplies the current validator.", method: http.MethodPatch, path: "/api/v2/collections/groups/g1", body: `{"name":"Winter"}`, headers: with(viewer, "If-Match", `"stale"`), status: 412, assertHeaders: []string{"Content-Type", "ETag"}, schema: problem},
+		{name: "collection_group_unsupported", operationID: "updateCollectionGroup", scenario: "Personal collection groups are no longer supported; every group operation answers capability_unsupported.", method: http.MethodPatch, path: "/api/v2/collections/groups/g1", body: `{"name":"Winter"}`, headers: with(viewer, "If-Match", "*"), status: 501, assertHeaders: []string{"Content-Type"}, schema: problem},
 		{name: "get_collection_items_ok", operationID: "getCollectionItems", scenario: "A bounded manual membership page with its continuation envelope.", method: http.MethodGet, path: "/api/v2/collections/c1/items", headers: viewer, status: 200, assertHeaders: []string{"Content-Type"}, schema: "#/components/schemas/CollectionPersonalCollectionItem"},
 		{name: "get_library_job_ok", operationID: "getLibraryJob", scenario: "An administrator polls a queued refresh with a deterministic whole-body validator.",
 			method: http.MethodGet, path: "/api/v2/library-jobs/job-2", headers: bearer(adminToken), status: http.StatusOK, assertHeaders: []string{"Content-Type", "Cache-Control", "ETag", "Retry-After"}, schema: "#/components/schemas/AdminJob"},
@@ -1737,7 +1737,8 @@ func fixtureCases() []fixtureCase {
 	cases = append(cases, watchTrickplayFixtureCases()...)
 	cases = append(cases, adminTrickplayFixtureCases()...)
 	cases = append(cases, deviceSignInFixtureCases()...)
-	return append(cases, externalSignInFixtureCases()...)
+	cases = append(cases, externalSignInFixtureCases()...)
+	return append(cases, fixtureCase{name: "collection_order_foreign_id", operationID: "reorderCollections", scenario: "An order naming another profile's collection, even a shared one, is a validation failure at ordered_ids.", method: http.MethodPut, path: "/api/v2/collections/order", body: `{"ordered_ids":["c2","c1"]}`, headers: with(viewer, "If-Match", "*"), status: 422, assertHeaders: []string{"Content-Type"}, schema: problem})
 }
 
 // deviceSignInFixtureCases covers the TV sign-in additions: the opened
@@ -1798,7 +1799,9 @@ func fixtureDeps() Dependencies {
 	deps.EbookConfig = &fakeEbookConfig{}
 	deps.EbookAnnotations = &fakeEbookAnnotations{}
 	deps.ProgressBootstrap = &fakeBootstrap{}
-	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView()}, Groups: []handlers.CollectionGroupView{}}}}
+	sharedCollection := fixtureCollectionView()
+	sharedCollection.ID, sharedCollection.ProfileID, sharedCollection.CreatorProfileID, sharedCollection.Name, sharedCollection.IsShared = "c2", "p-primary", "p-primary", "Family night", true
+	deps.PersonalCollections = &fixturePersonalCollections{fakePersonalCollections: fakePersonalCollections{list: handlers.PersonalCollectionListView{Collections: []handlers.PersonalCollectionView{fixtureCollectionView(), sharedCollection}, Groups: []handlers.CollectionGroupView{}}}}
 	deps.CollectionImports = &fakeCollectionImports{configured: true}
 	deps, _ = withLibraryAdmin(deps)
 	deps.LibraryMonitoring = &fakeLibraryMonitoring{snap: librarymonitor.StatusSnapshot{
