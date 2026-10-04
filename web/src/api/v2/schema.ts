@@ -19667,6 +19667,11 @@ export interface components {
        * @enum {string}
        */
       state: "available" | "disabled" | "not_configured" | "unsupported";
+      /**
+       * @description updateCollection accepts sync_schedule on a synced list; false when imports is false
+       * @example true
+       */
+      sync_schedule_editable: boolean;
     };
     CollectionDisplayFilterPresets: {
       /**
@@ -24512,6 +24517,12 @@ export interface components {
        */
       source_url: string;
       /**
+       * @description The cadence sync_schedule names; empty when the collection is not synced, custom for a schedule no cadence name produces
+       * @example
+       * @enum {string}
+       */
+      sync_cadence: "" | "daily" | "weekly" | "monthly" | "custom";
+      /**
        * @description Empty when the collection is not synced
        * @example
        */
@@ -24643,6 +24654,12 @@ export interface components {
       query_definition?: unknown;
       sort_config?: unknown;
       source_url?: string;
+      /**
+       * @description A synced list's cadence; empty stops scheduled syncs. Cron expressions are refused. Accepted when getCollectionCapabilities reports sync_schedule_editable
+       * @example weekly
+       * @enum {string}
+       */
+      sync_schedule?: "" | "daily" | "weekly" | "monthly";
     };
     PersonCollection: {
       /** @description The page's items; empty, never null */

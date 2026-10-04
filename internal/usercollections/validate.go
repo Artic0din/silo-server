@@ -33,6 +33,26 @@ func ResolveSyncSchedule(label string) (*string, error) {
 	return &expr, nil
 }
 
+// cadenceCustom is the cadence of a stored schedule that is not one of
+// AllowedSyncSchedules.
+const cadenceCustom = "custom"
+
+// CadenceOf names a stored schedule's cadence: its AllowedSyncSchedules
+// label, "" when the collection is not synced, and cadenceCustom for any
+// other expression.
+func CadenceOf(schedule string) string {
+	schedule = strings.Join(strings.Fields(schedule), " ")
+	if schedule == "" {
+		return ""
+	}
+	for label, expr := range AllowedSyncSchedules {
+		if expr == schedule {
+			return label
+		}
+	}
+	return cadenceCustom
+}
+
 func InitialNextSyncAt(schedule *string) *time.Time {
 	if schedule == nil || *schedule == "" {
 		return nil

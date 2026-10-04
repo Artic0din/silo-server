@@ -37,6 +37,7 @@ type PersonalCollection struct {
 	SourceURL                  string          `json:"source_url" doc:"Where an imported collection is synced from; empty otherwise" example:""`
 	SourceConfig               json.RawMessage `json:"source_config,omitempty" doc:"Import source document; absent for a manual or smart collection"`
 	SyncSchedule               string          `json:"sync_schedule" doc:"Empty when the collection is not synced" example:""`
+	SyncCadence                string          `json:"sync_cadence" enum:",daily,weekly,monthly,custom" doc:"The cadence sync_schedule names; empty when the collection is not synced, custom for a schedule no cadence name produces" example:""`
 	NextSyncAt                 *Instant        `json:"next_sync_at" nullable:"true" example:"2026-01-02T03:04:05.678Z"`
 	LastSyncAt                 *Instant        `json:"last_sync_at" nullable:"true" example:"2026-01-02T03:04:05.678Z"`
 	LastSyncStatus             string          `json:"last_sync_status" doc:"Empty until the first sync" example:""`
@@ -135,6 +136,7 @@ type CollectionCapabilities struct {
 	CreateDescription         bool                           `json:"create_description" doc:"createCollection stores a description for the acting account" example:"true"`
 	MDBListSearch             bool                           `json:"mdblist_search" doc:"searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key" example:"true"`
 	ScheduleTimeZone          CollectionScheduleTimeZone     `json:"schedule_time_zone"`
+	SyncScheduleEditable      bool                           `json:"sync_schedule_editable" doc:"updateCollection accepts sync_schedule on a synced list; false when imports is false" example:"true"`
 	PreviewPosters            bool                           `json:"preview_posters" doc:"previewCollection items carry poster_url when the title has a poster" example:"true"`
 }
 
@@ -508,7 +510,7 @@ func personalCollectionOf(v handlers.PersonalCollectionView) PersonalCollection 
 		ID: ID(v.ID), ProfileID: ID(v.ProfileID), CreatorProfileID: ID(v.CreatorProfileID),
 		Name: v.Name, Description: v.Description, CollectionType: v.CollectionType, IsShared: v.IsShared,
 		QueryDefinition: jsonDocument(v.QueryDefinition), SortConfig: jsonDocument(v.SortConfig),
-		SortOrder: v.SortOrder, SourceURL: v.SourceURL, SyncSchedule: v.SyncSchedule,
+		SortOrder: v.SortOrder, SourceURL: v.SourceURL, SyncSchedule: v.SyncSchedule, SyncCadence: usercollections.CadenceOf(v.SyncSchedule),
 		NextSyncAt: instantOfStamp(v.NextSyncAt), LastSyncAt: instantOfStamp(v.LastSyncAt),
 		LastSyncStatus: v.LastSyncStatus, LastSyncMessage: v.LastSyncMessage,
 		ItemCount: v.ItemCount, IncludeInServerCollections: v.IncludeInServerCollections,
@@ -617,6 +619,7 @@ func (reg *Registry) getCollectionCapabilities(ctx context.Context, _ *Capabilit
 		CreateDescription:         features.Description,
 		MDBListSearch:             reg.mdblistSearch(),
 		ScheduleTimeZone:          reg.scheduleTimeZone(),
+		SyncScheduleEditable:      features.Imports,
 		PreviewPosters:            true,
 	}}, nil
 }

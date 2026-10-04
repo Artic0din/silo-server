@@ -46,7 +46,7 @@ func (h *CollectionHandler) UpdatePersonalCollection(ctx context.Context, cmd Pe
 			return none, err
 		}
 	}
-	if req.SourceURL != nil || req.MaxItems != nil || req.LibraryIDs != nil {
+	if req.SourceURL != nil || req.MaxItems != nil || req.LibraryIDs != nil || req.SyncSchedule != nil {
 		if err := collectionFeatureError(store, "imports"); err != nil {
 			return none, err
 		}
@@ -141,6 +141,21 @@ func (h *CollectionHandler) UpdatePersonalCollection(ctx context.Context, cmd Pe
 			return none, apiError(http.StatusInternalServerError, "internal_error", "Failed to encode source config")
 		}
 		input.SourceConfigPatch = new(string(raw))
+	}
+
+	if req.SyncSchedule != nil {
+		if !catalog.IsSyncableType(existing.CollectionType) {
+			return none, fieldError("sync_schedule", "sync_schedule can only be set on a synced list")
+		}
+		schedule, err := usercollections.ResolveSyncSchedule(*req.SyncSchedule)
+		if err != nil {
+			return none, fieldError("sync_schedule", err.Error())
+		}
+		if schedule == nil {
+			input.ClearSyncSchedule, input.ClearNextSyncAt = true, true
+		} else {
+			input.SyncSchedule, input.NextSyncAt = schedule, usercollections.InitialNextSyncAt(schedule)
+		}
 	}
 
 	if err := store.UpdateCollection(ctx, input); err != nil {

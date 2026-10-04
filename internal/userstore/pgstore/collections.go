@@ -772,10 +772,14 @@ func (s *PostgresUserStore) UpdateCollectionSyncState(ctx context.Context, input
 	_, err := s.pool.Exec(ctx,
 		`UPDATE user_personal_collections
 		 SET last_sync_at = $1, last_sync_status = $2, last_sync_message = $3,
-		     item_count = $4, next_sync_at = $5, updated_at = $6
+		     item_count = $4, updated_at = $6,
+		     next_sync_at = CASE
+		         WHEN sync_schedule IS NOT DISTINCT FROM $9 AND next_sync_at IS NOT DISTINCT FROM $10 THEN $5
+		         ELSE next_sync_at
+		     END
 		 WHERE user_id = $7 AND id = $8`,
 		input.LastSyncAt, input.Status, input.Message, input.ItemCount, input.NextSyncAt,
-		nowUTC(), s.userID, input.ID,
+		nowUTC(), s.userID, input.ID, input.ScheduleAtStart, input.NextSyncAtAtStart,
 	)
 	if err != nil {
 		return fmt.Errorf("updating collection sync state: %w", err)

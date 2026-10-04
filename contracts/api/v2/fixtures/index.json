@@ -6160,7 +6160,7 @@
       "response_headers": {
         "Cache-Control": "private, no-cache",
         "Content-Type": "application/json",
-        "ETag": "\"27f5d3b3334c752183303c80fdd319abd017a0db54bf475480858568706e56f1\""
+        "ETag": "\"b3ebac06773fb96f087365a07e7ddc41e27fd4a0e20e4a804e1ef52be09bde8d\""
       },
       "response_media_type": "application/json",
       "schema": "#/components/schemas/CollectionCapabilities",

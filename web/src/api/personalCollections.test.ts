@@ -26,6 +26,7 @@ const collection: components["schemas"]["PersonalCollection"] = {
   group_id: null,
   source_url: "",
   sync_schedule: "",
+  sync_cadence: "",
   next_sync_at: null,
   last_sync_at: null,
   last_sync_status: "",
