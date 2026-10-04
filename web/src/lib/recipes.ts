@@ -123,8 +123,12 @@ export async function fetchCandidates(recipeType: string): Promise<Candidate[]> 
   }));
 }
 
-export async function previewSection(req: PreviewRequest): Promise<PreviewResponse> {
+export async function previewSection(
+  req: PreviewRequest,
+  signal?: AbortSignal,
+): Promise<PreviewResponse> {
   const result = await v2("POST /api/v2/admin/sections/preview", {
+    signal,
     body: {
       ...req,
       library_id: req.library_id === undefined ? undefined : String(req.library_id),

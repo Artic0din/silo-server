@@ -1,20 +1,13 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/useDebounce";
 import { pageParam } from "@/lib/homeRows/pages";
+import { fetchRowPreview, type PreviewItem } from "@/lib/homeRows/peek";
 import { stableJson, type RowDraft } from "@/lib/homeRows/rowDraft";
 import type { PageRef } from "@/lib/homeRows/types";
-import { previewSection } from "@/lib/recipes";
 
 /** How many titles the step 2 and Edit row strip shows. */
 export const PREVIEW_ITEM_LIMIT = 7;
 const PREVIEW_DEBOUNCE_MS = 400;
-
-export interface PreviewItem {
-  id: string;
-  title: string;
-  posterUrl?: string;
-  thumbhash?: string;
-}
 
 export type PreviewState =
   | { status: "off" }
@@ -37,27 +30,13 @@ export function useRowPreview(
   const settled = useDebounce(current, PREVIEW_DEBOUNCE_MS);
   const query = useQuery({
     queryKey: ["home-row-preview", pageParam(page), settled, PREVIEW_ITEM_LIMIT],
-    queryFn: async () => {
-      const { sectionType, config } = JSON.parse(settled) as Pick<
-        RowDraft,
-        "sectionType" | "config"
-      >;
-      const result = await previewSection({
-        section_type: sectionType,
-        config,
-        item_limit: PREVIEW_ITEM_LIMIT,
-        ...(page.kind === "library" ? { library_id: page.libraryId } : {}),
-      });
-      return {
-        items: result.items.map((item) => ({
-          id: item.content_id,
-          title: item.title ?? "",
-          posterUrl: item.poster_path || undefined,
-          thumbhash: item.poster_thumbhash || undefined,
-        })),
-        totalCount: result.total_count,
-      };
-    },
+    queryFn: ({ signal }) =>
+      fetchRowPreview(
+        JSON.parse(settled) as Pick<RowDraft, "sectionType" | "config">,
+        page,
+        PREVIEW_ITEM_LIMIT,
+        signal,
+      ),
     // Only once the draft has stopped changing; the last result stays meanwhile.
     enabled: enabled && settled === current && draft.sectionType !== "",
     placeholderData: keepPreviousData,

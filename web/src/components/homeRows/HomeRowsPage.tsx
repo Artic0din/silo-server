@@ -241,6 +241,7 @@ export function HomeRowsPage({
                       surface={surface}
                       pageLabel={label}
                       description={describeRow(row, describeContext)}
+                      peek={adapter.peek?.(row) ?? null}
                       selection={
                         selection
                           ? {

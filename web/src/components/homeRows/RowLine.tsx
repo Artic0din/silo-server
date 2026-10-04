@@ -7,6 +7,7 @@ import {
   titleCount,
   type DescriptionPart,
 } from "@/lib/homeRows/describe";
+import type { PeekRequest } from "@/lib/homeRows/peek";
 import type { HomeRow, Surface } from "@/lib/homeRows/types";
 import { cn } from "@/lib/utils";
 import { RowPeek } from "./RowPeek";
@@ -23,6 +24,8 @@ export interface RowLineProps {
   surface: Surface;
   pageLabel: string;
   description: DescriptionPart[];
+  /** Where the row's poster peek comes from; null keeps its icon. */
+  peek: PeekRequest | null;
   /** Props for the grip button, from the sortable list. */
   handleProps: ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement> };
   /** Select mode: a checkbox takes the grip's place. */
@@ -72,6 +75,7 @@ export function RowLine({
   surface,
   pageLabel,
   description,
+  peek,
   handleProps,
   selection,
   switchDisabled,
@@ -134,7 +138,7 @@ export function RowLine({
           <EyeOff className="size-[17px]" />
         </div>
       ) : (
-        <RowPeek sectionType={row.sectionType} />
+        <RowPeek sectionType={row.sectionType} request={peek} />
       )}
       <div className={cn("min-w-0", onOpen && "cursor-pointer")} onClick={onOpen}>
         {collapsed ? (

@@ -17,6 +17,12 @@ import { sectionKeys } from "@/hooks/queries/keys";
 import { useAdminSectionCapabilities, useAdminSections } from "@/hooks/queries/sections";
 import { pageParam, parsePageParam, samePage } from "@/lib/homeRows/pages";
 import {
+  adminPeekKey,
+  fetchRowPreview,
+  PEEK_ITEM_LIMIT,
+  type PeekRequest,
+} from "@/lib/homeRows/peek";
+import {
   buildRowCreateRequest,
   buildRowUpdateRequest,
   nextAppendPosition,
@@ -385,6 +391,21 @@ export function useAdminHomeRows(): AdminHomeRows {
     [enqueue, refresh],
   );
 
+  // Peeks preview the row's own definition, not the admin's profile view of it,
+  // so a profile override never shows here as the server row.
+  const previewAvailable = Boolean(capabilities?.preview);
+  const peek = useCallback(
+    (row: HomeRow): PeekRequest | null =>
+      previewAvailable
+        ? {
+            queryKey: adminPeekKey(page, row),
+            fetch: async (signal) =>
+              (await fetchRowPreview(row, page, PEEK_ITEM_LIMIT, signal)).items,
+          }
+        : null,
+    [page, previewAvailable],
+  );
+
   const reload = useCallback(async () => {
     if (librariesFailed) {
       await librariesQuery.refetch();
@@ -432,11 +453,12 @@ export function useAdminHomeRows(): AdminHomeRows {
     reorder,
     setShown: (id, shown) => quickAction(id, "shown", shown),
     setHero: (id, hero) => quickAction(id, "hero", hero),
-    capabilities: { draftPreview: Boolean(capabilities?.preview), ruleRows: true },
+    capabilities: { draftPreview: previewAvailable, ruleRows: true },
     create,
     openEdit,
     reloadEdit,
     save,
+    peek,
     scope,
     libraryId,
     sections,
