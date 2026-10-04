@@ -119,6 +119,15 @@ vi.mock("@/components/ui/sonner", () => ({
   Toaster: () => null,
 }));
 
+// The playback chrome reads its snapshot store through useSyncExternalStore
+// with no server snapshot, so a static render of the app shell can't include
+// it. Nothing on the catalog page depends on it.
+vi.mock("@/playback/WatchPlaybackChrome", () => ({
+  WatchPlaybackProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  WatchPlaybackHost: () => null,
+  WatchPlaybackBar: () => null,
+}));
+
 vi.mock("@/components/Layout", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-kind="app-layout">{children}</div>,
 }));
@@ -168,7 +177,7 @@ vi.mock("@/pages/AdminUsers", () => stubPage("Admin users"));
 vi.mock("@/pages/AdminLibraries", () => stubPage("Admin libraries"));
 vi.mock("@/pages/admin-settings/AdminSettingsLayout", () => stubPage("Admin settings"));
 vi.mock("@/pages/AdminNodes", () => stubPage("Admin nodes"));
-vi.mock("@/pages/AdminSections", () => stubPage("Admin sections"));
+vi.mock("@/pages/AdminHomeRows", () => stubPage("Admin home rows"));
 vi.mock("@/pages/AdminCollections", () => stubPage("Admin collections"));
 vi.mock("@/pages/AdminCollectionEditor", () => stubPage("Admin collection editor"));
 vi.mock("@/pages/AdminPlaybackHistory", () => stubPage("Admin playback history"));

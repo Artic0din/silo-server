@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Silo-Server/silo-server/internal/collections/templates"
+	"github.com/Silo-Server/silo-server/internal/userstore"
 )
 
 func (f *fakeAdminCollections) ListAdminCollectionTemplates(context.Context) ([]templates.BundleWithTemplates, error) {
@@ -100,5 +101,33 @@ func TestAdminTemplateBundlesRequireActingAdmin(t *testing.T) {
 	}
 	if f.bundleReads != 0 {
 		t.Fatal("refused request read the bundle catalog")
+	}
+}
+
+type featuredAdminCollections struct{ *fakeAdminCollections }
+
+func (featuredAdminCollections) AdminCollectionFeatures(context.Context) userstore.CollectionFeatures {
+	return userstore.CollectionFeatures{}
+}
+
+// TestAdminCollectionCapabilitiesAdvertiseTemplateSummaries checks that a client
+// can learn from the capability document, not the server version, that bundles
+// carry their template summaries.
+func TestAdminCollectionCapabilitiesAdvertiseTemplateSummaries(t *testing.T) {
+	deps, _ := libraryDeps(t)
+	deps.AdminCollections = featuredAdminCollections{newFakeAdminCollections()}
+	h := newTestHandler(t, deps)
+	rec := do(t, h, http.MethodGet, "/api/v2/admin/collections/capabilities", "", bearer(adminToken))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	var body struct {
+		TemplateSummaries *bool `json:"template_summaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.TemplateSummaries == nil || !*body.TemplateSummaries {
+		t.Fatalf("template_summaries not advertised: %s", rec.Body)
 	}
 }

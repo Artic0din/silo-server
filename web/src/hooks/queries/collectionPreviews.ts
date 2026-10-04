@@ -1,11 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { v2 } from "@/api/v2/request";
-import { previewToV2, previewFromV2 } from "@/api/personalCollections";
 import type { CollectionPreviewRequest, QueryDefinition, QueryDefinitionInput } from "@/api/types";
 import { normalizeQueryDefinition } from "@/api/types";
-
-import { collectionKeys } from "./keys";
+import { PERSONAL_SCOPE, SERVER_SCOPE } from "@/lib/collections/scope";
 
 export function buildCollectionPreviewRequest(
   queryDefinition?: QueryDefinition | QueryDefinitionInput | null,
@@ -29,22 +26,16 @@ export function previewFingerprint(
 }
 
 function useCollectionPreview(scope: "user" | "admin", request?: CollectionPreviewRequest | null) {
+  const collectionScope = scope === "user" ? PERSONAL_SCOPE : SERVER_SCOPE;
   const normalized = request
     ? buildCollectionPreviewRequest(request.query_definition, request.limit)
     : null;
 
   return useQuery({
-    queryKey: normalized
-      ? collectionKeys.preview(scope, previewFingerprint(scope, normalized))
-      : collectionKeys.preview(scope, "disabled"),
-    queryFn: () =>
-      scope === "user"
-        ? v2("POST /api/v2/collections/preview", { body: previewToV2(normalized!) }).then(
-            previewFromV2,
-          )
-        : v2("POST /api/v2/admin/collections/preview", {
-            body: { ...normalized!, limit: normalized!.limit ?? 12 },
-          }),
+    queryKey: collectionScope.keys.preview(
+      normalized ? previewFingerprint(scope, normalized) : "disabled",
+    ),
+    queryFn: () => collectionScope.preview(normalized!.query_definition, normalized!.limit ?? 12),
     enabled: normalized !== null,
     staleTime: 30_000,
   });

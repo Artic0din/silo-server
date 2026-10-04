@@ -1,5 +1,5 @@
 {
-  "revision": "ca54654d20d4f884f98c0ed84a050aef85c79a074bd6879e812fcdfd6913318d",
+  "revision": "4e0567ee5d2244aa250442c1d6d3ed7d8b1f52f1325c5944bac5bfca7e9dad7b",
   "state": "available",
   "allowed": true,
   "groups": true,
@@ -11,6 +11,7 @@
   ],
   "artwork": true,
   "item_reorder": true,
+  "template_summaries": true,
   "mdblist_search": true,
   "schedule_time_zone": {
     "utc_offset": "-05:00",

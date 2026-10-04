@@ -17,7 +17,6 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
 vi.mock("@/hooks/queries/collections", () => ({
   useCreateCollection: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateCollection: () => ({ mutate: mocks.userUpdate, isPending: false }),
-  useDeleteUserCollectionImage: () => ({ mutate: vi.fn() }),
   useCollectionCapabilities: () => ({ data: { artwork: false } }),
 }));
 vi.mock("@/hooks/queries/catalog", () => ({
