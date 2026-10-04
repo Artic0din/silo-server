@@ -28,6 +28,7 @@ type fakeAdminCollections struct {
 	template                                           handlers.AdminCollectionTemplateResult
 	bundles                                            []templates.BundleWithTemplates
 	bundleReads                                        int
+	featureReads                                       int
 }
 
 func newFakeAdminCollections() *fakeAdminCollections {

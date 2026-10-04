@@ -12611,8 +12611,14 @@ export interface components {
       import_sources: ("mdblist" | "tmdb" | "tmdb_list")[];
       imports: boolean;
       item_reorder: boolean;
+      /**
+       * @description searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key
+       * @example true
+       */
+      mdblist_search: boolean;
       /** @description Opaque revision of this document */
       revision: string;
+      schedule_time_zone: components["schemas"]["CollectionScheduleTimeZone"];
       /**
        * @description Support and configuration state, not health
        * @enum {string}
@@ -19634,12 +19640,18 @@ export interface components {
       /** @description is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it */
       login_sharing: boolean;
       /**
+       * @description searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key
+       * @example true
+       */
+      mdblist_search: boolean;
+      /**
        * @description previewCollection items carry poster_url when the title has a poster
        * @example true
        */
       preview_posters: boolean;
       /** @description Opaque revision of this document */
       revision: string;
+      schedule_time_zone: components["schemas"]["CollectionScheduleTimeZone"];
       /**
        * @description collection_kind values the sort-preference operations accept
        * @example [
@@ -19822,6 +19834,23 @@ export interface components {
       items: components["schemas"]["PlaybackSubtitleFont"][];
       /** @description Cursor state; absent for bounded unpaginated collections */
       page?: components["schemas"]["PageInfo"];
+    };
+    CollectionScheduleTimeZone: {
+      /**
+       * @description Current zone abbreviation as the node's time zone database reports it; some zones report a numeric form such as -03
+       * @example CDT
+       */
+      abbreviation: string;
+      /**
+       * @description IANA zone name, from the node's TZ environment variable or UTC when TZ is empty or names no known zone; omitted when the node uses its system default zone or a TZ file path
+       * @example America/Chicago
+       */
+      name?: string;
+      /**
+       * @description Current offset from UTC, daylight saving time included
+       * @example -05:00
+       */
+      utc_offset: string;
     };
     CollectionSortPreference: {
       /**

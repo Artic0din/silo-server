@@ -218,12 +218,13 @@ func TestListCollections(t *testing.T) {
 
 func TestGetCollectionCapabilities(t *testing.T) {
 	deps, pc, _ := collectionDeps(t)
+	deps.ScheduleZone = fixtureScheduleTimeZone
 	pc.features.Description = true
 	rec := do(t, newTestHandler(t, deps), http.MethodGet, "/api/v2/collections/capabilities", "", viewerHeaders())
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"preview_posters":true}` + "\n"
+	want := `{"groups":false,"login_sharing":true,"imports":false,"import_sources":[],"artwork":false,"item_reorder":false,"display_filter_fields":["type","watched"],"display_filter_presets":{"watched":["all","watched","unwatched"],"media":["all","movie","series"]},"collection_default_sort":true,"collection_sort_preferences":true,"effective_collection_sort":true,"sort_preference_kinds":["library","user","watchlist","favorites"],"create_description":true,"mdblist_search":true,"schedule_time_zone":{"utc_offset":"-05:00","abbreviation":"CDT","name":"America/Chicago"},"preview_posters":true}` + "\n"
 	if !capabilityBodyMatches(t, rec.Body.Bytes(), want) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}

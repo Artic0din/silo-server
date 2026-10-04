@@ -3423,9 +3423,19 @@
           "item_reorder": {
             "type": "boolean"
           },
+          "mdblist_search": {
+            "description": "searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
+          },
+          "schedule_time_zone": {
+            "$ref": "#/components/schemas/CollectionScheduleTimeZone"
           },
           "state": {
             "description": "Support and configuration state, not health",
@@ -3452,6 +3462,8 @@
           "artwork",
           "item_reorder",
           "template_summaries",
+          "mdblist_search",
+          "schedule_time_zone",
           "revision",
           "state",
           "allowed"
@@ -22541,6 +22553,13 @@
             "description": "is_shared shows a collection to every profile on the login, listCollections includes other profiles' shared collections, and only a collection's creator changes or orders it",
             "type": "boolean"
           },
+          "mdblist_search": {
+            "description": "searchMDBListLists and listTopMDBListLists return lists; false when the server has no MDBList API key",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "preview_posters": {
             "description": "previewCollection items carry poster_url when the title has a poster",
             "examples": [
@@ -22551,6 +22570,9 @@
           "revision": {
             "description": "Opaque revision of this document",
             "type": "string"
+          },
+          "schedule_time_zone": {
+            "$ref": "#/components/schemas/CollectionScheduleTimeZone"
           },
           "sort_preference_kinds": {
             "description": "collection_kind values the sort-preference operations accept",
@@ -22592,6 +22614,8 @@
           "effective_collection_sort",
           "sort_preference_kinds",
           "create_description",
+          "mdblist_search",
+          "schedule_time_zone",
           "preview_posters",
           "revision",
           "state",
@@ -23055,6 +23079,38 @@
         },
         "required": [
           "items"
+        ],
+        "type": "object"
+      },
+      "CollectionScheduleTimeZone": {
+        "additionalProperties": false,
+        "properties": {
+          "abbreviation": {
+            "description": "Current zone abbreviation as the node's time zone database reports it; some zones report a numeric form such as -03",
+            "examples": [
+              "CDT"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "IANA zone name, from the node's TZ environment variable or UTC when TZ is empty or names no known zone; omitted when the node uses its system default zone or a TZ file path",
+            "examples": [
+              "America/Chicago"
+            ],
+            "type": "string"
+          },
+          "utc_offset": {
+            "description": "Current offset from UTC, daylight saving time included",
+            "examples": [
+              "-05:00"
+            ],
+            "pattern": "^[+-][0-9]{2}:[0-9]{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "utc_offset",
+          "abbreviation"
         ],
         "type": "object"
       },
