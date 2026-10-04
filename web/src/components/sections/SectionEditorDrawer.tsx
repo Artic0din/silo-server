@@ -120,6 +120,8 @@ type AdminDrawerProps = {
    * replaces a row's own kind when editing, which starts its settings fresh.
    */
   initialType?: string;
+  /** The name and More options the Home rows dialog had when it handed over a row. */
+  carried?: { title: string; itemLimit: number; hero: boolean };
   scope: string;
   currentLibraryId: number | null;
   libraries: Array<{ id: number; name: string }>;
@@ -181,6 +183,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
   const showRecipeParams = !showCollectionPicker && !showLegacyFilter && isKnownRecipe;
 
   const initialType = props.mode === "admin" ? props.initialType : undefined;
+  const carried = props.mode === "admin" ? props.carried : undefined;
   useEffect(() => {
     if (!props.open) return;
     if (props.section) {
@@ -189,9 +192,9 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       const config =
         initialType && initialType !== props.section.section_type ? {} : props.section.config;
       setSectionType(initialType ?? props.section.section_type);
-      setTitle(props.section.title);
-      setItemLimit(props.section.item_limit);
-      setFeatured(props.section.featured);
+      setTitle(carried?.title.trim() ? carried.title : props.section.title);
+      setItemLimit(carried?.itemLimit ?? props.section.item_limit);
+      setFeatured(carried?.hero ?? props.section.featured);
       setEnabled("enabled" in props.section ? Boolean(props.section.enabled) : true);
       setQueryDefinition(queryDefinitionFromSectionConfig(config));
       setSelectedCollectionId(getCollectionId(config));
@@ -206,7 +209,7 @@ export default function SectionEditorDrawer(props: SectionEditorDrawerProps) {
       setSelectedCollectionId("");
       setRecipeParams({});
     }
-  }, [props.open, props.section, initialType]);
+  }, [props.open, props.section, initialType, carried]);
 
   useEffect(() => {
     if (!props.open || showCollectionPicker || showLegacyFilter) return;

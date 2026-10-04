@@ -53,11 +53,15 @@ export interface AddRowDialogProps {
   onSaved: (newIds: string[]) => void;
   /**
    * A collection or rule card was picked: those rows open the older editor
-   * for now. `session` is set when an existing row is changing kind.
+   * for now. `session` is set when an existing row is changing kind, with the
+   * name and More options from the dialog's draft.
    */
-  onBridge: (sectionType: string, session: EditSession | null) => void;
+  onBridge: (sectionType: string, session: EditSession | null, carry: BridgeCarry | null) => void;
   onDelete?: (session: EditSession) => void;
 }
+
+/** What an existing row keeps when it changes to a kind the older editor handles. */
+export type BridgeCarry = Pick<RowDraft, "title" | "itemLimit" | "hero">;
 
 function sentenceWithoutStop(sentence: string) {
   return sentence.replace(/\.$/, "");
@@ -165,7 +169,13 @@ export function AddRowDialog({
 
   function pick(card: PickerCard, presetKey?: string) {
     if (BRIDGED_ROW_KINDS.has(card.type)) {
-      onBridge(card.type, editing ? session : null);
+      onBridge(
+        card.type,
+        editing ? session : null,
+        editing && draft
+          ? { title: draft.title, itemLimit: draft.itemLimit, hero: draft.hero }
+          : null,
+      );
       return;
     }
     const preset = card.def.presets.find((entry) => entry.key === presetKey) ?? card.def.presets[0];

@@ -29,7 +29,7 @@ import { V2ProblemError } from "@/api/v2/request";
 import SectionEditorDrawer from "@/components/sections/SectionEditorDrawer";
 import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
 import { DeleteRowDialog } from "@/components/homeRows/DeleteRowDialog";
-import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
+import { AddRowDialog, type BridgeCarry } from "@/components/homeRows/addRow/AddRowDialog";
 import { BRIDGED_ROW_KINDS } from "@/lib/homeRows/catalog";
 import type { RowMenuItem } from "@/components/homeRows/RowMenu";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
@@ -37,6 +37,9 @@ import { pageLabel, pageParam } from "@/lib/homeRows/pages";
 import { nextAppendPosition } from "@/lib/homeRows/payloads";
 import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
+
+/** A collection or rule card picked in the row dialog, which the older editor opens. */
+type DrawerBridge = { type: string; carry: BridgeCarry | null };
 
 /** How long a newly added row stays highlighted. */
 const NEW_ROW_HIGHLIGHT_MS = 2500;
@@ -98,8 +101,9 @@ export default function AdminHomeRows() {
   const updateMutation = useUpdateSection();
   // The Add row / Edit row dialog: open with no session to add a row.
   const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
-  // The kind a collection or rule card picked, for the older editor it opens.
-  const [drawerType, setDrawerType] = useState<string | undefined>();
+  // A collection or rule card picked in the row dialog: the kind for the older
+  // editor, and the name and More options an existing row carries into it.
+  const [bridge, setBridge] = useState<DrawerBridge | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,7 +168,7 @@ export default function AdminHomeRows() {
     });
   }
 
-  function handleEdit(section: PageSectionConfig, initialType?: string) {
+  function handleEdit(section: PageSectionConfig, from: DrawerBridge | null = null) {
     const request = ++snapshotRequest.current;
     void prepareSnapshot(async () => {
       const snapshot = await fetchAdminSectionSnapshot(section.id);
@@ -172,7 +176,7 @@ export default function AdminHomeRows() {
       setEditingSection(snapshot.section);
       setEditingETag(snapshot.etag);
       setEditConflict(false);
-      setDrawerType(initialType);
+      setBridge(from);
       setDialogOpen(true);
     });
   }
@@ -199,17 +203,17 @@ export default function AdminHomeRows() {
   }
 
   /** A collection or rule card: until the dialog edits those rows, the older editor does. */
-  function bridgeToEditor(type: string, session: EditSession | null) {
+  function bridgeToEditor(type: string, session: EditSession | null, carry: BridgeCarry | null) {
     setRowDialog(null);
     if (session) {
       const section = sectionFor(session.row);
-      if (section) handleEdit(section, type);
+      if (section) handleEdit(section, { type, carry });
       return;
     }
     setEditingSection(null);
     setEditingETag(null);
     setEditConflict(false);
-    setDrawerType(type);
+    setBridge({ type, carry: null });
     setDialogOpen(true);
   }
 
@@ -564,14 +568,16 @@ export default function AdminHomeRows() {
             if (!open) {
               snapshotRequest.current++;
               setEditingSection(null);
-              setDrawerType(undefined);
+              setBridge(null);
             }
           }}
           section={editingSection}
-          initialType={drawerType}
+          initialType={bridge?.type}
+          carried={bridge?.carry ?? undefined}
           conflict={editConflict}
           onReload={() => {
-            if (editingSection) handleEdit(editingSection);
+            // A reload refreshes the stored row; the kind picked in the dialog stays.
+            if (editingSection) handleEdit(editingSection, bridge);
           }}
           scope={editingSection?.scope ?? scope}
           currentLibraryId={editingSection ? editingSection.library_id : activeLibraryId}

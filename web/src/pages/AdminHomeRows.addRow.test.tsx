@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import golden from "@/lib/homeRows/payloads.golden.json";
 import { recipeCatalogFixture } from "@/lib/homeRows/recipeCatalogFixture.test-support";
+import { V2ProblemError } from "@/api/v2/request";
 import AdminHomeRows from "./AdminHomeRows";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn(), error: vi.fn() }));
@@ -29,7 +30,9 @@ vi.mock("@/lib/recipes", async () => ({
   ...(await vi.importActual<typeof import("@/lib/recipes")>("@/lib/recipes")),
   fetchRecipeCatalog: async () => recipeCatalogFixture,
 }));
-vi.mock("@/components/collections/CollectionRulesEditor", () => ({ default: () => null }));
+vi.mock("@/components/collections/CollectionRulesEditor", () => ({
+  default: () => <div>Rules editor</div>,
+}));
 vi.mock("@/components/CollectionSearchableSelect", () => ({
   CollectionSearchableSelect: () => <div>Collection picker</div>,
 }));
@@ -79,6 +82,7 @@ let writes: Array<{ operation: string; args: Args }>;
 let previews: Args[];
 let preview: boolean;
 let holdCreate: Promise<void> | null;
+let failNextPatch: boolean;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -103,6 +107,7 @@ beforeEach(() => {
   previews = [];
   preview = true;
   holdCreate = null;
+  failNextPatch = false;
   mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
     args.onResponse?.(new Response(null, { headers: { ETag: '"rev-1"' } }));
     const scope = args.query?.scope ?? "home";
@@ -140,6 +145,15 @@ beforeEach(() => {
       return created;
     }
     if (operation === "PATCH /api/v2/admin/sections/{id}") {
+      if (failNextPatch) {
+        failNextPatch = false;
+        throw new V2ProblemError("updateAdminSection", {
+          type: "https://siloserver.org/docs/api/v2/problems/precondition_failed",
+          title: "precondition_failed",
+          status: 412,
+          detail: "Changed elsewhere",
+        } as never);
+      }
       const changes = Object.fromEntries(
         Object.entries(args.body ?? {}).filter(([, value]) => value !== undefined),
       );
@@ -409,6 +423,40 @@ describe("Edit row", () => {
       section_type: "mood_collection",
       title: "Mind-Bending Sci-Fi",
       config: { mood: "mind_bending" },
+    });
+  });
+
+  it("carries the dialog's name and More options into the older editor, through a reload", async () => {
+    await setup();
+    const dialog = await editRow("Trending This Week");
+    fireEvent.change(within(dialog).getByLabelText("Row name"), { target: { value: "My picks" } });
+    await userEvent.click(within(dialog).getByRole("button", { name: /More options/ }));
+    await userEvent.click(within(dialog).getByRole("switch", { name: "Hero banner" }));
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Change what Trending on this server · 7 days shows",
+      }),
+    );
+    const picker = await screen.findByRole("dialog", { name: "Change what this row shows" });
+    await userEvent.click(within(picker).getByRole("button", { name: "Titles matching rules" }));
+    expect(await screen.findByText("Rules editor")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("My picks")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Featured" })).toBeChecked();
+
+    failNextPatch = true;
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Reload section" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Reload section" })).toBeNull(),
+    );
+    expect(screen.getByText("Rules editor")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("My picks")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]!.args.body).toMatchObject({
+      section_type: "custom_filter",
+      title: "My picks",
+      featured: true,
     });
   });
 
