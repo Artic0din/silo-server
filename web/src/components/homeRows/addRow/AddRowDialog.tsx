@@ -119,6 +119,19 @@ export function AddRowDialog({
     initialSession ? draftFromRow(initialSession.row, catalog) : null,
   );
   const [draft, setDraft] = useState<RowDraft | null>(original);
+  // A row opened before the kinds of rows loaded couldn't tell whether its name
+  // is still its variant's preset name; work that out once they arrive.
+  const [namedWithCatalog, setNamedWithCatalog] = useState(catalog !== undefined);
+  if (catalog && !namedWithCatalog) {
+    setNamedWithCatalog(true);
+    if (session && original && draft) {
+      const settled = draftFromRow(session.row, catalog);
+      setOriginal(settled);
+      if (draft.title === original.title) {
+        setDraft({ ...draft, titleFollowsVariant: settled.titleFollowsVariant });
+      }
+    }
+  }
   const [conflict, setConflict] = useState(false);
   const [changedUpstream, setChangedUpstream] = useState<DraftField[]>([]);
   const [busy, setBusy] = useState(false);

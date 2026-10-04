@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PageSectionConfig } from "@/api/types";
 import {
   useDeleteSection,
@@ -74,6 +74,11 @@ export default function AdminHomeRows() {
   const focus = useRowFocus(adapter.rows, adapter.pending);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const snapshotRequest = useRef(0);
+  // A row or order read started on one page must not open a dialog, or arm a
+  // confirmation, after the admin has moved to another page.
+  useLayoutEffect(() => {
+    snapshotRequest.current++;
+  }, [currentPageKey]);
   const [deleteETag, setDeleteETag] = useState<string | null>(null);
   const [deleteConflict, setDeleteConflict] = useState(false);
   const deletedRow = useRef(false);

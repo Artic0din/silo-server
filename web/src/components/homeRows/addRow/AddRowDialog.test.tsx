@@ -97,7 +97,13 @@ function adapter(): HomeRowsAdapter {
   };
 }
 
-function Harness({ session = null }: { session?: EditSession | null }) {
+function Harness({
+  session = null,
+  catalogLoaded = true,
+}: {
+  session?: EditSession | null;
+  catalogLoaded?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <MemoryRouter>
@@ -106,7 +112,7 @@ function Harness({ session = null }: { session?: EditSession | null }) {
         {open ? (
           <AddRowDialog
             adapter={adapter()}
-            catalog={recipeCatalogFixture}
+            catalog={catalogLoaded ? recipeCatalogFixture : undefined}
             libraries={[{ id: 7, name: "Movies" }]}
             session={session}
             onClose={() => setOpen(false)}
@@ -345,6 +351,30 @@ describe("Edit row form", () => {
       title: "Directors",
       config: { subject_type: "actor", auto_rotate: true, rotation_cadence: "monthly" },
     });
+  });
+
+  it("renames a row that kept its preset name when the kinds of rows load after it opened", async () => {
+    const view = render(
+      <Harness
+        catalogLoaded={false}
+        session={session({
+          title: "Director Spotlight",
+          config: { subject_type: "director", auto_rotate: true, rotation_cadence: "weekly" },
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = await screen.findByRole("dialog");
+    view.rerender(
+      <Harness
+        session={session({
+          title: "Director Spotlight",
+          config: { subject_type: "director", auto_rotate: true, rotation_cadence: "weekly" },
+        })}
+      />,
+    );
+    await userEvent.click(within(dialog).getByRole("radio", { name: /Actor/ }));
+    expect(within(dialog).getByLabelText("Row name")).toHaveValue("Actor Spotlight");
   });
 
   it("reads a legacy family movie night row as that variant", async () => {
