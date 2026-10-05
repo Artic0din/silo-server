@@ -137,8 +137,8 @@ const handlers = {
   onVisibleChange: vi.fn(),
 };
 
-/** Renders the board; awaited, it returns once shelf changes are on (capabilities read). */
-async function renderBoard(groups: Group[] = [franchises, mine], loose = ungrouped) {
+/** Renders the board without waiting for anything. */
+function mountBoard(groups: Group[] = [franchises, mine], loose = ungrouped) {
   render(
     <QueryClientProvider
       client={
@@ -158,6 +158,11 @@ async function renderBoard(groups: Group[] = [franchises, mine], loose = ungroup
       />
     </QueryClientProvider>,
   );
+}
+
+/** Renders the board; awaited, it returns once shelf changes are on (capabilities read). */
+async function renderBoard(groups: Group[] = [franchises, mine], loose = ungrouped) {
+  mountBoard(groups, loose);
   await vi.waitFor(() =>
     expect(screen.getByRole("combobox", { name: "Order of Franchises" })).toBeEnabled(),
   );
@@ -768,6 +773,37 @@ describe("GroupsBoard", () => {
       expect(pin).toHaveAccessibleDescription(
         "Shows first in Server collections on the Collections page; this shelf sorts by name.",
       );
+    });
+
+    it("is off where the server can't arrange shelves, on the board and the phone sheet", async () => {
+      v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+        ...adminCapabilities,
+        groups: false,
+      });
+      mountBoard();
+      await vi.waitFor(() =>
+        expect(v2Recorder.callsOf("GET /api/v2/admin/collections/capabilities")).toHaveLength(1),
+      );
+      await openMenu("More for Staff picks");
+      expect(await screen.findByRole("menuitem", { name: PIN_LABEL })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      cleanup();
+
+      stubPhone();
+      mountBoard();
+      await vi.waitFor(() =>
+        expect(v2Recorder.callsOf("GET /api/v2/admin/collections/capabilities")).toHaveLength(2),
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "More for Staff picks" }));
+      const sheet = await screen.findByRole("dialog", { name: "Move Staff picks" });
+      expect(
+        within(sheet).getByRole("switch", {
+          name: "Pin Staff picks to the start of the collections with no heading",
+        }),
+      ).toBeDisabled();
     });
 
     it("pins from the phone sheet's switch", async () => {
