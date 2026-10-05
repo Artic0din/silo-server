@@ -4,11 +4,17 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
+import { PIN_LABEL, pinHelp } from "@/lib/collections/copy";
 
 import AdminCollections from "./AdminCollections";
 
 const { state, idle } = vi.hoisted(() => ({
-  state: { collections: [] as LibraryCollection[], snapshot: vi.fn(), prepareDeletes: vi.fn() },
+  state: {
+    collections: [] as LibraryCollection[],
+    snapshot: vi.fn(),
+    prepareDeletes: vi.fn(),
+    setVisibility: vi.fn(async () => undefined),
+  },
   idle: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -47,9 +53,9 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
     data: { groups: false, imports: true, import_sources: ["mdblist", "tmdb", "tmdb_list"] },
   }),
   useAdminCollections: () => ({ data: state.collections, isLoading: false }),
-  useDeleteAdminCollection: idle,
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
-  useSyncAdminCollection: () => ({ ...idle(), variables: undefined }),
+  useSetAdminCollectionVisibility: () => ({ mutateAsync: state.setVisibility }),
+  useSetAdminCollectionPin: idle,
   useTemplateBundleApplyJobs: () => ({ data: [] }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
@@ -122,104 +128,86 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("AdminCollections actions", () => {
-  it("offers Sync on the all-libraries list only for list-backed collections", () => {
-    state.collections = [
-      collection("Top Rated", "mdblist"),
-      collection("Action Night", "smart"),
-      collection("Staff Picks", "manual"),
-    ];
-    renderPage("/admin/collections");
+describe("AdminCollections Arrange actions", () => {
+  it("offers Edit, Move to shelf, Pin and the Collections tab on a card, and no Delete or Sync", async () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    renderPage("/admin/collections?view=arrange&libraryId=1");
 
-    expect(screen.getByRole("button", { name: "Sync Top Rated" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sync Action Night" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sync Staff Picks" })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More for Top Rated" }));
+    const menu = await screen.findByRole("menu");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Edit collection",
+      "Move to shelf",
+      `${PIN_LABEL}${pinHelp(null)}`,
+      "Hide from Collections tab",
+    ]);
   });
 
-  it("says a library board delete removes a shared collection from every library", async () => {
-    state.collections = [collection("Shared", "manual", [1, 2, 3])];
-    renderPage("/admin/collections?libraryId=1");
+  it("asks before hiding a collection rows show, from its card", async () => {
+    state.collections = [{ ...collection("Top Rated", "mdblist"), row_count: 2 }];
+    renderPage("/admin/collections?view=arrange&libraryId=1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More for Top Rated" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Hide from Collections tab" }));
 
-    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      'Delete collection "Shared"? It will be removed from all 3 libraries it belongs to.',
-    );
+    expect(
+      await screen.findByRole("alertdialog", { name: "Hide Top Rated from Collections tabs?" }),
+    ).toHaveTextContent("2 rows still show it");
+    expect(state.setVisibility).not.toHaveBeenCalled();
   });
 
-  it("does not mention other libraries for a single-library collection", async () => {
+  it("hides a collection no rows show at once, from its card", async () => {
     state.collections = [collection("Solo", "manual")];
-    renderPage("/admin/collections?libraryId=1");
+    renderPage("/admin/collections?view=arrange&libraryId=1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More for Solo" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Hide from Collections tab" }));
 
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent('Delete collection "Solo"? This action cannot be undone.');
-    expect(dialog).not.toHaveTextContent("libraries");
+    expect(state.setVisibility).toHaveBeenCalledWith({ id: "Solo", visible: false });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
-  it("says a library board bulk delete removes shared collections from their other libraries", async () => {
-    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
-    renderPage("/admin/collections?libraryId=1");
+  it("deletes only what the List's filters show from More", async () => {
+    state.collections = [collection("Top Rated", "mdblist"), collection("Solo", "manual")];
+    renderPage("/admin/collections?type=synced");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shared" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete all in this view…" }));
 
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Delete 1 selected collection? Shared collections will also be removed from their other libraries.",
+      "Delete 1 synced list in this view?",
     );
+    expect(state.prepareDeletes).toHaveBeenCalledWith(["Top Rated"]);
   });
+});
 
-  it("warns from the fetched collection when a selected one became shared after the board loaded", async () => {
-    state.collections = [collection("Solo", "manual")];
-    state.prepareDeletes.mockImplementation(async (ids: string[]) =>
-      ids.map((id) => ({ id, etag: '"rev-2"', collection: collection(id, "manual", [1, 2]) })),
-    );
-    renderPage("/admin/collections?libraryId=1");
+describe("AdminCollections Starter packs", () => {
+  async function openFromMore() {
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /^Starter packs…/ }));
+  }
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Solo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
-
-    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Delete 1 selected collection? Shared collections will also be removed from their other libraries.",
-    );
-  });
-
-  it("warns on the all-libraries list when a selected collection is in more than one library", async () => {
-    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
-    renderPage("/admin/collections");
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shared in Movies" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
-
-    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Delete 1 selected collection? Collections in more than one library will be removed from all of them.",
-    );
-  });
-
-  it("does not mention other libraries when no selected collection is shared", async () => {
-    state.collections = [collection("Shared", "manual", [1, 2]), collection("Solo", "manual")];
-    renderPage("/admin/collections?libraryId=1");
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Solo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
-
-    expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("other libraries");
-  });
-
-  it("opens Starter packs from the header and closes it again", () => {
+  it("opens Starter packs from More and closes it again", async () => {
     state.collections = [collection("Top Rated", "mdblist")];
     renderPage("/admin/collections?libraryId=2");
 
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Starter packs…" }));
+    await openFromMore();
     expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent("Opened on 2");
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
   });
 
-  it("leaves the page on Back after Starter packs closes, instead of reopening it", () => {
+  it("leaves the page on Back after Starter packs closes, instead of reopening it", async () => {
     state.collections = [collection("Top Rated", "mdblist")];
     function BackButton() {
       const navigate = useNavigate();
@@ -248,7 +236,7 @@ describe("AdminCollections actions", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Starter packs…" }));
+    await openFromMore();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByText("Admin home")).toBeInTheDocument();
@@ -265,13 +253,13 @@ describe("AdminCollections actions", () => {
   });
 
   it.each([
-    ["every library", "/admin/collections"],
-    ["one library", "/admin/collections?libraryId=1"],
-  ])("offers a starter pack from the picker when %s has no collections", async (_, path) => {
+    ["every library", "/admin/collections", "No collections yet"],
+    ["one library", "/admin/collections?libraryId=1", "No collections in Movies yet"],
+  ])("offers a starter pack from the picker when %s has no collections", async (_, path, text) => {
     state.collections = [];
     renderPage(path);
 
-    const empty = screen.getByText("No collections yet").parentElement!.parentElement!;
+    const empty = screen.getByText(text).parentElement!;
     await userEvent.click(within(empty).getByRole("button", { name: "New collection" }));
     const picker = await screen.findByRole("dialog", { name: "New collection" });
     await userEvent.click(await within(picker).findByRole("link", { name: "Add a starter pack" }));
@@ -281,8 +269,8 @@ describe("AdminCollections actions", () => {
 });
 
 describe("AdminCollections New collection", () => {
-  function emptyState() {
-    return screen.getByText("No collections yet").parentElement!.parentElement!;
+  function emptyState(text: string) {
+    return screen.getByText(text).parentElement!;
   }
 
   it("has one New collection button in the header and no Browse Templates", () => {
@@ -317,12 +305,12 @@ describe("AdminCollections New collection", () => {
   });
 
   it.each([
-    ["every library", "/admin/collections"],
-    ["one library", "/admin/collections?libraryId=1"],
-  ])("gives the empty list for %s one button, which opens the picker", async (_, path) => {
+    ["every library", "/admin/collections", "No collections yet"],
+    ["one library", "/admin/collections?libraryId=1", "No collections in Movies yet"],
+  ])("gives the empty list for %s one button, which opens the picker", async (_, path, text) => {
     state.collections = [];
     renderPage(path);
-    const empty = emptyState();
+    const empty = emptyState(text);
     expect(within(empty).getAllByRole("button")).toHaveLength(1);
     await userEvent.click(within(empty).getByRole("button", { name: "New collection" }));
     expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();

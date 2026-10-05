@@ -192,11 +192,22 @@ function CardBody({
 }
 
 /** One type, as a link to its editor page. Lifts and shows its chevron only on hover or focus. */
-function TypeCard({ kind, scope, to }: { kind: CollectionKind; scope: ScopeKind; to: string }) {
+function TypeCard({
+  kind,
+  scope,
+  to,
+  state,
+}: {
+  kind: CollectionKind;
+  scope: ScopeKind;
+  to: string;
+  state?: unknown;
+}) {
   const id = useId();
   return (
     <Link
       to={to}
+      state={state}
       aria-labelledby={`${id}-name`}
       aria-describedby={`${id}-sentence ${id}-note`}
       style={{ "--tint": TINT[kind] } as CSSProperties}
@@ -249,11 +260,17 @@ function SyncedOffCard({ scope }: { scope: ScopeKind }) {
 export function NewCollectionPicker({
   scope,
   libraryId = null,
+  linkState,
+  listHref,
   onClose,
 }: {
   scope: ScopeKind;
   /** The library pill selected on the list, carried to the editor. */
   libraryId?: number | null;
+  /** History state for the editor a type opens, such as the list view to come back to. */
+  linkState?: unknown;
+  /** The list view the picker is open over, so Add a starter pack keeps it. */
+  listHref?: string;
   onClose: () => void;
 }) {
   const isServer = scope === "server";
@@ -267,7 +284,12 @@ export function NewCollectionPicker({
   let synced: ReactNode;
   if (syncedOn) {
     synced = (
-      <TypeCard kind="synced" scope={scope} to={paths.create({ type: "synced", libraryId })} />
+      <TypeCard
+        kind="synced"
+        scope={scope}
+        to={paths.create({ type: "synced", libraryId })}
+        state={linkState}
+      />
     );
   } else if (syncedOn === false) {
     synced = <SyncedOffCard scope={scope} />;
@@ -296,7 +318,7 @@ export function NewCollectionPicker({
     );
   }
 
-  const starterPacks = isServer && syncedOn ? starterPacksHref(libraryId) : null;
+  const starterPacks = isServer && syncedOn ? starterPacksHref(libraryId, listHref) : null;
 
   return (
     <StepDialog
@@ -329,8 +351,18 @@ export function NewCollectionPicker({
       }
     >
       <div className="grid min-h-0 gap-3.5 overflow-y-auto px-5 pt-1 pb-6 sm:px-7 lg:grid-cols-3">
-        <TypeCard kind="manual" scope={scope} to={paths.create({ type: "manual", libraryId })} />
-        <TypeCard kind="smart" scope={scope} to={paths.create({ type: "smart", libraryId })} />
+        <TypeCard
+          kind="manual"
+          scope={scope}
+          to={paths.create({ type: "manual", libraryId })}
+          state={linkState}
+        />
+        <TypeCard
+          kind="smart"
+          scope={scope}
+          to={paths.create({ type: "smart", libraryId })}
+          state={linkState}
+        />
         {synced}
       </div>
     </StepDialog>

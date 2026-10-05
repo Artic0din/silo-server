@@ -16,7 +16,7 @@ export function newCollectionPickerHref(scope: ScopeKind, libraryId?: number | n
   return withDialog(list, NEW_COLLECTION_DIALOG);
 }
 
-/** The server list with Starter packs open over it. */
-export function starterPacksHref(libraryId?: number | null) {
-  return withDialog(SERVER_SCOPE.paths.list({ libraryId }), STARTER_PACKS_DIALOG);
+/** The server list with Starter packs open over it: over `listHref` when given, so its view stays. */
+export function starterPacksHref(libraryId?: number | null, listHref?: string) {
+  return withDialog(listHref ?? SERVER_SCOPE.paths.list({ libraryId }), STARTER_PACKS_DIALOG);
 }

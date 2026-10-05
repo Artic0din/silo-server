@@ -104,7 +104,7 @@ describe("NewCollectionPicker", () => {
     const dialog = await open();
     expect(await within(dialog).findByRole("link", { name: "Add a starter pack" })).toHaveAttribute(
       "href",
-      "/admin/collections?libraryId=7&dialog=starter-packs",
+      "/admin/collections?libraryId=7&view=list&dialog=starter-packs",
     );
     expect(dialog).toHaveTextContent("Want a whole set at once?");
   });

@@ -12,6 +12,7 @@ vi.mock("@/hooks/queries/collections", () => ({
   useServerCollections: () => ({ data: [] }),
   useDeleteCollection: () => ({}),
   useReorderCollections: () => ({}),
+  useSetCollectionShared: () => ({}),
 }));
 vi.mock("@/hooks/queries/profiles", () => ({ useProfiles: () => ({ data: [] }) }));
 vi.mock("@/hooks/useCurrentProfile", () => ({ useCurrentProfile: () => ({ profile: null }) }));
