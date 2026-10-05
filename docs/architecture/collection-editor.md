@@ -215,3 +215,31 @@ address, so a reload doesn't repeat them.
   `/admin/collections/` or `/collections/` and neither it nor its decoded form holds a backslash,
   `//`, a control character or a `.`/`..` segment; anything else is ignored, so the parameter
   can't send a viewer off the site.
+
+## Where it shows: rows
+
+A server collection's Where it shows panel lists the administrator Home and library page rows that
+show it, from `listAdminCollectionSections`, and offers **Add as a row** (Home, then the library
+pages of the collection's own libraries, then the other libraries). The same rows give the header
+its "On Home and the *Kids* page" (turned-off rows left out). Rows profiles add to their own Home
+are not listed, because the route reads the administrator page layouts only. When the collections
+capabilities don't report `section_references`, the list is left out and Add as a row stays.
+
+- **Add as a row** goes to admin Home rows with `?page=…&add=collection:library:<id>` and, from the
+  editor, `?return=` set to the editor's own URL (see Links into Home rows). The List's Add to Home
+  and Add to a library page send no `return`, because the List's address is not a collection page
+  the allowlist accepts; Home rows keeps its own after-add step. With unsaved changes the editor
+  asks first: Save and continue saves and goes only if the save succeeded, Discard changes drops
+  the draft (titles stay), Cancel stays. A collection not created yet, or one hidden from its
+  Collections tab, can't be added, because a row couldn't open its See all; the button says why.
+- **Back from Home rows**, the `addedRow` state names the new row, which is highlighted once the
+  rows list includes it.
+- **Hiding** a collection rows show asks first, naming the pages the rows are on, as the List does
+  with its `row_count`. The switch stays part of the draft until Save.
+- **Deleting** a collection rows show lists them, each with Open row, and offers to delete the
+  rows and then the collection. Each row is read again for its ETag right before its `DELETE`; a
+  row that is already gone counts as deleted. The first row that fails stops the run before the
+  collection is touched, and the dialog names the rows that still show it. Without
+  `section_references`, the server's `409 collection_in_use` answer is shown as "Rows still use it.
+  Remove them first." The List also falls back to the rows list when a `409` arrives for a
+  collection its counts showed as unused.
