@@ -16,6 +16,7 @@ import (
 	apimw "github.com/Silo-Server/silo-server/internal/api/middleware"
 	"github.com/Silo-Server/silo-server/internal/auth"
 	"github.com/Silo-Server/silo-server/internal/catalog"
+	"github.com/Silo-Server/silo-server/internal/notifications"
 	"github.com/Silo-Server/silo-server/internal/userstore"
 	"github.com/Silo-Server/silo-server/internal/userstore/pgstore"
 )
@@ -68,7 +69,8 @@ func TestPersonalCollectionsHoldingItemDB(t *testing.T) {
 	create("owner", "Synced", "mdblist", false, f.ids[1])
 	sharedWithOwner := create("viewer", "Viewer's", "manual", true, f.ids[1])
 
-	h := NewCollectionHandler(provider)
+	// Production wraps the store provider in the notification decorator.
+	h := NewCollectionHandler(notifications.WrapUserStoreProvider(provider, &notifications.System{}))
 	h.Executor = &catalog.QueryExecutor{Pool: f.pool}
 
 	request := func(userID int, profileID string, scope *access.Scope) context.Context {

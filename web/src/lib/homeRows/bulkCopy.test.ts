@@ -92,16 +92,56 @@ describe("copyTargetPages for rows that show one kind of library", () => {
       { sectionType: "continue_watching", config: { continue_type: "listening" } },
     ],
     [
-      "Continue Reading",
-      { sectionType: "continue_watching", config: { continue_type: "Reading" } },
-    ],
-    [
       "a legacy audiobook filter",
       { sectionType: "continue_watching", config: { filter_type: "audiobook" } },
     ],
     ["Next in Series", { sectionType: "next_in_series", config: {} }],
-  ])("offers %s only pages of this page's library type", (_name, row) => {
+  ])("offers %s only audiobook pages", (_name, row) => {
     expect(ids(row)).toEqual([20, 21]);
+  });
+
+  it("offers Continue Reading only ebook pages", () => {
+    const row = { sectionType: "continue_watching", config: { continue_type: "Reading" } };
+    expect(ids(row, 22)).toEqual([22]);
+  });
+
+  it.each([
+    [
+      "Continue Listening",
+      { sectionType: "continue_watching", config: { continue_type: "listening" } },
+      [20, 21, 7],
+    ],
+    [
+      "Continue Reading",
+      { sectionType: "continue_watching", config: { continue_type: "reading" } },
+      [22, 7],
+    ],
+    [
+      "a legacy ebook filter",
+      { sectionType: "continue_watching", config: { filter_type: "ebook" } },
+      [22, 7],
+    ],
+    ["Next in Series", { sectionType: "next_in_series", config: {} }, [20, 21, 7]],
+  ])(
+    "offers %s on another kind of page the pages of the row's own library type",
+    (_name, row, want) => {
+      expect(ids(row, 7)).toEqual(want);
+    },
+  );
+
+  it("matches library types by kind, not by spelling", () => {
+    const pages = [
+      { id: 30, label: "Audiobooks", libraryType: "audiobook" },
+      { id: 31, label: "More audiobooks", libraryType: "Audiobooks" },
+      { id: 32, label: "TV", libraryType: "tv" },
+      { id: 33, label: "Shows", libraryType: "series" },
+    ];
+    expect(
+      copyTargetPages({ sectionType: "next_in_series", config: {} }, pages, 32).map((p) => p.id),
+    ).toEqual([30, 31, 32]);
+    expect(
+      copyTargetPages(recentlyAdded({ media_scope: "series" }), pages, 32).map((p) => p.id),
+    ).toEqual([32, 33]);
   });
 
   it("offers Continue Watching and other rows every page", () => {

@@ -52,6 +52,7 @@ import {
   buildUserCollectionCatalogHref,
 } from "@/pages/catalogSearchParams";
 
+import { draftRules } from "./draft";
 import { isOwnCollection } from "./personalOwnership";
 import { collectionKindOf, syncedSourceOf, type CollectionKind, type SyncedSource } from "./types";
 
@@ -214,8 +215,7 @@ function rulesFor(kind: CollectionKind, query: QueryDefinitionInput) {
 
 /** Smart rules match the draft's libraries; the draft's list is the one the editor shows. */
 function smartRules(draft: SavableDraft): QueryDefinition | undefined {
-  if (draft.kind !== "smart") return undefined;
-  return { ...normalizeQueryDefinition(draft.rules), library_ids: draft.libraryIds };
+  return draft.kind === "smart" ? draftRules(draft) : undefined;
 }
 
 function sanitizeLibraryIds(raw: unknown): number[] {
@@ -326,7 +326,10 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
   allowPersonalizedRules: false,
 
   paths: {
-    list: ({ libraryId, view } = {}) => withQuery("/admin/collections", { libraryId, view }),
+    // A bare `?libraryId=N` opens that library's Arrange (older links), so a
+    // library's List names its view.
+    list: ({ libraryId, view = libraryId ? "list" : undefined } = {}) =>
+      withQuery("/admin/collections", { libraryId, view }),
     create: ({ type, source, libraryId } = {}) =>
       withQuery("/admin/collections/new", { type, source, libraryId }),
     edit: (id, { libraryId, view, focus } = {}) =>

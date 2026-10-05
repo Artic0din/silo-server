@@ -304,6 +304,30 @@ describe("useProfileHomeRows", () => {
     ]);
   });
 
+  it("leaves the last profile's queued rows out of the next profile's save", async () => {
+    pages.home!.rows = [
+      entry("a"),
+      entry("trakt", { position: 1, config: { source: "trakt", list: "trending" } }),
+      entry("b", { position: 2 }),
+    ];
+    const { result } = await ready();
+    hold("PUT /api/v2/profile/sections");
+
+    act(() => result.current.setHidden("a", true));
+    await waitFor(() => expect(held.get("PUT /api/v2/profile/sections")).toHaveLength(1));
+    // Queued behind the save in flight, then dropped by the profile switch.
+    act(() => result.current.saveSection({ ...result.current.sections[1]!, title: "Trakt" }));
+    setProfileId("child");
+    act(() => result.current.move("b", ["b", "a", "trakt"]));
+    await settle("PUT /api/v2/profile/sections");
+    await settle("PUT /api/v2/profile/sections");
+    await waitFor(() => expect(result.current.pending).toBe(false));
+
+    expect(puts.map((put) => put.profileId)).toEqual(["parent", "child"]);
+    // The child never touched the legacy Trakt row, so its save leaves it out.
+    expect(puts[1]!.overrides.map((o) => o.section_id)).not.toContain("trakt");
+  });
+
   it("holds edits after a failed save until the page is read again", async () => {
     const { result } = await ready();
     // The server applies the save, but its answer never arrives.

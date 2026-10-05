@@ -1,6 +1,16 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { ChevronDown, ChevronLeft, Eye, ListOrdered, Trash2, Users } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  Eye,
+  ListOrdered,
+  RefreshCw,
+  Trash2,
+  Users,
+  WandSparkles,
+  type LucideIcon,
+} from "lucide-react";
 
 import { ActionMenu } from "@/components/calm/ActionMenu";
 import { Button } from "@/components/ui/button";
@@ -12,6 +22,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { NOT_CREATED_YET } from "@/lib/collections/copy";
 import { COLLECTION_KIND_LABEL, type CollectionKind } from "@/lib/collections/types";
+
+const KIND_ICON: Record<CollectionKind, LucideIcon> = {
+  manual: ListOrdered,
+  smart: WandSparkles,
+  synced: RefreshCw,
+};
 
 export interface OpenTarget {
   label: string;
@@ -90,6 +106,7 @@ export function EditorHeader({
   open: readonly OpenTarget[];
   onDelete?: () => void;
 }) {
+  const KindIcon = KIND_ICON[kind];
   return (
     <div className="grid gap-4">
       <Link
@@ -111,7 +128,7 @@ export function EditorHeader({
         )}
         <div className="grid min-w-0 gap-1.5">
           <div className="flex flex-wrap gap-2">
-            <Tag icon={<ListOrdered aria-hidden className="size-3.5" />}>
+            <Tag icon={<KindIcon aria-hidden className="size-3.5" />}>
               {COLLECTION_KIND_LABEL[kind]}
             </Tag>
             {shared ? (

@@ -16,6 +16,7 @@ import type {
 import { requiredETag } from "@/api/v2/etag";
 import { v2, V2ProblemError } from "@/api/v2/request";
 import {
+  fetchCollectionEditSnapshot,
   fetchItemOrderSnapshot,
   collectionCreateToV2,
   collectionsFromV2,
@@ -39,7 +40,7 @@ export function useCollections() {
   });
 }
 
-export function useCollectionCapabilities() {
+export function useCollectionCapabilities(enabled = true) {
   return useQuery({
     queryKey: PERSONAL_SCOPE.keys.capabilities,
     queryFn: () =>
@@ -48,6 +49,7 @@ export function useCollectionCapabilities() {
         display_filter_presets:
           value.display_filter_presets as CollectionCapabilitiesResponse["display_filter_presets"],
       })),
+    enabled,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }
@@ -157,6 +159,34 @@ export function useUpdateCollection() {
     },
     onError: (err) => {
       toast.error(collectionMutationMessage(err, "Failed to save"));
+      if (err instanceof V2ProblemError && err.status === 412)
+        void PERSONAL_SCOPE.invalidate(queryClient);
+    },
+  });
+}
+
+/**
+ * Turns sharing on or off from a list (#1615). The collection is read first,
+ * so the write carries its current ETag even when the list is old.
+ */
+export function useSetCollectionShared() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async ({ id, shared }: { id: string; shared: boolean }) => {
+      const { etag } = await fetchCollectionEditSnapshot(id);
+      return v2("PATCH /api/v2/collections/{id}", {
+        path: { id },
+        headers: { "If-Match": requiredETag(etag) },
+        body: { is_shared: shared },
+      });
+    },
+    onSuccess: (_collection, { id, shared }) => {
+      toast.success(shared ? "Shown to other profiles" : "Only you see it now");
+      return PERSONAL_SCOPE.invalidate(queryClient, id);
+    },
+    onError: (err) => {
+      toast.error(collectionMutationMessage(err, "Couldn't change sharing"));
       if (err instanceof V2ProblemError && err.status === 412)
         void PERSONAL_SCOPE.invalidate(queryClient);
     },

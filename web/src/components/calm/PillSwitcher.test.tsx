@@ -39,4 +39,24 @@ describe("PillSwitcher", () => {
     for (const option of OPTIONS)
       expect(screen.getByRole("button", { name: option.label })).toBeDisabled();
   });
+
+  it("shows a pill's count after its name and can turn one pill off", async () => {
+    const onChange = vi.fn();
+    render(
+      <PillSwitcher
+        label="Library"
+        options={[
+          { value: "all", label: "All libraries", disabled: true },
+          { value: "7", label: "Movies", count: 14 },
+        ]}
+        value="7"
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Movies 14" })).toBeEnabled();
+    const all = screen.getByRole("button", { name: "All libraries" });
+    expect(all).toBeDisabled();
+    await userEvent.click(all);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

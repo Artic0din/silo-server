@@ -72,11 +72,11 @@ function renderTabWith<T>(useMutationHook: () => T) {
 }
 
 function card(name: string) {
-  return screen.queryByRole("button", { name: new RegExp(name) });
+  return screen.queryByRole("link", { name: new RegExp(name) });
 }
 
 function findCard(name: string) {
-  return screen.findByRole("button", { name: new RegExp(name) });
+  return screen.findByRole("link", { name: new RegExp(name) });
 }
 
 function tabReads() {

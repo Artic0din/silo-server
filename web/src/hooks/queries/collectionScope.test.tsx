@@ -1,13 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+
+import type { QueryDefinition } from "@/api/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import getCollectionOk from "../../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import { PERSONAL_SCOPE, SERVER_SCOPE, type CollectionScope } from "@/lib/collections/scope";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import { useScopeEditor } from "./collectionScope";
+import { useScopeEditor, useScopePreview } from "./collectionScope";
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 
@@ -165,5 +167,62 @@ describe("useScopeEditor (server)", () => {
     await waitFor(() => expect(result.current.snapshot).toBeDefined());
     expect(result.current.isLoading).toBe(false);
     expect(result.current.snapshot!.view.posterUrl).toBe("listed.png");
+  });
+});
+
+describe("useScopePreview", () => {
+  const PREVIEW = "POST /api/v2/collections/preview";
+  const rules = (minYear: number) =>
+    ({
+      library_ids: [],
+      match: "all",
+      groups: [{ match: "all", rules: [{ field: "year", op: "gte", value: minYear }] }],
+    }) as unknown as QueryDefinition;
+  const answerWith = (title: string) => ({
+    items: [{ content_id: `movie:${title}`, title, type: "movie" }],
+    page: { has_more: false },
+    total: 1,
+  });
+
+  function preview(initial: QueryDefinition) {
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return renderHook(
+      ({ current }) => useScopePreview(PERSONAL_SCOPE as CollectionScope, current, true),
+      { wrapper, initialProps: { current: initial } },
+    );
+  }
+
+  it("asks once for a burst of rule changes, and keeps the last posters until it answers", async () => {
+    v2Recorder.answer(PREVIEW, answerWith("Alien"));
+    const { result, rerender } = preview(rules(1980));
+    await waitFor(() => expect(result.current).toMatchObject({ status: "ready" }));
+    expect(v2Recorder.callsOf(PREVIEW)).toHaveLength(1);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    v2Recorder.answer(PREVIEW, () => held.then(() => answerWith("Heat")));
+    rerender({ current: rules(1990) });
+    rerender({ current: rules(1995) });
+    rerender({ current: rules(2000) });
+    expect(result.current).toMatchObject({
+      status: "ready",
+      refreshing: true,
+      items: [{ title: "Alien" }],
+    });
+
+    await waitFor(() => expect(v2Recorder.callsOf(PREVIEW)).toHaveLength(2));
+    expect(v2Recorder.callsOf(PREVIEW)[1]!.body).toMatchObject({
+      query_definition: { groups: [{ rules: [{ value: 2000 }] }] },
+    });
+    expect(result.current).toMatchObject({ refreshing: true, items: [{ title: "Alien" }] });
+
+    release();
+    await waitFor(() =>
+      expect(result.current).toMatchObject({ refreshing: false, items: [{ title: "Heat" }] }),
+    );
+    expect(v2Recorder.callsOf(PREVIEW)).toHaveLength(2);
   });
 });

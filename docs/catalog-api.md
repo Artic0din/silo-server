@@ -124,7 +124,8 @@ Both collection capability documents, `getCollectionCapabilities` and
   environment variable names, or `UTC` when `TZ` is empty or names no known zone. It is
   omitted when the node uses its system default zone or a `TZ` file path. Each node reports its own zone, and the
   offset changes with daylight saving time, so read it with the schedule rather than
-  storing it.
+  storing it. A cron `sync_schedule` with a `TZ=` or `CRON_TZ=` prefix runs in the zone
+  the prefix names instead.
 
 `getCollectionCapabilities` also reports `sync_schedule_editable`, `true` when `updateCollection`
 accepts `sync_schedule`; see [Personal sync schedules](#personal-sync-schedules).
@@ -142,7 +143,9 @@ accepts `sync_schedule`; see [Personal sync schedules](#personal-sync-schedules)
 with the new collection and returned as `description` on collection reads. Omitting it stores
 an empty description; `null` is a validation failure. Check `create_description` in the
 `getCollectionCapabilities` document before sending it: a server without that flag rejects the
-member as unknown. `updateCollection` changes the description of an existing collection.
+member as unknown, and an account whose user store does not keep descriptions (the SQLite
+store) reports `false` and answers a non-empty `description` with `501 capability_unsupported`.
+`updateCollection` changes the description of an existing collection.
 
 The frozen `/api/v1/collections` create ignores a `description` member, in a JSON body and in
 the multipart `data` field alike; the collection is created with an empty description.
@@ -209,8 +212,10 @@ Collection reads carry `sync_cadence`, the cadence `sync_schedule` names: `daily
 name produces. Read it instead of matching cron expressions.
 
 A sync that is running when `sync_schedule` is saved, on any node, records its result but leaves
-the `next_sync_at` the save set, even when the save kept the same cadence. A failed scheduled sync
-retries after the minimum interval only when the schedule was not saved while it ran.
+the `next_sync_at` the save set, even when the save kept the same cadence, and the collection a
+sync or import returns shows what was stored. A scheduled sync runs on one node: it first moves
+`next_sync_at` past the minimum interval, which is when a failed sync retries; a successful sync
+replaces that with the schedule's next run unless the schedule was saved while it ran.
 
 The frozen `/api/v1/collections/{id}` update ignores a `sync_schedule` member, and `/api/v1`
 collection responses carry no `sync_cadence`.
@@ -478,6 +483,8 @@ each bundle with `templates`, a summary of every template in `template_ids` orde
 `source`, `media_kind`, `featured`, `poster_path` (omitted when the template has no poster) and
 `needs_setup`. The list covers every source a bundle uses, including `tmdb_discover` and
 `tmdb_collection` templates, so a client can describe a bundle without the template catalog.
+Check `template_summaries` in the `getAdminCollectionCapabilities` document before relying on
+`templates`; a server without it returns bundles without summaries.
 
 `featured` is the pinned-first flag a collection created from the template starts with.
 `needs_setup` is true for a template whose collection is created empty and cannot sync until an

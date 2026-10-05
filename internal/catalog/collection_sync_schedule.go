@@ -12,7 +12,8 @@ import (
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 // ParseCronExpression validates a cron expression string.
-// It accepts the standard 5-field format: minute hour dom month dow.
+// It accepts the standard 5-field format: minute hour dom month dow, with an
+// optional TZ= or CRON_TZ= prefix naming the zone the schedule runs in.
 func ParseCronExpression(expr string) error {
 	_, err := cronParser.Parse(expr)
 	if err != nil {
@@ -36,7 +37,8 @@ func computeNextSyncAt(schedule *string) *time.Time {
 // scheduled time after the given reference time, with a small random jitter
 // (0-15 minutes) to prevent thundering herd on subsequent cycles. The
 // expression is evaluated on the node's local clock (time.Local), whatever
-// zone after is in, and the result keeps after's location.
+// zone after is in, unless a TZ= or CRON_TZ= prefix names another zone. The
+// result keeps after's location.
 func ComputeNextSyncAtFrom(schedule string, after time.Time) *time.Time {
 	sched, err := cronParser.Parse(schedule)
 	if err != nil {
