@@ -394,6 +394,21 @@ describe("AdminCollections Select collections", () => {
     );
   });
 
+  it("reads the rows that use them afresh, so a row added since still asks first", async () => {
+    renderPage();
+    const user = await enterSelectMode();
+    // Another admin adds a row showing Studio Ghibli after the List was read.
+    items = items.map((entry) =>
+      entry.title === "Studio Ghibli" ? { ...entry, row_count: 1 } : entry,
+    );
+    await pick(user, "Studio Ghibli", "Christmas Classics");
+    await user.click(within(bar()).getByRole("button", { name: "Hide from tabs" }));
+    expect(
+      await screen.findByRole("alertdialog", { name: "Hide 2 collections from Collections tabs?" }),
+    ).toHaveTextContent("1 row still shows one of them");
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
   it("uses the one collection's own wording when only one would hide", async () => {
     renderPage();
     const user = await enterSelectMode();
@@ -565,6 +580,29 @@ describe("AdminCollections Delete all while select mode works", () => {
     await waitFor(() =>
       expect(within(bar()).getByRole("button", { name: "Show on tabs" })).toBeEnabled(),
     );
+  });
+
+  it("holds a list's own switch while it syncs", async () => {
+    let finish!: () => void;
+    v2Recorder.answer(
+      "POST /api/v2/admin/collections/{id}/sync",
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ status: "success", message: "", items_matched: 3 });
+        }),
+    );
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Netflix Originals");
+    await user.click(within(bar()).getByRole("button", { name: "Sync 1 list" }));
+    await waitFor(() =>
+      expect(v2Recorder.callsOf("POST /api/v2/admin/collections/{id}/sync")).toHaveLength(1),
+    );
+    // A visibility PATCH now would carry the ETag the sync is about to move.
+    const toggle = screen.getByRole("switch", { name: /^Show Netflix Originals on/ });
+    expect(toggle).toBeDisabled();
+    await act(async () => finish());
+    await waitFor(() => expect(toggle).toBeEnabled());
   });
 
   it("waits for a Show or Hide to finish", async () => {

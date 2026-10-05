@@ -481,13 +481,41 @@ export default function AdminCollections() {
     );
   }
 
-  function setSelectedVisible(visible: boolean) {
+  /**
+   * `targets` with the row counts the List gives when read again: rows may
+   * have been added or removed since it loaded. Only the List carries row
+   * counts (Arrange's board doesn't).
+   */
+  async function withFreshRowCounts(targets: LibraryCollection[]) {
+    const { data: fresh = collections } = await allCollections.refetch();
+    const rowCounts = new Map(fresh.map((collection) => [collection.id, collection.row_count]));
+    return targets.map((collection) => ({
+      ...collection,
+      row_count: rowCounts.get(collection.id) ?? collection.row_count,
+    }));
+  }
+
+  async function setSelectedVisible(visible: boolean) {
     const changing = selected.filter((collection) => isVisible(collection) !== visible);
-    if (changing.length === 0) toast.success(alreadyShown(visible));
+    if (changing.length === 0) {
+      toast.success(alreadyShown(visible));
+      return;
+    }
+    if (visible) {
+      void saveSelectedVisible(changing, true);
+      return;
+    }
+    // The bar stays busy while the List is read again.
+    setBatchRunning(true);
+    let hiding: LibraryCollection[];
+    try {
+      hiding = await withFreshRowCounts(changing);
+    } finally {
+      setBatchRunning(false);
+    }
     // Rows that show them would keep showing them with a See all that can't open.
-    else if (!visible && changing.some((collection) => (collection.row_count ?? 0) > 0))
-      setBulkHiding(changing);
-    else void saveSelectedVisible(changing, visible);
+    if (hiding.some((collection) => (collection.row_count ?? 0) > 0)) setBulkHiding(hiding);
+    else void saveSelectedVisible(hiding, false);
   }
 
   async function saveSelectedVisible(targets: LibraryCollection[], visible: boolean) {
@@ -513,18 +541,14 @@ export default function AdminCollections() {
   const [preparingDelete, setPreparingDelete] = useState(false);
   /**
    * Reads each collection that will go for its ETag and opens the confirm.
-   * Collections rows use are kept: the server refuses to delete them. Only the
-   * List carries row counts (Arrange's board doesn't), so it's read again
-   * first: rows may have been added or removed since.
+   * Collections rows use are kept: the server refuses to delete them.
    */
   async function prepareBulkDelete(targets: LibraryCollection[], wholeView: boolean) {
     setPreparingDelete(true);
     try {
-      const { data: fresh = collections } = await allCollections.refetch();
-      const rowCounts = new Map(fresh.map((collection) => [collection.id, collection.row_count]));
-      const used = (collection: LibraryCollection) =>
-        (rowCounts.get(collection.id) ?? collection.row_count ?? 0) > 0;
-      const deletable = targets.filter((collection) => !used(collection));
+      const counted = await withFreshRowCounts(targets);
+      const used = (collection: LibraryCollection) => (collection.row_count ?? 0) > 0;
+      const deletable = counted.filter((collection) => !used(collection));
       if (deletable.length === 0) {
         toast.error(COLLECTIONS_IN_USE);
         return;
@@ -532,7 +556,7 @@ export default function AdminCollections() {
       const snapshots = await prepareAdminCollectionDeletes(deletable.map((entry) => entry.id));
       setBulkDelete({
         snapshots,
-        kept: targets.filter(used).map((collection) => collection.title),
+        kept: counted.filter(used).map((collection) => collection.title),
         wholeView,
       });
     } catch (error) {
@@ -764,7 +788,8 @@ export default function AdminCollections() {
                               }
                               visible={visible}
                               syncing={syncing}
-                              switchDisabled={visibilityOverrides.has(collection.id)}
+                              // A sync moves the ETag a visibility change would send.
+                              switchDisabled={visibilityOverrides.has(collection.id) || syncing}
                               onVisibleChange={(next) => changeVisible(collection, next)}
                               onOpen={() => openEditor(collection)}
                               selection={
@@ -860,13 +885,13 @@ export default function AdminCollections() {
                     key: "show",
                     label: "Show on tabs",
                     icon: Eye,
-                    onClick: () => setSelectedVisible(true),
+                    onClick: () => void setSelectedVisible(true),
                   },
                   {
                     key: "hide",
                     label: "Hide from tabs",
                     icon: EyeOff,
-                    onClick: () => setSelectedVisible(false),
+                    onClick: () => void setSelectedVisible(false),
                   },
                   {
                     key: "delete",
