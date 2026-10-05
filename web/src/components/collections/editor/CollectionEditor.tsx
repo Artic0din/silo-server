@@ -488,10 +488,11 @@ export function CollectionEditor<Raw extends WireCollection>({
     remove.mutate(
       { id: view.id, etag: editor.etag },
       // Read the rows again, so the dialog shows what still stands in the way.
+      // refetch() ignores `enabled`, so ask only a server that reports rows.
       {
         onError: () => {
           setDeletingRows(null);
-          void rowsQuery.refetch();
+          if (rowsReported) void rowsQuery.refetch();
         },
       },
     );
