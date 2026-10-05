@@ -2,7 +2,13 @@ import type { CSSProperties, ReactNode, Ref } from "react";
 import { Check, EyeOff, Layers, Loader2, Pin } from "lucide-react";
 
 import type { LibraryCollection } from "@/api/types";
-import { Grip, ListRow, MetaDot, type ListRowProps } from "@/components/calm/ListRow";
+import {
+  Grip,
+  ListRow,
+  MetaDot,
+  type ListRowProps,
+  type ListRowSelection,
+} from "@/components/calm/ListRow";
 import { PosterPeek } from "@/components/calm/PosterPeek";
 import { PosterArt } from "@/components/calm/PosterTile";
 import type { PeekRequest } from "@/components/calm/usePeekLimiter";
@@ -79,6 +85,8 @@ interface ListItemProps {
   onVisibleChange: (visible: boolean) => void;
   onOpen: () => void;
   menu: ReactNode;
+  /** Select mode: a checkbox at the start of the row. */
+  selection?: ListRowSelection;
 }
 
 /**
@@ -98,11 +106,13 @@ function ListItem({
   onVisibleChange,
   onOpen,
   menu,
+  selection,
 }: ListItemProps) {
   const titles = collection.item_count;
   return (
     <ListRow
       id={collection.id}
+      selection={selection}
       title={collection.title}
       collapsed={false}
       collapsedText={null}

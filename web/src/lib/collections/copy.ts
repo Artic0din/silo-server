@@ -1,6 +1,6 @@
 import type { DraftField } from "./draft";
 import type { ArtworkSlot } from "./scope";
-import { COLLECTION_KIND_LABEL } from "./types";
+import { COLLECTION_KIND_LABEL, type CollectionKind } from "./types";
 
 /**
  * Words every collections surface shares, so the editor, lists and dialogs
@@ -81,6 +81,132 @@ export function hideCollectionDescription(
 
 /** A delete the server refused because Home or library page rows still show the collection. */
 export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
+
+// --- Select mode and Delete all ---------------------------------------------
+
+/** Rows use every collection a delete was asked for, so nothing goes. */
+export const COLLECTIONS_IN_USE = "Rows still use them. Remove the rows first.";
+
+/** A starter pack being added would race a delete of the collections it makes. */
+export const STARTER_PACK_BLOCKS_DELETE = "A starter pack is being added. Delete once it finishes.";
+
+const KIND_NOUN: Readonly<Record<CollectionKind | "mixed", readonly [string, string]>> = {
+  manual: ["manual collection", "manual collections"],
+  smart: ["smart collection", "smart collections"],
+  synced: ["synced list", "synced lists"],
+  mixed: ["collection", "collections"],
+};
+
+/** "1 synced list", "7 collections": `kind` null when the collections are of several types. */
+function kindCount(count: number, kind: CollectionKind | null): string {
+  const [one, many] = KIND_NOUN[kind ?? "mixed"];
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** Up to five names, then how many more. */
+function someNames(names: readonly string[]): string {
+  const shown = names.length > 5 ? [...names.slice(0, 4), `${names.length - 4} more`] : names;
+  return joinNames(shown);
+}
+
+export function syncListsLabel(count: number): string {
+  return `Sync ${plural(count, "list")}`;
+}
+
+/** Sync works on synced lists only; says how many picked collections it passes over. */
+export function syncSkipNote(smart: number, manual: number): string | null {
+  if (smart + manual === 0) return null;
+  const kinds = smart && manual ? "smart and manual" : smart ? "smart" : "manual";
+  return `Sync skips ${kinds} collections (${smart + manual} here).`;
+}
+
+export type BatchAction = "sync" | "show" | "hide";
+
+const BATCH_WORDS: Readonly<
+  Record<BatchAction, { done: string; verb: string; noun: string; where: string }>
+> = {
+  sync: { done: "Synced", verb: "sync", noun: "list", where: "" },
+  show: { done: "Showed", verb: "show", noun: "collection", where: " on Collections tabs" },
+  hide: { done: "Hid", verb: "hide", noun: "collection", where: " from Collections tabs" },
+};
+
+/**
+ * The toast after a select-mode action: all done, some done, or none.
+ * `warned` counts the done ones that finished with warnings (a sync's unmatched entries).
+ */
+export function batchResult(
+  action: BatchAction,
+  done: number,
+  total: number,
+  warned = 0,
+): { tone: "success" | "warning" | "error"; message: string } {
+  const words = BATCH_WORDS[action];
+  const warnings = warned > 0 ? `, ${warned} with warnings` : "";
+  if (done === total)
+    return {
+      tone: warned > 0 ? "warning" : "success",
+      message: `${words.done} ${plural(done, words.noun)}${words.where}${warnings}.`,
+    };
+  if (done > 0)
+    return {
+      tone: "warning",
+      message: `${words.done} ${done} of ${plural(total, words.noun)}${warnings}.`,
+    };
+  return { tone: "error", message: `Couldn't ${words.verb} ${plural(total, words.noun)}.` };
+}
+
+export function alreadyShown(shown: boolean): string {
+  return shown
+    ? "The selected collections are already on Collections tabs."
+    : "The selected collections are already hidden.";
+}
+
+export function hideCollectionsTitle(count: number): string {
+  return `Hide ${count} collections from Collections tabs?`;
+}
+
+/** Hiding several collections rows show: `rowCount` is the rows' total. */
+export function hideCollectionsDescription(rowCount: number): string {
+  return rowCount === 1
+    ? "1 row still shows one of them, but its See all won't open while it's hidden."
+    : `${rowCount} rows still show them, but those rows' See all won't open while they're hidden.`;
+}
+
+/** "Delete 7 synced lists in Movies?" `where` is a library name or "this view". */
+export function deleteCollectionsTitle(
+  count: number,
+  kind: CollectionKind | null,
+  where: string | null,
+): string {
+  return `Delete ${kindCount(count, kind)}${where ? ` in ${where}` : ""}?`;
+}
+
+export function deleteCollectionsDescription(count: number): string {
+  return count === 1
+    ? "It's removed for everyone. Its titles stay in your libraries."
+    : "They're removed for everyone. Their titles stay in your libraries.";
+}
+
+/** A collection is one thing in every library it's in, so deleting it there removes it everywhere. */
+export function alsoDeletedElsewhere(
+  entries: ReadonlyArray<{ title: string; libraryNames: readonly string[] }>,
+  kind: CollectionKind | null,
+): string {
+  const [one, many] = KIND_NOUN[kind ?? "mixed"];
+  const names = someNames(
+    entries.map((entry) => `${entry.title} (${joinNames(entry.libraryNames)})`),
+  );
+  return entries.length === 1
+    ? `A ${one} that's also in another library goes there too: ${names}.`
+    : `${many.charAt(0).toUpperCase()}${many.slice(1)} that are also in other libraries go there too: ${names}.`;
+}
+
+/** The collections a delete leaves alone because Home or library page rows show them. */
+export function keptForRows(titles: readonly string[]): string {
+  return titles.length === 1
+    ? `1 is kept because rows use it: ${titles[0]}.`
+    : `${titles.length} are kept because rows use them: ${someNames(titles)}.`;
+}
 
 // --- Titles -----------------------------------------------------------------
 
