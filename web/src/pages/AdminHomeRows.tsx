@@ -48,9 +48,9 @@ import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe"
 import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
-import { useRowLinks, type RowSeed } from "@/components/homeRows/useRowLinks";
+import { useRowDialog, useRowLinks } from "@/components/homeRows/useRowLinks";
 import { libraryPagesOf, pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
-import type { EditSession, HomeRow } from "@/lib/homeRows/types";
+import type { HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 
 function rowCount(count: number) {
@@ -145,10 +145,7 @@ export default function AdminHomeRows() {
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
   const [resetProfiles, setResetProfiles] = useState(false);
   // The Add row / Edit row dialog: open with no session to add a row.
-  const [rowDialog, setRowDialog] = useState<{
-    session: EditSession | null;
-    seed?: RowSeed;
-  } | null>(null);
+  const [rowDialog, setRowDialog] = useRowDialog();
   const [highlightId, setHighlightId] = useNewRowHighlight();
   // ⋯ Add to other libraries…: the row being copied.
   const [copyRow, setCopyRow] = useState<HomeRow | null>(null);
@@ -587,6 +584,7 @@ export default function AdminHomeRows() {
         ) : null}
         {rowDialog ? (
           <AddRowDialog
+            key={rowDialog.key}
             adapter={adapter}
             catalog={recipeCatalog}
             catalogFailed={recipeCatalogFailed}

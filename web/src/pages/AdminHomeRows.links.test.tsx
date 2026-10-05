@@ -323,6 +323,26 @@ describe("?return= on admin Home rows", () => {
     expect(searchOf(router)).toBe("?page=home");
   });
 
+  it("counts rows another admin added while Add row was open", async () => {
+    const client = newClient();
+    setup(link("/admin/collections/lib-1/edit"), client);
+    const form = await screen.findByRole("dialog", { name: "A collection" });
+    rows = [...rows, stored("c", { position: 6, title: "Someone else's" })];
+    await act(() => client.invalidateQueries());
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+
+    expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
+    expect(mocks.success).toHaveBeenCalledWith("Added to Home as row 4 of 4", expect.anything());
+  });
+
+  it("follows a new link while Add row is open", async () => {
+    const router = setup(link("/admin/collections/lib-1/edit"));
+    await screen.findByRole("dialog", { name: "A collection" });
+    await act(() => router.navigate("/admin/home-rows?edit=a"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(dialog).getByLabelText("Row name")).toHaveValue("Row a");
+  });
+
   it("goes back to the collection without adding from the back link", async () => {
     const router = setup(link("/admin/collections/lib-1/edit"));
     const form = await screen.findByRole("dialog", { name: "A collection" });
