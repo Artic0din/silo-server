@@ -288,6 +288,100 @@ describe("server Synced list editor", () => {
     expect(patch.body).toMatchObject({ title: "Netflix Originals" });
   });
 
+  it("keeps Sync now and Delete waiting until the list is read again after a sync", async () => {
+    const saved = serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
+    showPage(SERVER_EDIT);
+    await nameField();
+    // Hold the read after the sync: until it answers, the editor has the old token.
+    let release: () => void = () => {};
+    v2Recorder.answer(
+      "GET /api/v2/admin/collections/{id}",
+      () => new Promise((resolve) => (release = () => resolve(saved))),
+    );
+    let menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    await vi.waitFor(() =>
+      expect(v2Recorder.callsOf("GET /api/v2/admin/collections/{id}")).toHaveLength(2),
+    );
+    menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: "Syncing now…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    fireEvent.keyDown(menu, { key: "Escape" });
+
+    await act(async () => release());
+    await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
+    menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+  });
+
+  it("reads the list again when Delete finds it changed, so the next Delete goes through", async () => {
+    serverList("mdblist", MDBLIST);
+    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", undefined);
+    showPage(SERVER_EDIT);
+    await nameField();
+    // A scheduled sync moves the list's revision while the editor is open.
+    v2Recorder.bump("/api/v2/admin/collections/c1");
+    const deleteOnce = async () => {
+      const menu = await openMoreActions();
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    };
+    await deleteOnce();
+    await vi.waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await deleteOnce();
+    await vi.waitFor(() =>
+      expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(2),
+    );
+    const removes = v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}");
+    expect(removes[1]!.headers["If-Match"]).toBe(v2Recorder.etag("/api/v2/admin/collections/c1"));
+  });
+
+  it("hides the skipped count while what the sync read is changed", async () => {
+    serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
+    showPage(SERVER_EDIT);
+    await nameField();
+    const menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    expect(await within(statusStrip()).findByText("41 titles skipped")).toBeInTheDocument();
+
+    // The 41 came from the saved Max titles, not this one.
+    await setMaxTitles("20");
+    expect(within(statusStrip()).getByText("Not counted yet")).toBeInTheDocument();
+    fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+    expect(await within(statusStrip()).findByText("41 titles skipped")).toBeInTheDocument();
+  });
+
+  it("drops the skipped count when a later Sync now fails", async () => {
+    serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
+    showPage(SERVER_EDIT);
+    await nameField();
+    let menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    expect(await within(statusStrip()).findByText("41 titles skipped")).toBeInTheDocument();
+
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {
+      throw new Error("MDBList didn't answer.");
+    });
+    await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
+    menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    // The 41 belonged to the run before; the failed one counted nothing.
+    expect(await within(statusStrip()).findByText("Not counted yet")).toBeInTheDocument();
+    expect(within(statusStrip()).queryByText("41 titles skipped")).toBeNull();
+  });
+
   it("reads the list again after a failed Sync now, for its reason and token", async () => {
     const saved = serverList("mdblist", MDBLIST);
     v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {
@@ -328,6 +422,51 @@ describe("server Synced list editor", () => {
     );
   });
 
+  it("holds Sync now until changes to what the sync reads are saved", async () => {
+    serverList("mdblist", MDBLIST, {
+      last_sync_status: "failed",
+      last_sync_message: "MDBList didn't answer.",
+      last_sync_at: new Date(Date.now() - 6 * HOUR).toISOString(),
+    });
+    showPage(SERVER_EDIT);
+    await rename("Netflix Originals");
+    // A new name doesn't change what the sync reads.
+    let menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: /Sync now/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    fireEvent.keyDown(menu, { key: "Escape" });
+
+    // Sync now runs the saved list, not these unsaved Max titles.
+    await setMaxTitles("20");
+    menu = await openMoreActions();
+    const item = within(menu).getByRole("menuitem", { name: /Sync now/ });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent("Save your changes first");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByRole("button", { name: "Sync now" })).toBeDisabled();
+    expect(alert).toHaveTextContent("Save your changes first");
+  });
+
+  it("offers no Sync now when the server can't import lists", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      ...adminCapabilities,
+      imports: false,
+    });
+    serverList("mdblist", MDBLIST, {
+      last_sync_status: "failed",
+      last_sync_message: "MDBList didn't answer.",
+      last_sync_at: new Date(Date.now() - 6 * HOUR).toISOString(),
+    });
+    showPage(SERVER_EDIT);
+    const alert = await screen.findByRole("alert");
+    // Sync answers 501 without import storage.
+    expect(within(alert).queryByRole("button", { name: "Sync now" })).toBeNull();
+    const menu = await openMoreActions();
+    expect(within(menu).queryByRole("menuitem", { name: /Sync now/ })).toBeNull();
+  });
+
   it("puts a failed sync at the top of the list, with the reason and Sync now", async () => {
     serverList("mdblist", MDBLIST, {
       last_sync_status: "failed",
@@ -341,7 +480,7 @@ describe("server Synced list editor", () => {
     expect(alert).toHaveTextContent("The last sync failed 6 hours ago.");
     expect(alert).toHaveTextContent("MDBList didn't answer.");
     expect(alert).toHaveTextContent("The collection keeps its 212 titles.");
-    fireEvent.click(within(alert).getByRole("button", { name: "Sync now" }));
+    fireEvent.click(await within(alert).findByRole("button", { name: "Sync now" }));
     await vi.waitFor(() =>
       expect(v2Recorder.callsOf("POST /api/v2/admin/collections/{id}/sync")).toHaveLength(1),
     );
@@ -558,6 +697,22 @@ describe("server Synced list editor", () => {
     fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
     expect(await screen.findByRole("button", { name: "Change link" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "MDBList link" })).toBeNull();
+  });
+
+  it("closes a custom schedule on Discard", async () => {
+    serverList("mdblist", MDBLIST);
+    showPage(SERVER_EDIT);
+    choose(await screen.findByRole("combobox", { name: "Sync schedule" }), "Custom schedule…");
+    fireEvent.change(screen.getByRole("textbox", { name: "Cron schedule" }), {
+      target: { value: "15 4 * * *" },
+    });
+    fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Cron schedule" })).toBeNull(),
+    );
+    expect(screen.getByRole("combobox", { name: "Sync schedule" })).toHaveTextContent(
+      "No automatic sync",
+    );
   });
 
   it("shows a Discover list's rules read-only and saves without its source", async () => {

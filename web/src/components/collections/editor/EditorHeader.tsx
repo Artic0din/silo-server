@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { NOT_CREATED_YET, SYNC_NOW, SYNCING_NOW } from "@/lib/collections/copy";
+import { NOT_CREATED_YET, SAVE_BEFORE_SYNC, SYNC_NOW, SYNCING_NOW } from "@/lib/collections/copy";
 import { cn } from "@/lib/utils";
 import { COLLECTION_KIND_LABEL, type CollectionKind } from "@/lib/collections/types";
 
@@ -116,8 +116,8 @@ export function EditorHeader({
   posterUrl?: string;
   meta?: ReactNode;
   open: readonly OpenTarget[];
-  /** A synced list's Sync now, disabled while a sync runs. */
-  sync?: { syncing: boolean; onSyncNow: () => void };
+  /** A synced list's Sync now, disabled while a sync runs (Delete too) or until `saveFirst` changes are saved. */
+  sync?: { syncing: boolean; saveFirst?: boolean; onSyncNow: () => void };
   onDelete?: () => void;
 }) {
   const KindIcon = KIND_ICON[kind];
@@ -127,7 +127,8 @@ export function EditorHeader({
       key: "sync",
       label: sync.syncing ? SYNCING_NOW : SYNC_NOW,
       icon: sync.syncing ? Spinner : RefreshCw,
-      disabled: sync.syncing,
+      help: sync.saveFirst && !sync.syncing ? SAVE_BEFORE_SYNC : undefined,
+      disabled: sync.syncing || sync.saveFirst,
       onSelect: sync.onSyncNow,
     });
   }
@@ -138,6 +139,8 @@ export function EditorHeader({
       icon: Trash2,
       destructive: true,
       group: Boolean(sync),
+      // A sync moves the list's token; Delete waits for the new one.
+      disabled: sync?.syncing,
       onSelect: onDelete,
     });
   }
