@@ -355,6 +355,24 @@ describe("server Synced list editor", () => {
     expect(alert).toHaveTextContent("Save your changes first");
   });
 
+  it("offers no Sync now when the server can't import lists", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      ...adminCapabilities,
+      imports: false,
+    });
+    serverList("mdblist", MDBLIST, {
+      last_sync_status: "failed",
+      last_sync_message: "MDBList didn't answer.",
+      last_sync_at: new Date(Date.now() - 6 * HOUR).toISOString(),
+    });
+    showPage(SERVER_EDIT);
+    const alert = await screen.findByRole("alert");
+    // Sync answers 501 without import storage.
+    expect(within(alert).queryByRole("button", { name: "Sync now" })).toBeNull();
+    const menu = await openMoreActions();
+    expect(within(menu).queryByRole("menuitem", { name: /Sync now/ })).toBeNull();
+  });
+
   it("puts a failed sync at the top of the list, with the reason and Sync now", async () => {
     serverList("mdblist", MDBLIST, {
       last_sync_status: "failed",
@@ -368,7 +386,7 @@ describe("server Synced list editor", () => {
     expect(alert).toHaveTextContent("The last sync failed 6 hours ago.");
     expect(alert).toHaveTextContent("MDBList didn't answer.");
     expect(alert).toHaveTextContent("The collection keeps its 212 titles.");
-    fireEvent.click(within(alert).getByRole("button", { name: "Sync now" }));
+    fireEvent.click(await within(alert).findByRole("button", { name: "Sync now" }));
     await vi.waitFor(() =>
       expect(v2Recorder.callsOf("POST /api/v2/admin/collections/{id}/sync")).toHaveLength(1),
     );

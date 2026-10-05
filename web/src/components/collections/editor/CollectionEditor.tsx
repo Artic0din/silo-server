@@ -254,8 +254,9 @@ export function CollectionEditor<Raw extends WireCollection>({
   // answers once it has: the request is the only sync this page can see.
   const syncing = syncList.isPending;
   // Spec §3.1: only server lists offer Sync now here; a profile syncs its
-  // lists from their cards on the Collections page.
-  const canSync = created && isServer && Boolean(view?.source);
+  // lists from their cards on the Collections page. Sync answers 501 when the
+  // server can't import, so it needs the capability.
+  const canSync = created && isServer && Boolean(view?.source) && capabilities?.imports === true;
   const saveFirst = editor.changed.some((field) => SYNC_INPUTS.has(field));
   // Discards put the list's source card back.
   const [discards, setDiscards] = useState(0);
