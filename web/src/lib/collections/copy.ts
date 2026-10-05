@@ -130,19 +130,27 @@ const BATCH_WORDS: Readonly<
   hide: { done: "Hid", verb: "hide", noun: "collection", where: " from Collections tabs" },
 };
 
-/** The toast after a select-mode action: all done, some done, or none. */
+/**
+ * The toast after a select-mode action: all done, some done, or none.
+ * `warned` counts the done ones that finished with warnings (a sync's unmatched entries).
+ */
 export function batchResult(
   action: BatchAction,
   done: number,
   total: number,
+  warned = 0,
 ): { tone: "success" | "warning" | "error"; message: string } {
   const words = BATCH_WORDS[action];
+  const warnings = warned > 0 ? `, ${warned} with warnings` : "";
   if (done === total)
-    return { tone: "success", message: `${words.done} ${plural(done, words.noun)}${words.where}.` };
+    return {
+      tone: warned > 0 ? "warning" : "success",
+      message: `${words.done} ${plural(done, words.noun)}${words.where}${warnings}.`,
+    };
   if (done > 0)
     return {
       tone: "warning",
-      message: `${words.done} ${done} of ${plural(total, words.noun)}.`,
+      message: `${words.done} ${done} of ${plural(total, words.noun)}${warnings}.`,
     };
   return { tone: "error", message: `Couldn't ${words.verb} ${plural(total, words.noun)}.` };
 }

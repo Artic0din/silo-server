@@ -125,8 +125,14 @@ function batchFailure(collection: LibraryCollection, error: unknown): string {
   return `${collection.title}: ${SERVER_SCOPE.errorMessage(error, "Something went wrong")}`;
 }
 
-function showBatchResult(action: BatchAction, done: number, total: number, failures: string[]) {
-  const { tone, message } = batchResult(action, done, total);
+function showBatchResult(
+  action: BatchAction,
+  done: number,
+  total: number,
+  failures: string[],
+  warned: number,
+) {
+  const { tone, message } = batchResult(action, done, total, warned);
   if (failures.length === 0) toast[tone](message);
   else toast[tone](message, { description: failures.join(" ") });
 }
@@ -440,11 +446,12 @@ export default function AdminCollections() {
     action: BatchAction,
     targets: LibraryCollection[],
     run: (collection: LibraryCollection) => Promise<unknown>,
+    warnedCount: () => number = () => 0,
   ) {
     setBatchRunning(true);
     try {
       const { done, failures } = await runBatch(targets, run, batchFailure);
-      showBatchResult(action, done, targets.length, failures);
+      showBatchResult(action, done, targets.length, failures, warnedCount());
     } finally {
       setBatchRunning(false);
       await SERVER_SCOPE.invalidate(queryClient);
@@ -453,18 +460,25 @@ export default function AdminCollections() {
 
   function syncSelected() {
     setSyncingIds((current) => new Set([...current, ...selectedLists.map((list) => list.id)]));
-    void runSelected("sync", selectedLists, async (list) => {
-      try {
-        const result = await SERVER_SCOPE.sync(list.id);
-        if (result.status === "failed") throw new Error(result.message || "Sync failed");
-      } finally {
-        setSyncingIds((current) => {
-          const next = new Set(current);
-          next.delete(list.id);
-          return next;
-        });
-      }
-    });
+    let warned = 0;
+    void runSelected(
+      "sync",
+      selectedLists,
+      async (list) => {
+        try {
+          const result = await SERVER_SCOPE.sync(list.id);
+          if (result.status === "failed") throw new Error(result.message || "Sync failed");
+          if (result.status === "warning") warned++;
+        } finally {
+          setSyncingIds((current) => {
+            const next = new Set(current);
+            next.delete(list.id);
+            return next;
+          });
+        }
+      },
+      () => warned,
+    );
   }
 
   function setSelectedVisible(visible: boolean) {
@@ -497,26 +511,24 @@ export default function AdminCollections() {
   }
 
   const [preparingDelete, setPreparingDelete] = useState(false);
-  const listRowCounts = useMemo(
-    () => new Map(collections.map((collection) => [collection.id, collection.row_count ?? 0])),
-    [collections],
-  );
-
   /**
    * Reads each collection that will go for its ETag and opens the confirm.
-   * Collections rows use are kept: the server refuses to delete them. Arrange's
-   * board doesn't carry row counts, so they come from the List.
+   * Collections rows use are kept: the server refuses to delete them. Only the
+   * List carries row counts (Arrange's board doesn't), so it's read again
+   * first: rows may have been added or removed since.
    */
   async function prepareBulkDelete(targets: LibraryCollection[], wholeView: boolean) {
-    const used = (collection: LibraryCollection) =>
-      (listRowCounts.get(collection.id) ?? collection.row_count ?? 0) > 0;
-    const deletable = targets.filter((collection) => !used(collection));
-    if (deletable.length === 0) {
-      toast.error(COLLECTIONS_IN_USE);
-      return;
-    }
     setPreparingDelete(true);
     try {
+      const { data: fresh = collections } = await allCollections.refetch();
+      const rowCounts = new Map(fresh.map((collection) => [collection.id, collection.row_count]));
+      const used = (collection: LibraryCollection) =>
+        (rowCounts.get(collection.id) ?? collection.row_count ?? 0) > 0;
+      const deletable = targets.filter((collection) => !used(collection));
+      if (deletable.length === 0) {
+        toast.error(COLLECTIONS_IN_USE);
+        return;
+      }
       const snapshots = await prepareAdminCollectionDeletes(deletable.map((entry) => entry.id));
       setBulkDelete({
         snapshots,
@@ -829,7 +841,8 @@ export default function AdminCollections() {
                 count={selected.length}
                 limit={MAX_SELECTED_COLLECTIONS}
                 noun="collections"
-                busy={batchRunning || deleting}
+                // A row's own switch save would move the ETags a bar action reads.
+                busy={batchRunning || deleting || visibilityOverrides.size > 0}
                 note={syncSkipNote(
                   selectedSmart,
                   selected.length - selectedLists.length - selectedSmart,

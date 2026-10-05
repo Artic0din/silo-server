@@ -50,7 +50,11 @@ vi.mock("@/hooks/queries/admin/collectionGroups", () => ({
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollectionCapabilities: () => ({ data: { groups: false, imports: true } }),
-  useAdminCollections: () => ({ data: state.collections, isLoading: false }),
+  useAdminCollections: () => ({
+    data: state.collections,
+    isLoading: false,
+    refetch: async () => ({ data: state.collections }),
+  }),
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
   useSetAdminCollectionVisibility: () => ({ mutateAsync: state.setVisibility }),
   useSetAdminCollectionPin: idle,

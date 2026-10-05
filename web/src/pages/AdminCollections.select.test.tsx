@@ -297,6 +297,23 @@ describe("AdminCollections Select collections", () => {
     expect(most).toBe(4);
   });
 
+  it("says how many synced with warnings", async () => {
+    vi.mocked(toast.success).mockClear();
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", (call: RecordedCall) => ({
+      status: call.path.includes("netflix") ? "warning" : "success",
+      message: "",
+      items_matched: 3,
+    }));
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Best Picture Winners", "Netflix Originals");
+    await user.click(within(bar()).getByRole("button", { name: "Sync 2 lists" }));
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith("Synced 2 lists, 1 with warnings."),
+    );
+    expect(toast.success).not.toHaveBeenCalledWith("Synced 2 lists.");
+  });
+
   it("reports a partial failure, naming each list it couldn't sync", async () => {
     v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", (call: RecordedCall) => {
       if (call.path.includes("netflix")) throw new Error("TMDB answered 401");
@@ -524,6 +541,32 @@ describe("AdminCollections Select collections with nothing to pick", () => {
 });
 
 describe("AdminCollections Delete all while select mode works", () => {
+  it("waits for a row's own switch to save", async () => {
+    let finish!: () => void;
+    v2Recorder.answer(
+      "PATCH /api/v2/admin/collections/{id}",
+      () => new Promise<undefined>((resolve) => (finish = () => resolve(undefined))),
+    );
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Studio Ghibli");
+    await user.click(
+      screen.getByRole("switch", {
+        name: "Show Studio Ghibli on the Movies and Kids Collections tabs",
+      }),
+    );
+    await waitFor(() =>
+      expect(v2Recorder.callsOf("PATCH /api/v2/admin/collections/{id}")).toHaveLength(1),
+    );
+    // A bar action now would read the ETag the switch's PATCH is about to change.
+    expect(within(bar()).getByRole("button", { name: "Show on tabs" })).toBeDisabled();
+    expect(within(bar()).getByRole("button", { name: "Delete…" })).toBeDisabled();
+    await act(async () => finish());
+    await waitFor(() =>
+      expect(within(bar()).getByRole("button", { name: "Show on tabs" })).toBeEnabled(),
+    );
+  });
+
   it("waits for a Show or Hide to finish", async () => {
     let finish!: () => void;
     v2Recorder.answer(
@@ -555,6 +598,19 @@ describe("AdminCollections Delete all while select mode works", () => {
 });
 
 describe("AdminCollections Select collections delete", () => {
+  it("reads the rows that use them afresh, so a row removed since still lets it go", async () => {
+    renderPage();
+    const user = await enterSelectMode();
+    // Another admin removes Trending This Week's rows after the List was read.
+    items = items.map((entry) =>
+      entry.title === "Trending This Week" ? { ...entry, row_count: 0 } : entry,
+    );
+    await pick(user, "Trending This Week", "Studio Ghibli");
+    await user.click(within(bar()).getByRole("button", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete 2 collections?" });
+    expect(dialog).not.toHaveTextContent("kept because rows use");
+  });
+
   it("doesn't name the library when deleting a selection", async () => {
     renderPage("/admin/collections?view=list&libraryId=1");
     const user = await enterSelectMode();
