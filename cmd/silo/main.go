@@ -2855,6 +2855,7 @@ func main() {
 		}
 		taskMgr.Register(tasks.NewCleanupOrphanedMediaItemsTask(catalog.NewOrphanedProvisionalCleaner(deps.DB)))
 		taskMgr.Register(tasks.NewBackfillMediaItemAliasesTask(catalog.NewItemAliasRepository(deps.DB)))
+		taskMgr.Register(tasks.NewRefreshSeriesAirDatesTask(catalog.NewEpisodeRepository(deps.DB)))
 		if deps.Blobs.Assets != nil {
 			taskMgr.Register(tasks.NewCleanupArtworkRevisionsTask(
 				metadata.NewArtworkRevisionGarbageCollector(deps.DB, deps.Blobs.Assets),
