@@ -1259,10 +1259,14 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
 
   if (job.status === "completed") {
     // Before the packs load, fall back to the raw result: it can't name the pack.
-    const added =
-      result && pack
-        ? packAdded(result, pack)
-        : !result || (result.failed.length === 0 && result.featured_failed.length === 0);
+    let added = true;
+    if (result && pack) {
+      added = packAdded(result, pack);
+    } else if (result) {
+      added =
+        result.created.length > 0 ||
+        (result.failed.length === 0 && result.featured_failed.length === 0);
+    }
     const Icon = added ? CheckCircle2 : AlertCircle;
     return (
       <div className="border-border bg-muted/30 rounded-lg border px-4 py-3">

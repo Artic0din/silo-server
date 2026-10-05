@@ -13,6 +13,7 @@ const { state, idle } = vi.hoisted(() => ({
   state: {
     collections: [] as LibraryCollection[],
     jobs: [] as AdminJob[],
+    bundlesLoaded: true,
     snapshot: vi.fn(),
     prepareDeletes: vi.fn(),
     setVisibility: vi.fn(async () => undefined),
@@ -64,7 +65,9 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
 }));
 vi.mock("@/lib/collectionTemplates", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/collectionTemplates")>()),
-  useCollectionTemplateBundles: () => ({ data: starterPackBundles }),
+  useCollectionTemplateBundles: () => ({
+    data: state.bundlesLoaded ? starterPackBundles : undefined,
+  }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
 vi.mock("@/components/collections/StarterPacksDialog", () => ({
@@ -135,6 +138,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   state.jobs = [];
+  state.bundlesLoaded = true;
   cleanup();
   vi.clearAllMocks();
 });
@@ -299,6 +303,23 @@ describe("AdminCollections Arrange actions", () => {
       screen.getByText("Nothing new was added. 1 list couldn't be added."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Starter pack added/)).toBeNull();
+  });
+
+  it("counts a partly added starter pack as added before the packs load", () => {
+    state.bundlesLoaded = false;
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: coreApplied,
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    expect(screen.getByText("Starter pack added")).toBeInTheDocument();
+    expect(screen.queryByText(/finished with problems/)).toBeNull();
   });
 
   it("refreshes the collections and Home rows when a starter pack job ends", () => {
