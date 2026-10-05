@@ -105,7 +105,7 @@ func TestCollectionCapabilitiesReportScheduleTimeZone(t *testing.T) {
 		if zone.Abbreviation != abbreviation {
 			t.Errorf("%s: abbreviation %q, want %q", read.path, zone.Abbreviation, abbreviation)
 		}
-		if os.Getenv("TZ") == "" && zone.Name != nil {
+		if _, set := os.LookupEnv("TZ"); !set && zone.Name != nil {
 			t.Errorf("%s: name %q reported without a TZ setting", read.path, *zone.Name)
 		}
 	}

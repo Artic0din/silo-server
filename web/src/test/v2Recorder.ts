@@ -118,6 +118,7 @@ const FIXTURE_ANSWERS: Record<string, unknown> = {
   "DELETE /api/v2/collections/{id}/image": undefined,
   "GET /api/v2/collections/{id}/items": getCollectionItemsOk,
   "PUT /api/v2/collections/{id}/items/{item_id}": undefined,
+  "DELETE /api/v2/collections/{id}/items/{item_id}": undefined,
   "POST /api/v2/collections/import/mdblist": personalImport,
   "POST /api/v2/collections/import/tmdb": personalImport,
   "POST /api/v2/collections/import/tmdb-list": personalImport,

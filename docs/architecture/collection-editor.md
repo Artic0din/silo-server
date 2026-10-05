@@ -3,8 +3,8 @@
 The web edits every collection on one page, for server (library) and personal collections alike:
 `web/src/pages/CollectionEditorPage.tsx`. This page covers how that page saves, because the
 collection's titles and its other fields reach the server by different routes with different
-tokens. Manual collections use the page today; Smart collections and Synced lists still open their
-earlier editors inside it.
+tokens. Manual and Smart collections use the page today, and so does creating a Synced list; a
+saved Synced list still opens its earlier editor inside it.
 
 ## Routes
 
@@ -24,8 +24,8 @@ fails closed, so the page waits for the acting profile before it decides.
   call the item routes at once (`PUT …/items/{item_id}`, `DELETE …/items/{item_id}`,
   `PUT …/items/order`). A removal can be undone for six seconds; Undo puts the title back at its
   old position.
-- **Everything else waits for Save.** Name, description, libraries, artwork and the switches in
-  Where it shows are a draft (`CollectionDraft`, `web/src/lib/collections/scope.ts`). The save bar
+- **Everything else waits for Save.** Name, description, libraries, a Smart collection's rules and
+  Order, artwork and the switches in Where it shows are a draft (`CollectionDraft`, `web/src/lib/collections/scope.ts`). The save bar
   names the fields that are pending and says titles are already saved. Discard never touches
   titles.
 - **Before the collection exists**, picked titles are staged in the draft. Create sends the POST,
@@ -81,6 +81,57 @@ not the collection's ETag.
 Because each save merges against a fresh read, two editors on different nodes, or an editor and a
 sync, never overwrite each other's fields silently: the later save either carries the other
 change forward or stops at the conflict.
+
+## Smart rules and the live preview
+
+A Smart collection's Contents is the Home rows rule sentence (`RuleBuilder`), with the libraries
+inside it: a server collection needs at least one, and a personal one with none matches every
+library the profile can see. Rules about the viewer (Watched and the like) are offered only on a
+personal collection. A rule the builder can't show stays as a locked line and is saved unchanged
+until someone removes it. The draft's libraries are the rules' `library_ids`; a library change
+counts once, as Libraries.
+
+The preview sends the whole draft `query_definition`, across every chosen library, to the scope's
+preview route (`POST …/collections/preview`, 24 titles), 300 ms after the last edit. It shows the
+unsaved rules, so the save bar says the preview already shows them. A rule set that matches nothing
+still saves.
+
+A Smart collection may carry a stored default sort in `sort_config` (`field` and `order`), which
+wins over the rules' sort when viewers open it. The Order block names it with Clear. Changing the
+sort or direction clears it too, so the new Order takes effect; clearing drops only `field` and
+`order` and keeps any other `sort_config` setting. An untouched stored sort is sent back as it was.
+
+## Creating a Synced list
+
+`/new?type=synced` (with `&source=mdblist`, `tmdb_chart` or `tmdb_list` to pick the opening tab)
+shows one source panel. Its tabs follow the scope's `import_sources`. The panel's state is the
+draft's `synced` member (`web/src/lib/collections/synced.ts`): the list it will follow, the typed
+links, max titles and the schedule.
+
+- **Picks fill only untouched fields.** A ready-made pick (a template) or an MDBList search result
+  fills Name, Description, max titles, schedule and the poster. The draft remembers what the last
+  pick filled; a field that still holds that value (or is blank) takes the next pick's value, and
+  a field changed by hand stays and is named under Name ("Kept your name"). A search result brings
+  only its own name and description, never a template's.
+- **Only creatable templates show.** A template appears when its source is one of the scope's
+  `import_sources` and it needs no profile; Discover and Franchise templates come only with Starter
+  packs. Templates that ask for a link are left out, because the panel has its own link fields.
+- **Links.** A pasted MDBList link loses its `?query`, `#fragment` and trailing slash before it is
+  sent; a `/json` ending is kept. The server normalizes and allowlists it again. A TMDB list link
+  is sent as typed.
+- **TMDB charts** offer only the choices `validateTMDB` accepts (`web/src/lib/collections/tmdbSources.ts`).
+- **Libraries.** A list of only movies or only shows leaves out libraries of the other kind and
+  unticks them.
+- **Create** posts the scope's import route (`POST …/collections/import/{mdblist,tmdb,tmdb-list}`),
+  which runs the first sync, then saves artwork as for other collections. A server list is
+  imported with `featured: false`. A pick's poster is sent as `poster_url` unless the poster slot
+  replaces or removes it. The personal import takes no Collections tab choice, so with the switch
+  on the web reads the new list and sends a guarded `PATCH` with `include_in_server_collections`.
+  The page then moves to the new list's edit URL.
+- **Schedules.** A server list takes a cron schedule, labelled with the answering node's offset
+  from `schedule_time_zone`, because cron runs in the node's local zone. A personal list takes a
+  named schedule (Manual only, Daily, Weekly, Monthly); a template's cron maps to the nearest one,
+  never more often than daily.
 
 ## Title search
 

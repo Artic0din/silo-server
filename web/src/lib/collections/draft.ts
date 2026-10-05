@@ -6,6 +6,8 @@
  * Artwork is staged separately and is not a draft field; `kind` is fixed once
  * the collection exists.
  */
+import { normalizeQueryDefinition, type QueryDefinition } from "@/api/types";
+
 import type { CollectionDraft } from "./scope";
 
 export type DraftField =
@@ -35,7 +37,16 @@ const FIELDS: Record<DraftField, FieldAccess> = {
     get: (d) => [...d.libraryIds].sort((a, b) => a - b),
     set: (d, v) => ({ ...d, libraryIds: [...(v as number[])] }),
   },
-  rules: { get: (d) => d.rules, set: (d, v) => ({ ...d, rules: v as CollectionDraft["rules"] }) },
+  // The rules' libraries are the draft's `libraryIds`; they count once, as Libraries.
+  rules: {
+    get: (d) => d.rules && { ...d.rules, library_ids: undefined },
+    set: (d, v) => ({
+      ...d,
+      rules: v
+        ? { ...(v as NonNullable<CollectionDraft["rules"]>), library_ids: d.libraryIds }
+        : undefined,
+    }),
+  },
   rawSortConfig: {
     get: (d) => d.rawSortConfig,
     set: (d, v) => ({ ...d, rawSortConfig: v as CollectionDraft["rawSortConfig"] }),
@@ -61,6 +72,21 @@ const FIELDS: Record<DraftField, FieldAccess> = {
 };
 
 const FIELD_ORDER = Object.keys(FIELDS) as DraftField[];
+
+/** The rules a Smart draft matches, across the libraries the draft names. */
+export function draftRules(draft: CollectionDraft): QueryDefinition {
+  return { ...normalizeQueryDefinition(draft.rules), library_ids: draft.libraryIds };
+}
+
+/**
+ * A smart collection's `sort_config` once its stored default sort is cleared:
+ * `field` and `order` go, any other setting stays. A stored default sort wins
+ * over the rules' Order, so changing Order clears it.
+ */
+export function clearDefaultSort(sortConfig: Record<string, unknown> | undefined) {
+  const { field: _field, order: _order, ...rest } = sortConfig ?? {};
+  return rest;
+}
 
 /** JSON with sorted object keys, so key order never reads as a change. */
 function stable(value: unknown): string {

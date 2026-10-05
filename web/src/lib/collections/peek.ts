@@ -25,15 +25,16 @@ function ownPoster(collection: LibraryCollection): PreviewItem[] {
 
 /**
  * A row's peek on `libraryId`'s Collections tab. A hidden collection isn't on
- * any tab, so its peek is its own poster and sends no request. The key moves
- * with `updated_at`, so a changed collection peeks again.
+ * any tab, so its peek is its own poster and sends no request. `hidden` is
+ * what the row shows, which leads the stored visibility while a change is in
+ * flight. The key moves with `updated_at`, so a changed collection peeks again.
  */
 export function serverCollectionPeek(
   collection: LibraryCollection,
   libraryId: number,
+  hidden: boolean,
 ): PeekRequest {
   const poster = ownPoster(collection);
-  const hidden = collection.visibility === "hidden";
   return {
     queryKey: [
       "collection-peek",

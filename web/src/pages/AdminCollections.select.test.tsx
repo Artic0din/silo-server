@@ -25,8 +25,8 @@ vi.mock("@/hooks/queries/admin/taskJobs", () => ({
   useAdminTaskJobs: () => ({ data: [] }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
+vi.mock("@/components/collections/StarterPacksDialog", () => ({
+  StarterPacksDialog: () => null,
 }));
 
 installV2Recorder();
@@ -172,9 +172,11 @@ describe("AdminCollections More", () => {
       true,
       true,
       true,
+      true,
     ]);
     expect(entries.map((entry) => entry.textContent)).toEqual([
-      "Browse templates…Add ready-made synced lists, one at a time or as a set.",
+      "Starter packs…Add a ready-made set of collections to a library.",
+      "Browse templatesStart a synced list from a ready-made pick.",
       "Select collectionsSync, show, hide or delete several at once.",
       "Delete all in this view…Every collection the current filters show.",
     ]);

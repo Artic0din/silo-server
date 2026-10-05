@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+
 import { MetaDot } from "@/components/calm/ListRow";
 import { cn } from "@/lib/utils";
 
@@ -11,31 +13,42 @@ export interface SyncAttention {
 
 /**
  * "Movies, Kids · 23 titles" under a collection's name, or "Manual · 23
- * titles" on a card. Sync status is added at the end only when it needs
+ * titles" on a card. A Smart collection adds "Updates itself as titles are
+ * added" after its count. Sync status is added at the end only when it needs
  * attention.
  */
 export function CollectionMetaLine({
   typeLabel,
   libraryNames,
   itemCount,
+  extra,
   attention,
   className,
 }: {
   typeLabel?: string;
   libraryNames?: readonly string[];
-  itemCount: number;
+  itemCount?: number;
+  extra?: string;
   attention?: SyncAttention;
   className?: string;
 }) {
+  const counted = [
+    typeLabel,
+    itemCount === undefined ? undefined : `${itemCount} title${itemCount === 1 ? "" : "s"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const parts = [counted, extra].filter((part): part is string => Boolean(part));
+  const names = libraryNames && libraryNames.length > 0 ? libraryNames.join(", ") : null;
   return (
     <p className={cn("text-muted-foreground text-[14px]", className)}>
-      {libraryNames && libraryNames.length > 0 ? (
-        <>
-          <b className="text-foreground font-semibold">{libraryNames.join(", ")}</b>
-          <MetaDot />
-        </>
-      ) : null}
-      {[typeLabel, `${itemCount} title${itemCount === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+      {names ? <b className="text-foreground font-semibold">{names}</b> : null}
+      {parts.map((part, index) => (
+        <Fragment key={part}>
+          {names || index > 0 ? <MetaDot /> : null}
+          {part}
+        </Fragment>
+      ))}
       {attention ? (
         <>
           {" · "}

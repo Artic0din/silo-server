@@ -491,7 +491,7 @@ export function GroupsBoard({
         canMove={canEdit && !changing}
         visible={visible}
         pinned={collection.featured}
-        canPin={!changing}
+        canPin={canEdit && !changing}
         inSeveralLibraries={collection.library_ids.length > 1}
         onEdit={() => onEditCollection(collection)}
         onMove={(shelfId) => moveToShelf(collection, shelfId)}
@@ -635,7 +635,7 @@ export function GroupsBoard({
           currentShelf={movingShelf}
           canMove={canEdit && !changing}
           visible={isVisible(movingNow)}
-          canPin={!changing}
+          canPin={canEdit && !changing}
           onMove={(shelfId) => moveToShelf(movingNow, shelfId)}
           onEdit={() => onEditCollection(movingNow)}
           onPinChange={(pinned) => changePin(movingNow, pinned)}

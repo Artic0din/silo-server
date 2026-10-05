@@ -12,6 +12,7 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 import {
   adminCreateBody,
+  adminImportBody,
   adminMutationMessage,
   adminUpdateBody,
   fetchAdminCollections,
@@ -23,6 +24,7 @@ import {
   collectionsFromV2,
   collectionUpdateToV2,
   fetchCollectionEditSnapshot,
+  importBodyToV2,
   previewFromV2,
   previewToV2,
   saveCollectionPoster,
@@ -37,6 +39,7 @@ import type {
   QueryDefinition,
   QueryDefinitionInput,
   UpdateCollectionRequest,
+  UserCollectionSyncSchedule,
 } from "@/api/types";
 import { normalizeQueryDefinition } from "@/api/types";
 import { requiredETag } from "@/api/v2/etag";
@@ -52,7 +55,10 @@ import {
   buildUserCollectionCatalogHref,
 } from "@/pages/catalogSearchParams";
 
+import { draftRules } from "./draft";
 import { isOwnCollection } from "./personalOwnership";
+import { emptySyncedDraft, type SyncedDraft } from "./synced";
+import type { TMDBChart } from "./tmdbSources";
 import { collectionKindOf, syncedSourceOf, type CollectionKind, type SyncedSource } from "./types";
 
 export type ScopeKind = "server" | "personal";
@@ -84,6 +90,8 @@ export interface CollectionDraft {
   artwork: ArtworkDraft;
   /** Manual, before the collection exists: titles to add, in order, once it is created. */
   stagedItems?: string[];
+  /** Synced list, before it exists: the list it follows and how it syncs. */
+  synced?: SyncedDraft;
   /**
    * Pin (`featured`) is not here: it is set in Arrange, so an editor creates
    * with it off and never sends it on a save.
@@ -92,8 +100,13 @@ export interface CollectionDraft {
   personal?: { shared: boolean; inLibraryTabs: boolean };
 }
 
-/** A draft `create` and `update` can send today. Synced lists still save through their import forms. */
+/** A draft `create` and `update` can send today. Saved synced lists still save through their edit forms. */
 export type SavableDraft = CollectionDraft & { kind: "manual" | "smart" };
+/** A new synced list: created through the scope's import route. */
+export type SyncedCreateDraft = CollectionDraft & { kind: "synced"; synced: SyncedDraft };
+export type CreatableDraft = SavableDraft | SyncedCreateDraft;
+/** The kinds an editor can start a new collection as. */
+export type CreateKind = "manual" | "smart" | "synced";
 
 /** The read model shared by both scopes, for headers, rows and editors. */
 export interface CollectionView<Raw extends WireCollection = WireCollection> {
@@ -179,7 +192,7 @@ export interface CollectionScope<Raw extends WireCollection = WireCollection> {
   toView(raw: Raw): CollectionView<Raw>;
   toDraft(
     view: CollectionView<Raw> | null,
-    init: { kind: "manual" | "smart"; libraryId?: number | null },
+    init: { kind: CreateKind; libraryId?: number | null },
   ): CollectionDraft;
   /** True when the acting profile may not change it. Fails closed while the profile is unknown. */
   isReadOnly(view: CollectionView<Raw>, actingProfileId: string | null | undefined): boolean;
@@ -187,8 +200,11 @@ export interface CollectionScope<Raw extends WireCollection = WireCollection> {
   /** The list the scope's pages read; the same request and cache entry they use. */
   fetchList(): Promise<{ collections: Raw[] }>;
   fetchSnapshot(id: string): Promise<EditorSnapshot<Raw>>;
-  /** `failedArtwork`: the slots whose upload or removal failed after the collection saved. */
-  create(draft: SavableDraft): Promise<{ id: string } & SaveOutcome>;
+  /**
+   * `failedArtwork`: the slots whose upload or removal failed after the
+   * collection saved. A synced list reports its first sync in `sync`.
+   */
+  create(draft: CreatableDraft): Promise<{ id: string; sync?: SyncOutcome } & SaveOutcome>;
   update(ref: { id: string; etag: string }, draft: SavableDraft): Promise<SaveOutcome>;
   remove(ref: { id: string; etag: string }): Promise<void>;
   sync(id: string): Promise<SyncOutcome>;
@@ -214,8 +230,7 @@ function rulesFor(kind: CollectionKind, query: QueryDefinitionInput) {
 
 /** Smart rules match the draft's libraries; the draft's list is the one the editor shows. */
 function smartRules(draft: SavableDraft): QueryDefinition | undefined {
-  if (draft.kind !== "smart") return undefined;
-  return { ...normalizeQueryDefinition(draft.rules), library_ids: draft.libraryIds };
+  return draft.kind === "smart" ? draftRules(draft) : undefined;
 }
 
 function sanitizeLibraryIds(raw: unknown): number[] {
@@ -277,6 +292,151 @@ function personalOutcome(posterError: string | undefined): SaveOutcome {
 /** The slots whose saved image a save removes. */
 function removedArtwork(draft: SavableDraft): ArtworkSlot[] {
   return (["poster", "backdrop"] as const).filter((slot) => draft.artwork[slot]?.remove);
+}
+
+/** The pick's poster, unless the poster slot replaces or removes it. */
+function pickedPoster(draft: SyncedCreateDraft): string | undefined {
+  return isStaged(draft.artwork.poster) ? undefined : draft.synced.posterUrl;
+}
+
+function isStaged(slot: ArtworkSlotDraft | undefined) {
+  return Boolean(slot?.file || trimmedSource(slot) || slot?.remove);
+}
+
+function followedList(draft: SyncedCreateDraft) {
+  const { list } = draft.synced;
+  if (!list) throw new Error("Pick a list first.");
+  return list;
+}
+
+function chartFields(chart: TMDBChart) {
+  return { preset: chart.preset, media_type: chart.mediaType, time_window: chart.timeWindow };
+}
+
+function syncOutcome(
+  run: { status: string; message: string; items_matched: number } | undefined,
+): SyncOutcome | undefined {
+  return run && { status: run.status, message: run.message, itemsMatched: run.items_matched };
+}
+
+/**
+ * A new server synced list: imported unpinned (Pin is an Arrange action). The
+ * import takes no visibility, so hiding it is a guarded PATCH once the list
+ * exists, before its artwork.
+ */
+async function createServerSynced(draft: SyncedCreateDraft) {
+  const list = followedList(draft);
+  const common = {
+    library_ids: draft.libraryIds,
+    title: draft.name.trim(),
+    description: draft.description.trim(),
+    limit: draft.synced.limit,
+    featured: false,
+    sync_schedule: draft.synced.schedule || undefined,
+    sort_config: draft.rawSortConfig ?? {},
+    poster_url: pickedPoster(draft),
+  };
+  const importList = () => {
+    switch (list.source) {
+      case "mdblist":
+        return v2("POST /api/v2/admin/collections/import/mdblist", {
+          body: adminImportBody({ ...common, url: list.url }),
+        });
+      case "tmdb_list":
+        return v2("POST /api/v2/admin/collections/import/tmdb-list", {
+          body: adminImportBody({ ...common, url: list.url }),
+        });
+      case "tmdb_chart":
+        return v2("POST /api/v2/admin/collections/import/tmdb", {
+          body: adminImportBody({ ...common, ...chartFields(list.chart) }),
+        });
+    }
+  };
+  const result = await importList();
+  const id = result.collection.id;
+  const hideWarning = draft.server?.visibility === "hidden" ? await hideFromTabs(id) : undefined;
+  const { artworkErrors } = await saveAdminArtwork(
+    result.collection,
+    {
+      poster_source_url: trimmedSource(draft.artwork.poster),
+      backdrop_source_url: trimmedSource(draft.artwork.backdrop),
+    },
+    draft.artwork.poster?.file,
+    draft.artwork.backdrop?.file,
+  );
+  const outcome = serverOutcome(artworkErrors);
+  if (hideWarning) outcome.warnings.unshift(hideWarning);
+  return { id, sync: syncOutcome(result.sync_run), ...outcome };
+}
+
+/** Hides a server collection from Collections tabs; answers a warning when that fails. */
+async function hideFromTabs(id: string): Promise<string | undefined> {
+  try {
+    const { collection, etag } = await fetchAdminCollectionSnapshot(id);
+    await v2("PATCH /api/v2/admin/collections/{id}", {
+      path: { id },
+      headers: { "If-Match": requiredETag(etag) },
+      body: adminUpdateBody({ collection_type: collection.collection_type, visibility: "hidden" }),
+    });
+    return undefined;
+  } catch (error) {
+    // The list exists either way; say that it still shows.
+    return `It still shows on Collections tabs: ${adminMutationMessage(error, "hiding it failed")}`;
+  }
+}
+
+/**
+ * A new personal synced list. The import takes no Collections tab choice, so
+ * turning it on is a guarded PATCH once the list exists.
+ */
+async function createPersonalSynced(draft: SyncedCreateDraft) {
+  const list = followedList(draft);
+  const common = {
+    title: draft.name.trim(),
+    description: draft.description.trim(),
+    limit: draft.synced.limit,
+    sync_schedule: draft.synced.schedule as UserCollectionSyncSchedule,
+    is_shared: draft.personal?.shared ?? false,
+    poster_url: trimmedSource(draft.artwork.poster) ?? pickedPoster(draft),
+    library_ids: draft.libraryIds.length > 0 ? draft.libraryIds : undefined,
+    display_query_definition: draft.showOnly,
+    sort_config: draft.rawSortConfig ?? {},
+  };
+  const importList = () => {
+    switch (list.source) {
+      case "mdblist":
+        return v2("POST /api/v2/collections/import/mdblist", {
+          body: importBodyToV2({ ...common, url: list.url }),
+        });
+      case "tmdb_list":
+        return v2("POST /api/v2/collections/import/tmdb-list", {
+          body: importBodyToV2({ ...common, url: list.url }),
+        });
+      case "tmdb_chart":
+        return v2("POST /api/v2/collections/import/tmdb", {
+          body: importBodyToV2({ ...common, ...chartFields(list.chart) }),
+        });
+    }
+  };
+  const result = await importList();
+  const id = result.collection.id;
+  const { posterError } = await saveCollectionPoster(result.collection, draft.artwork.poster?.file);
+  const outcome = personalOutcome(posterError);
+  if (draft.personal?.inLibraryTabs) {
+    try {
+      const { etag } = await fetchCollectionEditSnapshot(id);
+      await v2("PATCH /api/v2/collections/{id}", {
+        path: { id },
+        headers: { "If-Match": requiredETag(etag) },
+        body: collectionUpdateToV2({ include_in_server_collections: true }),
+      });
+    } catch (error) {
+      outcome.warnings.push(
+        personalMutationMessage(error, "Couldn't show it on the Collections tab"),
+      );
+    }
+  }
+  return { id, sync: syncOutcome(result.sync), ...outcome };
 }
 
 function serverRequest(draft: SavableDraft): Omit<CreateLibraryCollectionRequest, "featured"> {
@@ -379,6 +539,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
       rawSortConfig: view?.raw.sort_config ?? {},
       artwork: {},
       server: { visibility: view?.server?.visibility ?? "visible" },
+      ...(!view && kind === "synced" ? { synced: emptySyncedDraft() } : {}),
     };
   },
 
@@ -392,6 +553,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
   },
 
   async create(draft) {
+    if (draft.kind === "synced") return createServerSynced(draft);
     const request = serverRequest(draft);
     // Made in the editor, so not pinned: Pin is an Arrange action.
     const created = await v2("POST /api/v2/admin/collections", {
@@ -494,6 +656,7 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
   toDraft: (view, { kind }) => {
     const draftKind = view?.kind ?? kind;
     const libraryIds = view?.libraryIds ?? [];
+    const synced = !view && kind === "synced" ? { synced: emptySyncedDraft() } : {};
     return {
       kind: draftKind,
       name: view?.name ?? "",
@@ -507,6 +670,7 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
         shared: view?.personal?.shared ?? false,
         inLibraryTabs: view?.personal?.inLibraryTabs ?? false,
       },
+      ...synced,
     };
   },
 
@@ -521,6 +685,7 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
   },
 
   async create(draft) {
+    if (draft.kind === "synced") return createPersonalSynced(draft);
     const body: CreateCollectionRequest = {
       ...personalFields(draft),
       collection_type: draft.kind,

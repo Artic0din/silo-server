@@ -50,6 +50,7 @@ import {
   EyeOff,
   Info,
   Layers,
+  Layers3,
   LayoutGrid,
   Library as LibraryIcon,
   List,
@@ -61,7 +62,7 @@ import {
   SquareCheckBig,
   Trash2,
 } from "lucide-react";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
+import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import {
   collectionLibraryIds,
   countByLibrary,
@@ -99,6 +100,8 @@ import { collectionsInAdminScope } from "./adminCollectionsShared";
 /** Under this width More and New collection move to a bar docked at the bottom. */
 const NARROW_QUERY = "(max-width: 1023px)";
 const ALL_LIBRARIES = "all";
+/** `?dialog=starter-packs` opens Starter packs, so a link can open it. */
+const STARTER_PACKS_DIALOG = "starter-packs";
 
 const KIND_OPTIONS: ReadonlyArray<{ value: KindFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -171,7 +174,18 @@ export default function AdminCollections() {
   const activeLibraryId = state.view === "arrange" ? arrangeLibraryId : state.libraryId;
   const listHref = `${location.pathname}${location.search}`;
 
-  const [galleryOpen, setGalleryOpen] = useState(false);
+  const starterPacksOpen = searchParams.get("dialog") === STARTER_PACKS_DIALOG;
+  // Replace, not push: Back should leave the page, not reopen a closed dialog.
+  const setStarterPacksOpen = (open: boolean) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) next.set("dialog", STARTER_PACKS_DIALOG);
+        else next.delete("dialog");
+        return next;
+      },
+      { replace: true },
+    );
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   // The Delete button closes its dialog as it's pressed; keep it open for the answer.
   const holdDeleteOpen = useRef(false);
@@ -544,16 +558,28 @@ export default function AdminCollections() {
   // What the List shows once Select collections opens it, Arrange's library included.
   const selectableCount =
     activeLibraryId === null ? collections.length : (libraryCounts.get(activeLibraryId) ?? 0);
-  // Starter packs take the first place once they replace templates.
   const moreItems: PageMoreMenuItem[] = [
     {
-      key: "templates",
-      label: "Browse templates…",
-      help: "Add ready-made synced lists, one at a time or as a set.",
-      icon: Sparkles,
+      key: "starter-packs",
+      label: "Starter packs…",
+      help: "Add a ready-made set of collections to a library.",
+      icon: Layers3,
       disabled: !capabilities?.imports,
       opensDialog: true,
-      onSelect: () => setGalleryOpen(true),
+      onSelect: () => setStarterPacksOpen(true),
+    },
+    {
+      key: "templates",
+      label: "Browse templates",
+      help: "Start a synced list from a ready-made pick.",
+      icon: Sparkles,
+      disabled: !capabilities?.imports,
+      returnFocus: false,
+      // Templates are ready-made picks in the editor's Synced list step.
+      onSelect: () =>
+        navigate(SERVER_SCOPE.paths.create({ type: "synced", libraryId: activeLibraryId }), {
+          state: listReturnState(listHref),
+        }),
     },
     {
       key: "select",
@@ -663,8 +689,8 @@ export default function AdminCollections() {
               ) : inLibrary.length === 0 ? (
                 <EmptyLibrary
                   libraryName={activeLibrary?.name ?? null}
-                  canBrowseTemplates={Boolean(capabilities?.imports)}
-                  onBrowseTemplates={() => setGalleryOpen(true)}
+                  canAddStarterPack={Boolean(capabilities?.imports)}
+                  onAddStarterPack={() => setStarterPacksOpen(true)}
                   newCollection={newCollection}
                 />
               ) : (
@@ -720,7 +746,7 @@ export default function AdminCollections() {
                               showLibraries={state.libraryId === null}
                               peek={
                                 peekLibraryId
-                                  ? serverCollectionPeek(collection, peekLibraryId)
+                                  ? serverCollectionPeek(collection, peekLibraryId, !visible)
                                   : null
                               }
                               visible={visible}
@@ -846,9 +872,9 @@ export default function AdminCollections() {
             libraryId={arrangeLibraryId}
             libraryName={activeLibrary?.name ?? null}
             board={board}
-            canBrowseTemplates={Boolean(capabilities?.imports)}
+            canAddStarterPack={Boolean(capabilities?.imports)}
             newCollection={newCollection}
-            onBrowseTemplates={() => setGalleryOpen(true)}
+            onAddStarterPack={() => setStarterPacksOpen(true)}
             isVisible={isVisible}
             onEditCollection={(collection) => openEditor(collection, arrangeLibraryId)}
             onVisibleChange={changeVisible}
@@ -858,12 +884,13 @@ export default function AdminCollections() {
 
       {narrow && !selecting ? <MobileDockBar more={more} addRow={newCollection} /> : null}
 
-      <CollectionTemplateGallery
-        open={galleryOpen}
-        onOpenChange={setGalleryOpen}
-        libraries={libraryList}
-        initialLibraryId={activeLibraryId}
-      />
+      {starterPacksOpen ? (
+        <StarterPacksDialog
+          libraries={libraryList}
+          initialLibraryId={activeLibraryId}
+          onClose={() => setStarterPacksOpen(false)}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -1029,13 +1056,13 @@ function ListSkeleton() {
 /** A library, or the server, with no collections yet: both ways to make some. */
 function EmptyLibrary({
   libraryName,
-  canBrowseTemplates,
-  onBrowseTemplates,
+  canAddStarterPack,
+  onAddStarterPack,
   newCollection,
 }: {
   libraryName: string | null;
-  canBrowseTemplates: boolean;
-  onBrowseTemplates: () => void;
+  canAddStarterPack: boolean;
+  onAddStarterPack: () => void;
   newCollection: ReactNode;
 }) {
   return (
@@ -1053,10 +1080,10 @@ function EmptyLibrary({
         <Button
           variant="outline"
           size="sm"
-          disabled={!canBrowseTemplates}
-          onClick={onBrowseTemplates}
+          disabled={!canAddStarterPack}
+          onClick={onAddStarterPack}
         >
-          <Sparkles aria-hidden /> Browse templates
+          <Layers3 aria-hidden /> Add a starter pack
         </Button>
         {newCollection}
       </div>
@@ -1069,9 +1096,9 @@ function ArrangeView({
   libraryId,
   libraryName,
   board,
-  canBrowseTemplates,
+  canAddStarterPack,
   newCollection,
-  onBrowseTemplates,
+  onAddStarterPack,
   isVisible,
   onEditCollection,
   onVisibleChange,
@@ -1079,9 +1106,9 @@ function ArrangeView({
   libraryId: number | null;
   libraryName: string | null;
   board: ReturnType<typeof useAdminCollectionsBoard>;
-  canBrowseTemplates: boolean;
+  canAddStarterPack: boolean;
   newCollection: ReactNode;
-  onBrowseTemplates: () => void;
+  onAddStarterPack: () => void;
   isVisible: (collection: LibraryCollection) => boolean;
   onEditCollection: (collection: LibraryCollection) => void;
   onVisibleChange: (collection: LibraryCollection, visible: boolean) => void;
@@ -1117,8 +1144,8 @@ function ArrangeView({
       <div className="surface-panel rounded-[26px] p-1.5">
         <EmptyLibrary
           libraryName={libraryName}
-          canBrowseTemplates={canBrowseTemplates}
-          onBrowseTemplates={onBrowseTemplates}
+          canAddStarterPack={canAddStarterPack}
+          onAddStarterPack={onAddStarterPack}
           newCollection={newCollection}
         />
       </div>
@@ -1154,7 +1181,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults apply failed</p>
+            <p className="text-sm font-medium">Couldn't add the starter pack</p>
             <p className="text-xs">{job.error_message || job.message || "The job failed."}</p>
           </div>
         </div>
@@ -1168,7 +1195,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <div className="flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Collection defaults applied</p>
+            <p className="text-sm font-medium">Starter pack added</p>
             <p className="text-muted-foreground text-xs">{templateBundleApplySummary(job)}</p>
           </div>
         </div>
@@ -1182,7 +1209,7 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
         <Loader2 className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0 animate-spin" />
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium">Applying collection defaults</p>
+            <p className="text-sm font-medium">Adding a starter pack</p>
             <p className="text-muted-foreground text-xs">{job.message || "Working..."}</p>
           </div>
           <div className="progress-bar">
