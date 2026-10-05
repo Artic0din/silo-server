@@ -72,8 +72,6 @@ import { SyncedListPanel, type SyncedListPanelProps } from "./SyncedListPanel";
 import { WhereItShowsPanel } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
-/** How often the editor reads a list again while a sync it didn't start runs. */
-const RUNNING_SYNC_POLL_MS = 5_000;
 /** The fields the live preview already reflects before they are saved. */
 const PREVIEWED: ReadonlySet<DraftField> = new Set(["rules", "libraryIds", "rawSortConfig"]);
 
@@ -250,7 +248,9 @@ export function CollectionEditor<Raw extends WireCollection>({
   const syncList = useScopeSync(scope);
   // How many titles the last sync run here skipped; the collection doesn't carry it.
   const [skipped, setSkipped] = useState<number>();
-  const syncing = syncList.isPending || view?.sync?.status === "running";
+  // The server records a sync's status only when the run ends, and Sync now
+  // answers once it has: the request is the only sync this page can see.
+  const syncing = syncList.isPending;
   // Spec §3.1: only server lists offer Sync now here; a profile syncs its
   // lists from their cards on the Collections page.
   const canSync = created && isServer && Boolean(view?.source);
@@ -271,21 +271,6 @@ export function CollectionEditor<Raw extends WireCollection>({
       onSettled: reread,
     });
   }
-
-  // A scheduled sync, or one started elsewhere, ends without telling this
-  // page: read the list again until it does.
-  const runningElsewhere = view?.sync?.status === "running" && !syncList.isPending;
-  // That run's skipped titles aren't the ones counted here.
-  if (runningElsewhere && skipped !== undefined) setSkipped(undefined);
-  const { syncWithServer } = editor;
-  useEffect(() => {
-    if (!runningElsewhere) return;
-    const timer = window.setInterval(
-      () => void syncWithServer().catch(() => {}),
-      RUNNING_SYNC_POLL_MS,
-    );
-    return () => window.clearInterval(timer);
-  }, [runningElsewhere, syncWithServer]);
 
   const staged = draft.stagedItems ?? NO_TITLES;
   // After Create the page moves to the collection's edit URL. Until it gets

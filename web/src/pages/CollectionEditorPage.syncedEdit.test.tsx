@@ -315,61 +315,17 @@ describe("server Synced list editor", () => {
     expect(patch.headers["If-Match"]).toBe(afterSync);
   });
 
-  it("reads the list again until a sync started elsewhere ends", async () => {
-    const running = serverList("mdblist", MDBLIST, { last_sync_status: "running" });
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      showPage(SERVER_EDIT);
-      await nameField();
-      expect(within(statusStrip()).getByText("Syncing now…")).toBeInTheDocument();
-
-      v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
-        ...running,
-        last_sync_status: "success",
-        last_sync_at: new Date().toISOString(),
-      });
-      await act(() => vi.advanceTimersByTimeAsync(10_000));
-      await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
-      const menu = await openMoreActions();
-      expect(within(menu).getByRole("menuitem", { name: "Sync now" })).not.toHaveAttribute(
-        "aria-disabled",
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("drops the skipped count from a Sync now here once another sync runs", async () => {
-    const saved = serverList("mdblist", MDBLIST);
-    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {
-      // A scheduled sync starts as soon as this one ends.
-      v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
-        ...saved,
-        last_sync_status: "running",
-      });
-      return syncRun();
-    });
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      showPage(SERVER_EDIT);
-      await nameField();
-      const menu = await openMoreActions();
-      fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
-      expect(await within(statusStrip()).findByText("Syncing now…")).toBeInTheDocument();
-
-      v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
-        ...saved,
-        last_sync_status: "success",
-        last_sync_at: new Date().toISOString(),
-      });
-      await act(() => vi.advanceTimersByTimeAsync(10_000));
-      await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
-      // The 41 belonged to the run this page started, not the scheduled one.
-      expect(within(statusStrip()).queryByText("41 titles skipped")).toBeNull();
-      expect(within(statusStrip()).getByText("Not counted yet")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+  it("offers Sync now on a list whose stored status says running", async () => {
+    // The server writes a sync's status when the run ends, so a stored
+    // "running" is stale: it must not lock the editor.
+    serverList("mdblist", MDBLIST, { last_sync_status: "running" });
+    showPage(SERVER_EDIT);
+    await nameField();
+    expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull();
+    const menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: "Sync now" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
   });
 
   it("puts a failed sync at the top of the list, with the reason and Sync now", async () => {
