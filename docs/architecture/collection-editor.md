@@ -247,10 +247,10 @@ capabilities don't report `section_references`, the list is left out and Add as 
   the collection still triggers the question, without naming pages. The switch stays part of the
   draft until Save.
 - **Deleting** a collection rows show lists them, each with Open row, and offers to delete the
-  rows and then the collection. Before any row goes, the editor reads the collection again: when
-  its ETag no longer matches the editor's, nothing is deleted (the collection's `DELETE` would
-  answer `412` after its rows were gone) and the editor takes the new copy, so the next Delete
-  sends the current token. Each row is read again for its ETag right before its `DELETE`; a
+  rows and then the collection. Before any row goes, the editor (and the List) reads the collection
+  again: when its ETag no longer matches the one the delete would send, nothing is deleted (the
+  collection's `DELETE` would answer `412` after its rows were gone) and the new copy is taken,
+  so the next Delete sends the current token. Each row is read again for its ETag right before its `DELETE`; a
   row that is already gone, or that now shows another collection, is left alone (the list of rows
   can be stale, and the collection's own `DELETE` still refuses while any row uses it). The first
   row that fails stops the run before the collection is touched, and the dialog names the rows

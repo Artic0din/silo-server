@@ -80,6 +80,7 @@ import {
 } from "@/lib/collections/adminList";
 import { MAX_SELECTED_COLLECTIONS, runBatch } from "@/lib/collections/batch";
 import {
+  CHECK_BEFORE_DELETE_FAILED,
   COLLECTION_IN_USE,
   COLLECTIONS_IN_USE,
   SHOW_IT_FIRST,
@@ -302,6 +303,8 @@ export default function AdminCollections() {
     rowsReported && Boolean(pendingDelete?.checkRows),
   );
   const deleteRows = useDeleteCollectionRows();
+  // Reading the collection's ETag before any row goes.
+  const [checkingDelete, setCheckingDelete] = useState(false);
   let deleteRowsState: RowsState | null = null;
   if (pendingDelete?.checkRows && rowsReported) {
     if (pendingDelete.rows) deleteRowsState = { status: "ready", rows: pendingDelete.rows };
@@ -429,6 +432,24 @@ export default function AdminCollections() {
     const { id } = pendingDelete.collection;
     const rows = deleteRowsState?.status === "ready" ? [...deleteRowsState.rows] : [];
     if (rows.length > 0) {
+      // A deleted row can't come back: check the collection's ETag first, so
+      // a Delete that would answer 412 deletes nothing.
+      setCheckingDelete(true);
+      const fresh = await fetchAdminCollectionSnapshot(id).catch(() => null);
+      setCheckingDelete(false);
+      if (fresh?.etag !== pendingDelete.etag) {
+        setPendingDelete((current) =>
+          current?.collection.id === id
+            ? {
+                ...current,
+                ...fresh,
+                rows: null,
+                error: fresh ? DELETE_CHANGED : CHECK_BEFORE_DELETE_FAILED,
+              }
+            : current,
+        );
+        return;
+      }
       setPendingDelete((current) => current && { ...current, rows, error: null });
       const { remaining } = await deleteRows
         .mutateAsync({ collectionId: id, rows })
@@ -1046,7 +1067,7 @@ export default function AdminCollections() {
         libraryNames={pendingNames}
         rows={deleteRowsState}
         rowLibraryNames={libraryNames}
-        isPending={removeOne.isPending || deleteRows.isPending}
+        isPending={checkingDelete || removeOne.isPending || deleteRows.isPending}
         error={pendingDelete?.error}
         onConfirm={() => void confirmDelete()}
       />

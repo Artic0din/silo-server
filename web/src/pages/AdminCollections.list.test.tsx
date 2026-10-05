@@ -697,6 +697,28 @@ describe("AdminCollections List: rows that show a collection", () => {
     ]);
   });
 
+  it("deletes no row when the collection changed under the dialog", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Best Picture Winners");
+    const { menu } = await openMenu("Best Picture Winners");
+    await user.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Best Picture Winners?" });
+    const confirm = await within(dialog).findByRole("button", { name: "Delete it and its 1 row" });
+    v2Recorder.bump("/api/v2/admin/collections/best-picture-winners");
+    await user.click(confirm);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "It changed since you opened this. Check it, then delete again.",
+    );
+    expect(v2Recorder.writes()).toHaveLength(0);
+    // It was read again: the next Delete sends the new token.
+    const changed = v2Recorder.etag("/api/v2/admin/collections/best-picture-winners");
+    await user.click(within(dialog).getByRole("button", { name: "Delete it and its 1 row" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    const [remove] = v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}");
+    expect(remove!.headers["If-Match"]).toBe(changed);
+  });
+
   it("shows the rows when the server refuses a delete the list thought was free", async () => {
     v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "collection_in_use"));
     const user = userEvent.setup();
