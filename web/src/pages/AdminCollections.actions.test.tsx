@@ -50,7 +50,11 @@ vi.mock("@/hooks/queries/admin/collectionGroups", () => ({
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollectionCapabilities: () => ({ data: { groups: false, imports: true } }),
-  useAdminCollections: () => ({ data: state.collections, isLoading: false }),
+  useAdminCollections: () => ({
+    data: state.collections,
+    isLoading: false,
+    refetch: async () => ({ data: state.collections }),
+  }),
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
   useSetAdminCollectionVisibility: () => ({ mutateAsync: state.setVisibility }),
   useSetAdminCollectionPin: idle,
@@ -183,7 +187,7 @@ describe("AdminCollections Arrange actions", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete all in this view…" }));
 
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Delete the 1 collection in this view?",
+      "Delete 1 synced list in this view?",
     );
     expect(state.prepareDeletes).toHaveBeenCalledWith(["Top Rated"]);
   });

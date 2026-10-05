@@ -225,7 +225,7 @@ export function useUpdateAdminCollection() {
  * type, then sends only `collection_type` and `field`, so nothing else on the
  * collection can be overwritten by a stale list.
  */
-async function patchAdminCollectionField(
+export async function patchAdminCollectionField(
   id: string,
   field: { visibility: "visible" | "hidden" } | { featured: boolean },
 ) {
