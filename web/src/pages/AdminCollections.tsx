@@ -207,6 +207,8 @@ export default function AdminCollections() {
   const [syncingIds, setSyncingIds] = useState<ReadonlySet<string>>(new Set());
 
   const { data: capabilities } = useAdminCollectionCapabilities();
+  // Without imports a synced list's sync can only fail, so Sync isn't offered.
+  const canImport = capabilities?.imports === true;
   const allCollections = useAdminCollections();
   const collections = useMemo(() => allCollections.data ?? [], [allCollections.data]);
   const libraryCounts = useMemo(() => countByLibrary(collections), [collections]);
@@ -600,7 +602,7 @@ export default function AdminCollections() {
       label: "Starter packs…",
       help: "Add a ready-made set of collections to a library.",
       icon: Layers3,
-      disabled: !capabilities?.imports,
+      disabled: !canImport,
       opensDialog: true,
       onSelect: () => setStarterPacksOpen(true),
     },
@@ -708,7 +710,7 @@ export default function AdminCollections() {
               ) : inLibrary.length === 0 ? (
                 <EmptyLibrary
                   libraryName={activeLibrary?.name ?? null}
-                  canAddStarterPack={Boolean(capabilities?.imports)}
+                  canAddStarterPack={canImport}
                   onAddStarterPack={() => setStarterPacksOpen(true)}
                   newCollection={newCollection}
                 />
@@ -806,6 +808,7 @@ export default function AdminCollections() {
                                         : "Hidden from Collections tabs",
                                     }}
                                     sync={
+                                      canImport &&
                                       isListBackedCollectionType(collection.collection_type)
                                         ? {
                                             syncing:
@@ -855,19 +858,27 @@ export default function AdminCollections() {
                   visibilityOverrides.size > 0 ||
                   selected.some((collection) => syncingIds.has(collection.id))
                 }
-                note={syncSkipNote(
-                  selectedSmart,
-                  selected.length - selectedLists.length - selectedSmart,
-                )}
+                note={
+                  canImport
+                    ? syncSkipNote(
+                        selectedSmart,
+                        selected.length - selectedLists.length - selectedSmart,
+                      )
+                    : null
+                }
                 actions={[
-                  {
-                    key: "sync",
-                    label: syncListsLabel(selectedLists.length),
-                    icon: RefreshCw,
-                    disabled: selectedLists.length === 0,
-                    explainedByNote: true,
-                    onClick: syncSelected,
-                  },
+                  ...(canImport
+                    ? [
+                        {
+                          key: "sync",
+                          label: syncListsLabel(selectedLists.length),
+                          icon: RefreshCw,
+                          disabled: selectedLists.length === 0,
+                          explainedByNote: true,
+                          onClick: syncSelected,
+                        },
+                      ]
+                    : []),
                   {
                     key: "show",
                     label: "Show on tabs",
@@ -898,7 +909,7 @@ export default function AdminCollections() {
             libraryId={arrangeLibraryId}
             libraryName={activeLibrary?.name ?? null}
             board={board}
-            canAddStarterPack={Boolean(capabilities?.imports)}
+            canAddStarterPack={canImport}
             newCollection={newCollection}
             onAddStarterPack={() => setStarterPacksOpen(true)}
             isVisible={isVisible}
