@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMinus,
   Download,
@@ -98,6 +98,8 @@ export default function HomeScreenSettings() {
     seed?: RowSeed;
   } | null>(null);
   const [highlightId, setHighlightId] = useNewRowHighlight();
+  // A row added from a link, waiting for its save to land before going back.
+  const landing = useRef<{ ids: string[]; onAdded: (newIds: string[]) => void } | null>(null);
   const [removing, setRemoving] = useState<HomeRow | null>(null);
   const [deletingRuleRows, setDeletingRuleRows] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -152,6 +154,16 @@ export default function HomeScreenSettings() {
     onAdd: (seed) => setRowDialog({ session: null, seed }),
     onEdit: openRow,
   });
+
+  // Saves are queued, so Add row closes before this one lands. Once the save
+  // and the refetch after it are done, the row is on the page only if it saved;
+  // a failed save has already said so, and the page stays for another try.
+  useEffect(() => {
+    const added = landing.current;
+    if (!added || adapter.pending) return;
+    landing.current = null;
+    if (adapter.rows.some((row) => row.id === added.ids[0])) added.onAdded(added.ids);
+  }, [adapter.pending, adapter.rows]);
 
   function confirmRemove() {
     if (!removing) return;
@@ -359,11 +371,11 @@ export default function HomeScreenSettings() {
           session={rowDialog.session}
           initialSeed={rowDialog.seed}
           onClose={() => setRowDialog(null)}
-          onSaved={(newIds) =>
-            rowDialog.seed?.onAdded
-              ? rowDialog.seed.onAdded(newIds)
-              : setHighlightId(newIds[0] ?? null)
-          }
+          onSaved={(newIds) => {
+            const onAdded = rowDialog.seed?.onAdded;
+            if (onAdded) landing.current = { ids: newIds, onAdded };
+            else setHighlightId(newIds[0] ?? null);
+          }}
           deleteLabel={editingRow && !editingRow.own ? `Remove from my ${pageName}…` : undefined}
           onDelete={(session) => {
             setRowDialog(null);

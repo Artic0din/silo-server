@@ -67,6 +67,18 @@ function entry(id: string, position: number): SettingsSectionEntry {
 
 let saved: Record<string, SectionOverride[]>;
 let puts: Array<{ page: string; overrides: SectionOverride[] }>;
+/** When set, a profile PUT waits for it and fails when it rejects. */
+let putGate: Promise<void> | null;
+
+function deferred() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
 
 /** The server rows with this profile's overrides applied, as the server resolves them. */
 function resolve(key: string): SettingsSectionEntry[] {
@@ -108,6 +120,7 @@ beforeEach(() => {
   // Row b is hidden on this profile; adding a row must keep that.
   saved = { home: [{ section_id: "b", hidden: true, position: 1 }] };
   puts = [];
+  putGate = null;
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -128,6 +141,7 @@ beforeEach(() => {
         return { items: saved[key] ?? [] };
       case "PUT /api/v2/profile/sections":
         puts.push({ page: key, overrides: args.body!.overrides });
+        await putGate;
         saved[key] = args.body!.overrides;
         return { items: saved[key] };
       case "GET /api/v2/home/sections/{id}/items":
@@ -230,16 +244,24 @@ describe("?add= on Settings > Home Screen", () => {
   });
 
   it("goes back to the collection after adding, with a toast that can move the row", async () => {
+    const save = deferred();
+    putGate = save.promise;
     const router = setup(
       `/settings/home-screen?add=collection:user:mine&return=${encodeURIComponent("/collections/mine/edit")}`,
     );
     const form = await screen.findByRole("dialog", { name: "A collection" });
     await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
 
+    // Nothing claims the row was added until its save lands.
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await act(async () => {});
+    expect(router.state.location.pathname).toBe("/settings/home-screen");
+    expect(mocks.success).not.toHaveBeenCalled();
+
+    save.resolve();
     expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/collections/mine/edit");
     expect(router.state.historyAction).toBe("REPLACE");
-    await waitFor(() => expect(puts).toHaveLength(1));
     expect(router.state.location.state).toEqual({
       addedRow: {
         id: puts[0]!.overrides.find((o) => o.section_type === "collection")!.id,
@@ -263,6 +285,23 @@ describe("?add= on Settings > Home Screen", () => {
     expect(screen.getByLabelText("Row name")).toHaveValue("Rainy days");
     expect(router.state.location.search).toBe("?page=home");
     expect(newId).toBeTruthy();
+  });
+
+  it("stays on Home rows without claiming success when the save fails", async () => {
+    putGate = Promise.reject(new Error("save failed"));
+    putGate.catch(() => {});
+    const router = setup(
+      `/settings/home-screen?add=collection:user:mine&return=${encodeURIComponent("/collections/mine/edit")}`,
+    );
+    const form = await screen.findByRole("dialog", { name: "A collection" });
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+
+    await waitFor(() => expect(mocks.error).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add row" })).toBeEnabled());
+    await act(async () => {});
+    expect(router.state.location.pathname).toBe("/settings/home-screen");
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(screen.queryByText("Rainy days")).not.toBeInTheDocument();
   });
 
   it("ignores a return path outside collections", async () => {
