@@ -69,8 +69,9 @@ export default function AddToCollectionDialog({
             Tick a collection to add {itemTitle ?? "this title"} to it. Ticking saves right away.
           </DialogDescription>
         </DialogHeader>
-        {/* Mounted only while open, so each opening starts from the server's ticks. */}
+        {/* Mounted only while open and keyed by title, so each opening or title starts from the server's ticks. */}
         <AddToCollectionPanel
+          key={mediaItemId}
           mediaItemId={mediaItemId}
           itemTitle={itemTitle ?? "this title"}
           onClose={() => onOpenChange(false)}
