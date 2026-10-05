@@ -91,6 +91,10 @@ type Service struct {
 	suppress Suppressor
 	lister   ScanSourceLister
 
+	// observe reads a reported path's debounce state (observePathState);
+	// tests substitute a fake filesystem.
+	observe func(path string) (state string, debounce bool)
+
 	// Optional deps for the connection-test and rewrite-suggester endpoints.
 	// Wired via setters so the poll-loop constructor stays unchanged and tests
 	// that only exercise PollOnce need not supply them.
@@ -129,6 +133,7 @@ func NewService(
 		queue:    queue,
 		suppress: suppress,
 		lister:   lister,
+		observe:  observePathState,
 	}
 }
 
@@ -658,7 +663,16 @@ func rewriteChanges(changes []Change, rewrites []PathRewrite) []Change {
 // via the suppressor. Legacy/auto changes retain the historical parent-dir
 // collapse. Structured file changes resolve exact files, and subtree changes
 // resolve exact subtree paths even when the path no longer exists.
-func (s *Service) resolveAndClaim(ctx context.Context, changes []Change, ttl time.Duration) (targets []scantrigger.Target, claimed []string, resolvedAny bool, stats resolveStats) {
+//
+// Every claim is keyed on the path the source reported, not the scan target,
+// together with that path's observed state (see Suppressor). A video file
+// resolves to a scan of its directory, and two different files landing in one
+// directory a few seconds apart are two events that both need serving; the
+// queue coalesces the second into the running scan and owes it a follow-up,
+// which a suppression keyed on the directory would have swallowed. Likewise a
+// file deleted or replaced shortly after it was imported is a new change, not
+// a duplicate of the import.
+func (s *Service) resolveAndClaim(ctx context.Context, changes []Change, ttl time.Duration) (targets []scantrigger.Target, claimed []suppressClaim, resolvedAny bool, stats resolveStats) {
 	seenTargets := make(map[string]struct{})
 
 	var legacyPaths []string
@@ -671,12 +685,6 @@ func (s *Service) resolveAndClaim(ctx context.Context, changes []Change, ttl tim
 			}
 			resolvedAny = true
 			stats.ChangesResolved++
-			// Debounce on the path the source reported, not the scan target.
-			// A video file resolves to a scan of its directory, and two
-			// different files landing in one directory a few seconds apart
-			// are two events that both need serving; the queue coalesces the
-			// second into the running scan and owes it a follow-up, which a
-			// suppression keyed on the directory would have swallowed.
 			if !s.claimTarget(ctx, *target, filepath.Clean(change.SourcePath), ttl, seenTargets, &targets, &claimed) {
 				stats.Suppressed++
 			}
@@ -685,7 +693,8 @@ func (s *Service) resolveAndClaim(ctx context.Context, changes []Change, ttl tim
 		}
 	}
 
-	for _, dir := range uniqueParentDirs(legacyPaths) {
+	for _, group := range groupByParentDir(legacyPaths) {
+		dir := group.Dir
 		target, rerr := s.resolver.Resolve(ctx, scantrigger.Request{Path: dir, Trigger: scanTrigger})
 		if isRequestError(rerr) {
 			// The directory may have been removed (e.g. a deleted movie
@@ -709,9 +718,14 @@ func (s *Service) resolveAndClaim(ctx context.Context, changes []Change, ttl tim
 			continue
 		}
 		resolvedAny = true
-		stats.ChangesResolved++
-		if !s.claimTarget(ctx, *target, target.Path, ttl, seenTargets, &targets, &claimed) {
-			stats.Suppressed++
+		// The directory scan serves every reported path in it; each path is
+		// claimed on its own so a new change to one file is not debounced by
+		// an earlier report of a sibling.
+		for _, path := range group.Paths {
+			stats.ChangesResolved++
+			if !s.claimTarget(ctx, *target, filepath.Clean(path), ttl, seenTargets, &targets, &claimed) {
+				stats.Suppressed++
+			}
 		}
 	}
 	stats.TargetsClaimed = len(targets)
@@ -792,11 +806,14 @@ func (s *Service) resolveChange(ctx context.Context, change Change, stats *resol
 	return target, true
 }
 
-// claimTarget claims one scan target for this cycle. debouncePath is the path
-// the suppression window is keyed on: the change the source reported, which
-// may be narrower than target.Path. Within one cycle, changes that widen to
-// the same target are still collapsed to one enqueue; the queue's own
-// dedupe handles the cross-cycle case.
+// claimTarget claims one scan target for this cycle. debouncePath is the
+// local path the suppression window is keyed on: the change the source
+// reported, which may be narrower than target.Path. The claim records the
+// path's observed state, so only a repeat report of an unchanged path is
+// suppressed; a path whose state cannot prove a repeat (a directory) is never
+// suppressed and replaces any earlier claim on the path. Within one cycle, changes that widen to the same target are
+// still collapsed to one enqueue; the queue's own dedupe handles the
+// cross-cycle case.
 func (s *Service) claimTarget(
 	ctx context.Context,
 	target scantrigger.Target,
@@ -804,14 +821,24 @@ func (s *Service) claimTarget(
 	ttl time.Duration,
 	seenTargets map[string]struct{},
 	targets *[]scantrigger.Target,
-	claimed *[]string,
+	claimed *[]suppressClaim,
 ) bool {
-	key := fmt.Sprintf("%d|%s", target.Folder.ID, debouncePath)
-	ok, serr := s.suppress.ShouldScan(ctx, key, ttl)
-	if serr != nil || !ok {
-		return false
+	if ttl > 0 { // a zero window disables debouncing; skip the stat
+		key := fmt.Sprintf("%d|%s", target.Folder.ID, debouncePath)
+		state, debounce := s.observe(debouncePath)
+		if debounce {
+			ok, serr := s.suppress.ShouldScan(ctx, key, state, ttl)
+			if serr != nil || !ok {
+				return false
+			}
+			*claimed = append(*claimed, suppressClaim{key: key, state: state})
+		} else {
+			// This report always scans, but it must still replace an earlier
+			// claim on the path: a stale "absent" claim would otherwise drop
+			// the next delete of a path that was re-created in between.
+			_, _ = s.suppress.ShouldScan(ctx, key, stateUnobserved, ttl)
+		}
 	}
-	*claimed = append(*claimed, key)
 
 	targetKey := fmt.Sprintf("%d|%s|%s", target.Folder.ID, target.Mode, target.Path)
 	if _, seen := seenTargets[targetKey]; seen {
@@ -826,12 +853,15 @@ func (s *Service) claimTarget(
 	return true
 }
 
+// suppressClaim is one debounce claim this cycle wrote.
+type suppressClaim struct{ key, state string }
+
 // releaseClaims drops suppression claims (used when the scan enqueue fails so a
 // later cycle can retry the same targets).
-func (s *Service) releaseClaims(ctx context.Context, claimed []string) {
-	for _, k := range claimed {
-		if rerr := s.suppress.Release(ctx, k); rerr != nil {
-			slog.WarnContext(ctx, "autoscan: release claim failed", "component", "autoscan", "key", k, "err", rerr)
+func (s *Service) releaseClaims(ctx context.Context, claimed []suppressClaim) {
+	for _, c := range claimed {
+		if rerr := s.suppress.Release(ctx, c.key, c.state); rerr != nil {
+			slog.WarnContext(ctx, "autoscan: release claim failed", "component", "autoscan", "key", c.key, "err", rerr)
 		}
 	}
 }
