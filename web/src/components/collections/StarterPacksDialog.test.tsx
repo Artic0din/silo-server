@@ -15,6 +15,7 @@ import {
   starterPackLibraries,
 } from "@/test/fixtures/starterPacks";
 import { goldens } from "@/test/fixtures/collectionBodies";
+import { invalidateAdminCollectionQueries } from "@/hooks/queries/collectionSurfaceRefresh";
 import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
 import { StarterPacksDialog } from "./StarterPacksDialog";
 
@@ -96,14 +97,11 @@ function renderDialog({
 }: { libraries?: Library[]; initialLibraryId?: number | null } = {}) {
   const onClose = vi.fn();
   const user = userEvent.setup();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-        })
-      }
-    >
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <StarterPacksDialog
           libraries={libraries}
@@ -113,7 +111,7 @@ function renderDialog({
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return { user, onClose };
+  return { user, onClose, client };
 }
 
 async function checked() {
@@ -292,6 +290,15 @@ describe("Starter packs", () => {
     expect(screen.getByRole("combobox", { name: "Hero banner on Home" })).toBeDisabled();
     expect(screen.getByRole("tab", { name: /Popular Genres/ })).toBeDisabled();
     expect(screen.getByRole("tab", { name: /Core Defaults/ })).toBeEnabled();
+  });
+
+  it("leaves its check alone when the page refreshes the admin collections", async () => {
+    // The page refreshes them when a job ends, while the hero switch may be
+    // turning off; re-running the check it leaves would be wasted.
+    const { client } = renderDialog();
+    await checked();
+    await invalidateAdminCollectionQueries(client);
+    expect(v2Recorder.callsOf(DRY_RUN)).toHaveLength(1);
   });
 
   it("names the hero each page line replaces, and lets a page keep its current one", async () => {

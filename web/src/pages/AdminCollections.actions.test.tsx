@@ -314,4 +314,23 @@ describe("AdminCollections actions", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/Starter pack added/)).toBeNull();
   });
+
+  it("refreshes the collections and Home rows when a starter pack job ends", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: coreApplied,
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toContainEqual(["admin", "collections"]);
+    expect(keys).toContainEqual(["sections"]);
+    invalidate.mockRestore();
+  });
 });

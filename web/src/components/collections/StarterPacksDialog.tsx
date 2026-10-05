@@ -10,7 +10,7 @@ import {
   type Ref,
 } from "react";
 import { Link } from "react-router";
-import { hashKey, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
@@ -42,8 +42,6 @@ import {
   starterPackDryRunQuery,
   useQueueCollectionTemplateBundleApply,
 } from "@/hooks/queries/admin/collections";
-import { invalidateLibraryCollectionQueries } from "@/hooks/queries/collectionSurfaceRefresh";
-import { sectionKeys } from "@/hooks/queries/keys";
 import { adminSectionsQuery } from "@/hooks/queries/sections";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
@@ -169,18 +167,12 @@ export function StarterPacksDialog({
     const succeeded = finished.state === "succeeded";
     if (succeeded && finishedAdded) setAdded((prev) => new Set(prev).add(run.pack.id));
     // The heroes are set now; leaving the switch on would offer to set them again.
+    // Either way the pack is checked again, so the table shows what is there now:
+    // turning the switch off changes the check's key, which runs it by itself.
+    // The page refreshes the collections and Home rows the job changed.
     const heroesOff = succeeded && draft?.packId === run.pack.id && draft.heroesOn;
     if (heroesOff) setDraft({ ...draft, heroesOn: false });
-    // Refresh what the job changed, which also checks the pack again. A dry run
-    // the switch is leaving isn't refetched: its new key checks by itself.
-    const leaving = heroesOff ? hashKey(dryRunQuery.queryKey) : null;
-    void invalidateLibraryCollectionQueries(queryClient);
-    void queryClient.invalidateQueries({ queryKey: ["admin", "collectionGroups"] });
-    void queryClient.invalidateQueries({
-      queryKey: ["admin", "collections"],
-      predicate: (query) => query.queryHash !== leaving,
-    });
-    void queryClient.invalidateQueries({ queryKey: sectionKeys.all });
+    else void queryClient.invalidateQueries({ queryKey: dryRunQuery.queryKey, exact: true });
     resultRef.current?.focus();
   }, [finished, finishedAdded, run, draft, dryRunQuery.queryKey, queryClient]);
 

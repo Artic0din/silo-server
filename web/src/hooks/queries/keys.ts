@@ -386,8 +386,10 @@ export const adminKeys = {
   collectionGroups: (libraryId?: number) => ["admin", "collectionGroups", libraryId] as const,
   collectionTemplates: () => ["admin", "collections", "templates"] as const,
   collectionTemplateBundles: () => ["admin", "collections", "templateBundles"] as const,
+  // Outside "collections": refreshing the admin collections after a write
+  // doesn't re-run a dry run; Starter packs checks its pack again itself.
   starterPackDryRun: (packId: string, body: unknown) =>
-    ["admin", "collections", "templateBundles", packId, "dryRun", body] as const,
+    ["admin", "starterPackDryRun", packId, body] as const,
   libraryProviders: (id: number) => ["admin", "libraries", id, "providers"] as const,
   libraryProviderDefaults: (libraryType: string) =>
     ["admin", "libraries", "provider-defaults", libraryType] as const,
