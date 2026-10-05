@@ -218,3 +218,48 @@ address, so a reload doesn't repeat them.
   `/admin/collections/` or `/collections/` and neither it nor its decoded form holds a backslash,
   `//`, a control character or a `.`/`..` segment; anything else is ignored, so the parameter
   can't send a viewer off the site.
+
+## Where it shows: rows
+
+A server collection's Where it shows panel lists the administrator Home and library page rows that
+show it, from `listAdminCollectionSections`, and offers **Add as a row** (Home, then the library
+pages of the collection's own libraries, then the other libraries). The same rows give the header
+its "On Home and the _Kids_ page" (turned-off rows left out). Rows profiles add to their own Home
+are not listed, because the route reads the administrator page layouts only. When the collections
+capabilities don't report `section_references`, the list is left out and Add as a row stays.
+
+- **Add as a row** goes to admin Home rows with `?page=…&add=collection:library:<id>` and, from the
+  editor, `?return=` set to the editor's own URL (see Links into Home rows). The List's Add to Home
+  and Add to a library page send no `return`, because the List's address is not a collection page
+  the allowlist accepts; Home rows keeps its own after-add step. With unsaved changes the editor
+  asks first: Save and continue saves and goes only once nothing is left unsaved (artwork that
+  failed to upload stays in the editor with its error), Discard changes drops the draft (titles
+  stay), Cancel stays. Discard changes is off when the collection is saved as hidden, since only
+  saving would show it. Save and continue is off whenever Save is, including while a field
+  changed in both places waits for Keep mine or Use theirs. A collection not created yet, or one hidden from its Collections tab,
+  can't be added, because a row couldn't open its See all; the button says why.
+- **Back from Home rows**, the `addedRow` state names the new row, which is highlighted once the
+  rows list includes it. The editor sends Home rows the List view it was opened from as history
+  state, and Home rows hands that state back with `addedRow`, so the editor's Back still reaches
+  that view.
+- **Hiding** a collection rows show asks first, naming the pages the rows are on, as the List does
+  with its `row_count`. While the rows list hasn't loaded (or failed), the List's `row_count` for
+  the collection still triggers the question, without naming pages. The switch stays part of the
+  draft until Save.
+- **Deleting** a collection rows show lists them, each with Open row, and offers to delete the
+  rows and then the collection. Before any row goes, the editor (and the List) reads the collection
+  again: when its ETag no longer matches the one the delete would send, nothing is deleted (the
+  collection's `DELETE` would answer `412` after its rows were gone) and the new copy is taken,
+  so the next Delete sends the current token. Each row is read again for its ETag right before its `DELETE`; a
+  row that is already gone, or that now shows another collection, is left alone (the list of rows
+  can be stale, and the collection's own `DELETE` still refuses while any row uses it). The first
+  row that fails stops the run before the collection is touched, and the dialog names the rows
+  that still show it. When the rows list fails to load, the delete waits for Retry only if the
+  List's `row_count` says rows show it; otherwise the plain confirm deletes and the server's
+  `409 collection_in_use` guards a row added since. On the List, that `409` is shown as "Rows
+  still use it. Remove them first." without `section_references`, and with it the List falls back
+  to the rows list for a collection its counts showed as unused. The editor shows the server's
+  message and reads the rows again (only when the server reports rows).
+- **Row places** ("Home · row 6 of 9") are each row's rank in its page's order
+  (`getAdminSectionOrder`, read once per page alongside the rows), because stored positions skip
+  numbers after a row is deleted.

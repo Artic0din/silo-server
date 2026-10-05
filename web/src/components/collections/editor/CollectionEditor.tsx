@@ -1,12 +1,17 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { SaveBar } from "@/components/SaveBar";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
+import {
+  useAdminCollectionRows,
+  useDeleteCollectionRows,
+} from "@/hooks/queries/admin/collectionRows";
 import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/catalog";
@@ -24,6 +29,9 @@ import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import {
+  CHANGED_BEFORE_DELETE,
+  CHECK_BEFORE_DELETE_FAILED,
+  CREATE_IT_FIRST,
   DRAFT_FIELD_LABEL,
   NAME_FILLED_HELP,
   NAME_IT_THEN_CREATE,
@@ -32,7 +40,11 @@ import {
   PICK_A_LIST_FIRST,
   PICK_LIBRARIES_FIRST,
   PREVIEW_SHOWS_UNSAVED,
+  SAVE_AFTER_CONFLICTS,
   SAVE_FAILED,
+  SAVE_NOT_READY,
+  SHOW_IT_FIRST,
+  DISCARD_KEEPS_IT_HIDDEN,
   SMART_UPDATES_ITSELF,
   SYNCED_CREATE_SUBTITLE,
   SYNCS_ON_CREATE,
@@ -42,11 +54,22 @@ import {
   keptMessage,
   notSavedMessage,
   personalDeleteDescription,
-  serverDeleteDescription,
+  rowsLeftMessage,
+  saveFirstDescription,
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
 import { changedFields, draftRules, type DraftField } from "@/lib/collections/draft";
-import { useListReturnPath } from "@/lib/collections/listReturn";
+import { listReturnState, useListReturnPath } from "@/lib/collections/listReturn";
+import {
+  addRowPath,
+  onRowsLine,
+  rowPages,
+  rowLabels,
+  rowPlace,
+  rowPlaces,
+  type CollectionRow,
+  type RowsState,
+} from "@/lib/collections/rows";
 import type {
   CollectionDraft,
   CollectionScope,
@@ -56,10 +79,14 @@ import type {
 } from "@/lib/collections/scope";
 import { savedListProblem, type SyncedDraft, type SyncedTab } from "@/lib/collections/synced";
 import { SYNCED_SOURCE_LABEL } from "@/lib/collections/types";
+import type { AddedRowState } from "@/lib/homeRows/rowLinks";
+import type { PageRef } from "@/lib/homeRows/types";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
+import { DeleteCollectionDialog } from "../DeleteCollectionDialog";
 import { LibrariesLine } from "../fields/LibrariesLine";
 import { focusLibrariesLine } from "../fields/librariesLineFocus";
+import { AddAsRowMenu } from "./AddAsRowMenu";
 import { CollectionEditorShell } from "./CollectionEditorShell";
 import { CollectionMetaLine } from "./CollectionMetaLine";
 import { ConflictBanner } from "./ConflictBanner";
@@ -67,9 +94,11 @@ import { DetailsPanel } from "./DetailsPanel";
 import { EditorHeader, type OpenTarget } from "./EditorHeader";
 import { CollectionPreviewPane } from "./CollectionPreviewPane";
 import { ManualContentsPanel } from "./ManualContentsPanel";
+import { RowsThatShowIt } from "./RowsThatShowIt";
+import { SaveFirstDialog } from "./SaveFirstDialog";
 import { SmartRulesPanel } from "./SmartRulesPanel";
 import { SyncedListPanel, type SyncedListPanelProps } from "./SyncedListPanel";
-import { WhereItShowsPanel } from "./WhereItShowsPanel";
+import { WhereItShowsPanel, type HideConfirm } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
 /** The fields the live preview already reflects before they are saved. */
@@ -243,6 +272,10 @@ export function CollectionEditor<Raw extends WireCollection>({
   const capabilities = isServer ? adminCapabilities.data : personalCapabilities.data;
   const hasUnsaved = useHasUnsavedChanges();
   const [leaving, setLeaving] = useState<string | null>(null);
+  // A trip to Home rows (Add as a row), from which the editor expects to be handed back.
+  const [detour, setDetour] = useState<string | null>(null);
+  // Save and continue saved: the trip to take once that save has settled.
+  const [afterSave, setAfterSave] = useState<string | null>(null);
   const [openEdit, setOpenEdit] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const listPath = useListReturnPath(
@@ -302,20 +335,42 @@ export function CollectionEditor<Raw extends WireCollection>({
   const location = useLocation();
   const moving = openEdit !== null && location.pathname !== scope.paths.edit(openEdit);
   const dirty = editor.isDirty || (!created && (staged.length > 0 || syncedTouched(draft.synced)));
-  useReportUnsavedChanges(!leaving && !moving && dirty);
+  useReportUnsavedChanges(!leaving && !detour && !moving && dirty);
 
   // Leave only once the clean report has reached the guard.
   useEffect(() => {
     if (hasUnsaved) return;
     if (leaving) {
       navigate(leaving, { replace: true });
+    } else if (detour) {
+      // Carry the list the editor was opened from, so it can go back there afterwards.
+      navigate(detour, { state: listReturnState(listPath) });
     } else if (moving && openEdit) {
       navigate(scope.paths.edit(openEdit, { libraryId }), { replace: true });
       // Create unmounts its button; carry on where the contents start.
       if (smart) focusLibrariesLine();
       else if (!newList) document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();
     }
-  }, [hasUnsaved, leaving, libraryId, moving, navigate, newList, openEdit, scope, smart]);
+  }, [
+    hasUnsaved,
+    leaving,
+    detour,
+    libraryId,
+    listPath,
+    moving,
+    navigate,
+    newList,
+    openEdit,
+    scope,
+    smart,
+  ]);
+
+  // Something the save couldn't keep (artwork that failed to upload, an edit
+  // made while saving) stays here with its message rather than being dropped.
+  if (afterSave && !editor.isSaving) {
+    setAfterSave(null);
+    if (!editor.isDirty) setDetour(afterSave);
+  }
 
   const libraryOptions = adminLibraries.map(({ id, name, type }) => ({ id, name, type }));
   const named = (ids: readonly number[]) =>
@@ -334,6 +389,134 @@ export function CollectionEditor<Raw extends WireCollection>({
   const otherProfileNames = isServer
     ? []
     : profiles.filter((entry) => entry.id !== profile?.id).map((entry) => entry.name);
+
+  // The admin Home and library page rows that show a server collection.
+  const libraryNames = new Map(adminLibraries.map((library) => [library.id, library.name]));
+  const rowsReported = isServer && adminCapabilities.data?.section_references === true;
+  const rowsQuery = useAdminCollectionRows(created ? editor.id : undefined, rowsReported);
+  const savedRows = rowsQuery.data;
+  let rowsState: RowsState | null = null;
+  if (rowsReported) {
+    if (!created) rowsState = { status: "ready", rows: [] };
+    else if (savedRows) rowsState = { status: "ready", rows: savedRows };
+    else if (rowsQuery.isError)
+      rowsState = { status: "error", onRetry: () => void rowsQuery.refetch() };
+    else rowsState = { status: "loading" };
+  }
+
+  // Until the rows load (or when they don't), the list's count of them still
+  // warns before a hide. The editor page reads that list already.
+  const { data: listedRowCount = 0 } = useQuery({
+    queryKey: scope.keys.list,
+    queryFn: () => scope.fetchList(),
+    staleTime: Infinity,
+    enabled: isServer && created,
+    select: (data) =>
+      (data.collections as Array<{ id: string; row_count?: number }>).find(
+        (entry) => entry.id === editor.id,
+      )?.row_count ?? 0,
+  });
+  let hideConfirm: HideConfirm | null = null;
+  if (savedRows) {
+    if (savedRows.length > 0)
+      hideConfirm = { rowCount: savedRows.length, places: rowPlaces(savedRows, libraryNames) };
+  } else if (isServer && listedRowCount > 0) {
+    hideConfirm = { rowCount: listedRowCount, places: null };
+  }
+
+  // Back from Add row in Home rows: the new row flashes once it's listed.
+  const addedRow = (location.state as Partial<AddedRowState> | null)?.addedRow;
+  const addedRowId = addedRow?.surface === "admin" ? addedRow.id : undefined;
+  const addedListed = Boolean(addedRowId && savedRows?.some((row) => row.id === addedRowId));
+  const [highlightId, setHighlightId] = useNewRowHighlight();
+  const highlighted = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!addedListed || highlighted.current === addedRowId) return;
+    highlighted.current = addedRowId;
+    setHighlightId(addedRowId ?? null);
+  }, [addedListed, addedRowId, setHighlightId]);
+
+  // Add as a row: Home rows on that page, coming back here. Unsaved changes are asked about first.
+  const [savingFirst, setSavingFirst] = useState<{ page: PageRef; path: string } | null>(null);
+  function addAsRow(page: PageRef) {
+    if (!editor.id) return;
+    const editLibraryId = Number(new URLSearchParams(location.search).get("libraryId")) || null;
+    const path = addRowPath(
+      editor.id,
+      page,
+      scope.paths.edit(editor.id, { libraryId: libraryId ?? editLibraryId }),
+    );
+    if (editor.isDirty) setSavingFirst({ page, path });
+    else setDetour(path);
+  }
+  async function saveAndContinue() {
+    if (!savingFirst || saveBlockedReason) return;
+    const saved = await editor.save();
+    setSavingFirst(null);
+    if (saved) setAfterSave(savingFirst.path);
+  }
+  let addRowBlocked: string | null = null;
+  if (!created) addRowBlocked = CREATE_IT_FIRST;
+  else if (draft.server?.visibility === "hidden") addRowBlocked = SHOW_IT_FIRST;
+  // Hidden as saved: discarding keeps it hidden, so only saving lets Home rows add it.
+  const discardKeepsHidden = view?.server?.visibility === "hidden";
+
+  // Delete: rows that show it go first, each with a fresh token, then the collection.
+  const deleteRows = useDeleteCollectionRows();
+  // The rows the delete is working through, so the dialog doesn't change under it.
+  const [deletingRows, setDeletingRows] = useState<readonly CollectionRow[] | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Reading the collection's token before any row goes.
+  const [checkingDelete, setCheckingDelete] = useState(false);
+  function closeDelete() {
+    setConfirmDelete(false);
+    setDeletingRows(null);
+    setDeleteError(null);
+  }
+  // When the rows don't load but the list counts none, the plain confirm stays
+  // usable: the server still refuses with collection_in_use if one appeared.
+  const deleteRowsState = rowsState?.status === "error" && listedRowCount === 0 ? null : rowsState;
+  async function deleteServerCollection() {
+    if (!view || !editor.etag) return;
+    const rows = deletingRows ?? savedRows ?? [];
+    setDeleteError(null);
+    if (rows.length > 0) {
+      // A deleted row can't come back: check the collection's token first, so
+      // a Delete that would answer 412 deletes nothing.
+      setCheckingDelete(true);
+      const current = await scope.fetchSnapshot(view.id).then(
+        (snapshot) => snapshot.etag,
+        () => null,
+      );
+      // Changed: read it again, so the next Delete sends the new token.
+      if (current && current !== editor.etag) await reread();
+      setCheckingDelete(false);
+      if (current !== editor.etag) {
+        setDeleteError(current ? CHANGED_BEFORE_DELETE : CHECK_BEFORE_DELETE_FAILED);
+        return;
+      }
+      setDeletingRows(rows);
+      const { remaining } = await deleteRows
+        .mutateAsync({ collectionId: view.id, rows })
+        .catch(() => ({ remaining: [...rows] }));
+      if (remaining.length > 0) {
+        setDeletingRows(remaining);
+        setDeleteError(rowsLeftMessage(rowLabels(remaining, libraryNames)));
+        return;
+      }
+    }
+    remove.mutate(
+      { id: view.id, etag: editor.etag },
+      // Read the rows again, so the dialog shows what still stands in the way.
+      // refetch() ignores `enabled`, so ask only a server that reports rows.
+      {
+        onError: () => {
+          setDeletingRows(null);
+          if (rowsReported) void rowsQuery.refetch();
+        },
+      },
+    );
+  }
 
   // Open ▾: a server collection opens in each of its libraries; a personal one has one page.
   let open: OpenTarget[] = [];
@@ -386,6 +569,11 @@ export function CollectionEditor<Raw extends WireCollection>({
     afterPending = PICK_A_LIBRARY;
     createHint = PICK_LIBRARIES_FIRST;
   }
+  // Save and Save and continue wait for the same things.
+  let saveBlockedReason: string | null = null;
+  if (editor.conflicts.length > 0) saveBlockedReason = SAVE_AFTER_CONFLICTS;
+  else if (draft.name.trim() === "" || needsLibraries || listProblem)
+    saveBlockedReason = SAVE_NOT_READY;
   const saveBar = created ? (
     <SaveBar
       placement="page"
@@ -393,9 +581,7 @@ export function CollectionEditor<Raw extends WireCollection>({
       visible={editor.isDirty || Boolean(editor.saveError)}
       isSaving={editor.isSaving}
       saveLabel={editor.saveError ? "Try again" : "Save"}
-      canSave={
-        draft.name.trim() !== "" && !needsLibraries && !listProblem && editor.conflicts.length === 0
-      }
+      canSave={!saveBlockedReason}
       onSave={() => void editor.save()}
       onDiscard={() => {
         editor.discard();
@@ -548,7 +734,13 @@ export function CollectionEditor<Raw extends WireCollection>({
                     isServer ? savedLibraries.map((library) => library.name) : undefined
                   }
                   itemCount={view.itemCount}
-                  extra={metaExtra}
+                  extra={
+                    isServer && savedRows
+                      ? [metaExtra, onRowsLine(savedRows, libraryNames)].filter(
+                          (part): part is string => Boolean(part),
+                        )
+                      : metaExtra
+                  }
                 />
               ) : null
             }
@@ -592,26 +784,78 @@ export function CollectionEditor<Raw extends WireCollection>({
             libraries={chosenLibraries}
             otherProfileNames={otherProfileNames}
             savedShared={view?.personal?.shared ?? false}
+            rows={
+              isServer ? (
+                <RowsThatShowIt
+                  rows={rowsState}
+                  libraryNames={libraryNames}
+                  highlightId={highlightId}
+                >
+                  <AddAsRowMenu
+                    {...rowPages(chosenLibraries, libraryOptions)}
+                    disabledReason={addRowBlocked}
+                    onPick={addAsRow}
+                  />
+                </RowsThatShowIt>
+              ) : undefined
+            }
+            hideConfirm={hideConfirm}
           />
         }
         footer={saveBar}
       />
-      {view && editor.etag ? (
+      {view && editor.etag && isServer ? (
+        <DeleteCollectionDialog
+          open={confirmDelete}
+          onOpenChange={(open) => (open ? setConfirmDelete(true) : closeDelete())}
+          title={`Delete "${view.name}"?`}
+          libraryNames={savedLibraries.map((library) => library.name)}
+          rows={deletingRows ? { status: "ready", rows: deletingRows } : deleteRowsState}
+          rowLibraryNames={libraryNames}
+          isPending={checkingDelete || deleteRows.isPending || remove.isPending}
+          error={deleteError}
+          onConfirm={() => void deleteServerCollection()}
+        />
+      ) : null}
+      {view && editor.etag && !isServer ? (
         <ConfirmDialog
           open={confirmDelete}
           onOpenChange={setConfirmDelete}
           title={`Delete "${view.name}"?`}
-          description={
-            isServer
-              ? serverDeleteDescription(savedLibraries.map((library) => library.name))
-              : personalDeleteDescription(view.personal?.shared ?? false)
-          }
+          description={personalDeleteDescription(view.personal?.shared ?? false)}
           confirmLabel="Delete"
           variant="destructive"
           isPending={remove.isPending}
           onConfirm={() => remove.mutate({ id: view.id, etag: editor.etag! })}
         />
       ) : null}
+      <SaveFirstDialog
+        open={savingFirst !== null}
+        description={
+          savingFirst
+            ? saveFirstDescription(
+                view?.name ?? draft.name,
+                savingFirst.page.kind === "home"
+                  ? "Home"
+                  : `the ${rowPlace(savingFirst.page, libraryNames)}`,
+                pending,
+                kind === "manual",
+              )
+            : ""
+        }
+        isSaving={editor.isSaving}
+        onCancel={() => setSavingFirst(null)}
+        discardBlockedReason={discardKeepsHidden ? DISCARD_KEEPS_IT_HIDDEN : null}
+        saveBlockedReason={saveBlockedReason}
+        onDiscard={() => {
+          if (!savingFirst || discardKeepsHidden) return;
+          editor.discard();
+          setDiscards((count) => count + 1);
+          setSavingFirst(null);
+          setDetour(savingFirst.path);
+        }}
+        onSave={() => void saveAndContinue()}
+      />
     </>
   );
 }

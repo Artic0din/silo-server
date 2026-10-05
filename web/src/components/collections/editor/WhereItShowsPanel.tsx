@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useQueries } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/collections/copy";
 import { SERVER_SCOPE, type CollectionDraft } from "@/lib/collections/scope";
 
+import { HideCollectionDialog } from "../HideCollectionDialog";
 import { focusLibrariesLine } from "../fields/librariesLineFocus";
 import { ShowToOtherProfilesField } from "../ShowToOtherProfilesField";
 import { ToggleRow } from "../fields/ToggleRow";
@@ -88,10 +89,18 @@ function ServerFacts({
   );
 }
 
+/** Rows show the collection: turning the Collections tab switch off asks first. */
+export interface HideConfirm {
+  rowCount: number;
+  /** Where the rows are ("Home and the Kids page"). */
+  places: string | null;
+}
+
 /**
- * Where the collection shows. Server: its libraries, its shelf in each and
- * the Collections tab switch. Personal: sharing with the other profiles on the
- * account (hidden on a single-profile account) and the Collections tab switch.
+ * Where the collection shows. Server: its libraries, its shelf in each, the
+ * Collections tab switch and the rows that show it (`rows`). Personal: sharing
+ * with the other profiles on the account (hidden on a single-profile account)
+ * and the Collections tab switch.
  */
 export function WhereItShowsPanel({
   scopeKind,
@@ -101,6 +110,8 @@ export function WhereItShowsPanel({
   libraries,
   otherProfileNames,
   savedShared,
+  rows,
+  hideConfirm,
 }: {
   scopeKind: "server" | "personal";
   collectionId?: string;
@@ -112,8 +123,21 @@ export function WhereItShowsPanel({
   otherProfileNames: readonly string[];
   /** Personal: whether the saved collection is shared. */
   savedShared: boolean;
+  /** Server: the rows that show it, and Add as a row. */
+  rows?: ReactNode;
+  /** Server: set when rows show it, so hiding it asks first. */
+  hideConfirm?: HideConfirm | null;
 }) {
   const id = useId();
+  const [confirmingHide, setConfirmingHide] = useState(false);
+
+  function setVisible(on: boolean) {
+    onChange((current) => ({
+      ...current,
+      server: { ...current.server, visibility: on ? "visible" : "hidden" },
+    }));
+  }
+
   return (
     <section
       aria-labelledby={`${id}-heading`}
@@ -131,14 +155,23 @@ export function WhereItShowsPanel({
               label={SHOW_ON_TAB_LABEL}
               help={serverTabHelp(libraries.map((library) => library.name))}
               checked={draft.server.visibility === "visible"}
-              onCheckedChange={(on) =>
-                onChange((current) => ({
-                  ...current,
-                  server: { ...current.server, visibility: on ? "visible" : "hidden" },
-                }))
-              }
+              onCheckedChange={(on) => {
+                // Rows that show it would keep a See all that can't open it.
+                if (!on && hideConfirm && hideConfirm.rowCount > 0) setConfirmingHide(true);
+                else setVisible(on);
+              }}
             />
           </div>
+          {rows ? <div className="border-border/70 border-t pt-5">{rows}</div> : null}
+          <HideCollectionDialog
+            open={confirmingHide}
+            onOpenChange={setConfirmingHide}
+            name={draft.name}
+            libraryNames={libraries.map((library) => library.name)}
+            rowCount={hideConfirm?.rowCount ?? 0}
+            rowPlaces={hideConfirm?.places}
+            onConfirm={() => setVisible(false)}
+          />
         </>
       ) : null}
       {scopeKind === "personal" && draft.personal ? (

@@ -19,6 +19,7 @@ export function HideCollectionDialog({
   name,
   libraryNames,
   rowCount,
+  rowPlaces,
   count = 1,
   onConfirm,
 }: {
@@ -27,6 +28,8 @@ export function HideCollectionDialog({
   name: string;
   libraryNames: readonly string[];
   rowCount: number;
+  /** Where the rows are ("Home and the Kids page"), when the rows were read. */
+  rowPlaces?: string | null;
   count?: number;
   onConfirm: () => void;
 }) {
@@ -39,7 +42,7 @@ export function HideCollectionDialog({
       description={
         several
           ? hideCollectionsDescription(rowCount)
-          : hideCollectionDescription(libraryNames, rowCount)
+          : hideCollectionDescription(libraryNames, rowCount, rowPlaces)
       }
       confirmLabel="Hide"
       onConfirm={onConfirm}

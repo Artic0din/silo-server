@@ -107,21 +107,104 @@ export function hideCollectionTitle(name: string): string {
   return `Hide ${name} from Collections tabs?`;
 }
 
-/** Hiding a collection rows show: they keep showing it, but See all can't open it. */
+/**
+ * Hiding a collection rows show: they keep showing it, but See all can't open
+ * it. `places` names where the rows are ("Home and the Kids page") when known.
+ */
 export function hideCollectionDescription(
   libraryNames: readonly string[],
   rowCount: number,
+  places?: string | null,
 ): string {
   const leaves = libraryNames.length > 0 ? `It leaves ${collectionsTabs(libraryNames)}. ` : "";
-  const rows =
-    rowCount === 1
-      ? "1 row still shows it, but its See all won't open while it's hidden."
-      : `${rowCount} rows still show it, but their See all won't open while it's hidden.`;
-  return leaves + rows;
+  const on = places ? ` on ${places}` : "";
+  if (rowCount !== 1)
+    return `${leaves}${rowCount} rows${on} still show it, but their See all won't open while it's hidden.`;
+  if (places)
+    return `${leaves}1 row${on} still shows it, but that row's See all won't open while it's hidden.`;
+  return `${leaves}1 row still shows it, but its See all won't open while it's hidden.`;
 }
 
 /** A delete the server refused because Home or library page rows still show the collection. */
 export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
+
+// --- Where it shows: rows ---------------------------------------------------
+
+export const ROWS_THAT_SHOW_IT = "Rows that show it";
+export const ROWS_NOT_LISTED = "Rows profiles add to their own Home aren't listed.";
+export const NO_ROWS_YET = "No Home or library page row shows it yet.";
+export const ROWS_FAILED = "Couldn't load the rows that show it.";
+export const ADD_AS_A_ROW = "Add as a row";
+export const OTHER_LIBRARIES = "Other libraries";
+export const CREATE_IT_FIRST = "Create it first, then add it as a row.";
+export const SHOW_IT_FIRST = "Show it on the Collections tab first. Viewers couldn't open See all.";
+export const DISCARD_KEEPS_IT_HIDDEN =
+  "It's saved as hidden from the Collections tab, so save to show it before adding it as a row.";
+export const ADD_TO_HOME = "Add to Home…";
+export const ADD_TO_HOME_HELP = "A row on everyone's Home";
+export const ADD_TO_LIBRARY_PAGE = "Add to a library page…";
+export const ADD_TO_LIBRARY_PAGE_HELP = "A row above a library's grid";
+export const OPEN_ROW = "Open row";
+
+export function rowCountLabel(count: number): string {
+  return plural(count, "row");
+}
+
+/** "Kids page": the rows above a library's grid. */
+export function libraryPageLabel(libraryName: string): string {
+  return `${libraryName} page`;
+}
+
+export const SAVE_FIRST_TITLE = "Save changes first?";
+/** Save and continue waits, like Save, for a choice on each field changed in both places. */
+export const SAVE_AFTER_CONFLICTS =
+  "Some fields changed here and elsewhere. Choose Keep mine or Use theirs for each, then save.";
+/** Save and continue waits, like Save, for changes that can be saved. */
+export const SAVE_NOT_READY = "These changes can't be saved yet. The save bar says what's missing.";
+
+/** "You're about to add Studio Ghibli as a row on Home. Name not saved yet." */
+export function saveFirstDescription(
+  name: string,
+  where: string,
+  fieldLabels: readonly string[],
+  titlesSaved: boolean,
+): string {
+  const pending = fieldLabels.length > 0 ? ` ${notSavedMessage(fieldLabels)} yet.` : "";
+  return `You're about to add ${name} as a row on ${where}.${pending}${titlesSaved ? ` ${TITLES_ALREADY_SAVED}` : ""}`;
+}
+
+/** Deleting a server collection rows show: the rows go first. */
+export function deleteWithRowsDescription(
+  libraryNames: readonly string[],
+  rowCount: number,
+): string {
+  const removed =
+    libraryNames.length > 0
+      ? `It's removed from ${joinNames(libraryNames)} for everyone.`
+      : "It's removed for everyone.";
+  return `${removed} ${rowCount === 1 ? "1 row shows it" : `${rowCount} rows show it`}:`;
+}
+
+export const KEEP_ROWS_HINT =
+  "To keep the rows, open each one and point it at another collection, then come back.";
+export const TITLES_STAY = "Titles stay in your libraries.";
+export const CHECKING_ROWS = "Checking which rows show it…";
+
+export function deleteWithRowsLabel(rowCount: number): string {
+  return `Delete it and its ${rowCountLabel(rowCount)}`;
+}
+
+/** A delete with rows found the collection changed since the editor read it: nothing went. */
+export const CHANGED_BEFORE_DELETE =
+  "This collection changed since you opened it, so nothing was deleted. Check it, then delete again.";
+/** A delete with rows couldn't read the collection first: nothing went. */
+export const CHECK_BEFORE_DELETE_FAILED =
+  "Couldn't check the collection before deleting its rows, so nothing was deleted. Try again.";
+
+/** A delete with rows that stopped part way: the collection stays. */
+export function rowsLeftMessage(rows: readonly string[]): string {
+  return `Couldn't delete every row, so the collection was kept. Still showing it: ${joinNames(rows)}.`;
+}
 
 // --- Select mode and Delete all ---------------------------------------------
 

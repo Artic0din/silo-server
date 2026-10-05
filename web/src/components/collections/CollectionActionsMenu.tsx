@@ -1,11 +1,16 @@
 import type { Ref } from "react";
-import { Eye, Pencil, RefreshCw, Trash2, Users } from "lucide-react";
+import { Eye, House, Library as LibraryIcon, Pencil, RefreshCw, Trash2, Users } from "lucide-react";
 
 import { ActionMenu, type ActionMenuItem } from "@/components/calm/ActionMenu";
 import {
+  ADD_TO_HOME,
+  ADD_TO_HOME_HELP,
+  ADD_TO_LIBRARY_PAGE,
+  ADD_TO_LIBRARY_PAGE_HELP,
   SHOW_TO_OTHER_PROFILES_LABEL,
   SHOW_TO_OTHER_PROFILES_SHORT_HELP,
 } from "@/lib/collections/copy";
+import type { PageRef } from "@/lib/homeRows/types";
 
 /** Where a collection can be opened: one item, or a submenu when there are several. */
 export interface OpenInLibraries {
@@ -39,9 +44,55 @@ function openInItem({ libraries, onOpen, disabledReason }: OpenInLibraries): Act
   };
 }
 
+/** Adding a server collection as a Home row or a library page row. */
+export interface AddAsRow {
+  /** The library pages offered, the collection's own libraries first. */
+  libraries: ReadonlyArray<{ id: number; name: string }>;
+  onAdd: (page: PageRef) => void;
+  /** Why it can't be added now, shown under each item. */
+  disabledReason?: string;
+}
+
+function addAsRowItems({ libraries, onAdd, disabledReason }: AddAsRow): ActionMenuItem[] {
+  const disabled = Boolean(disabledReason);
+  const home: ActionMenuItem = {
+    key: "add-home",
+    label: ADD_TO_HOME,
+    help: disabledReason ?? ADD_TO_HOME_HELP,
+    icon: House,
+    group: true,
+    disabled,
+    onSelect: () => onAdd({ kind: "home" }),
+  };
+  if (libraries.length === 0) return [home];
+  const page = {
+    key: "add-library",
+    label: ADD_TO_LIBRARY_PAGE,
+    help: disabledReason ?? ADD_TO_LIBRARY_PAGE_HELP,
+    icon: LibraryIcon,
+    disabled,
+  };
+  const pick = (libraryId: number) => () => onAdd({ kind: "library", libraryId });
+  return [
+    home,
+    libraries.length === 1
+      ? { ...page, onSelect: pick(libraries[0]!.id) }
+      : {
+          ...page,
+          items: libraries.map((library) => ({
+            key: `add-library-${library.id}`,
+            label: library.name,
+            icon: LibraryIcon,
+            onSelect: pick(library.id),
+          })),
+        },
+  ];
+}
+
 /**
  * The ⋯ on a collection the viewer may change: Edit collection, Open in for a
- * server collection, Sync now for a synced list, the sharing switch on a
+ * server collection, Sync now for a synced list, Add to Home and Add to a
+ * library page for a server collection, the sharing switch on a
  * multi-profile account, and Delete…. Leave out a handler and its item is
  * left out. `placement="poster"` draws the trigger over a card's artwork.
  */
@@ -50,6 +101,7 @@ export function CollectionActionsMenu({
   onEdit,
   openIn,
   sync,
+  addRow,
   share,
   onDelete,
   triggerRef,
@@ -59,6 +111,7 @@ export function CollectionActionsMenu({
   onEdit: () => void;
   openIn?: OpenInLibraries;
   sync?: { onSync: () => void; syncing: boolean };
+  addRow?: AddAsRow;
   share?: { shared: boolean; onChange: (shared: boolean) => void; disabled?: boolean };
   onDelete: () => void;
   triggerRef?: Ref<HTMLButtonElement>;
@@ -77,6 +130,7 @@ export function CollectionActionsMenu({
       onSelect: sync.onSync,
     });
   }
+  if (addRow) items.push(...addAsRowItems(addRow));
   if (share) {
     items.push({
       key: "share",

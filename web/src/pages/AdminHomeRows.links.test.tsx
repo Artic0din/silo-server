@@ -140,7 +140,10 @@ function newClient() {
   });
 }
 
-function setup(entry: string, client = newClient()) {
+function setup(
+  entry: string | { pathname: string; search: string; state: unknown },
+  client = newClient(),
+) {
   const router = createMemoryRouter(
     [
       { path: "/admin/home-rows", element: <AdminHomeRows /> },
@@ -345,6 +348,29 @@ describe("?return= on admin Home rows", () => {
     expect(await screen.findByRole("dialog", { name: "Edit row" })).toBeInTheDocument();
     expect(screen.getByLabelText("Row name")).toHaveValue("Studio Ghibli");
     expect(searchOf(router)).toBe("?page=home");
+  });
+
+  it("hands back the history state the link arrived with, after adding or not", async () => {
+    const arrived = { returnTo: "/admin/collections?view=list&q=ghibli" };
+    const entry = (): { pathname: string; search: string; state: unknown } => {
+      const url = new URL(link("/admin/collections/lib-1/edit"), "https://silo.test");
+      return { pathname: url.pathname, search: url.search, state: arrived };
+    };
+    const added = setup(entry());
+    let form = await screen.findByRole("dialog", { name: "A collection" });
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await screen.findByRole("heading", { name: "Collection editor" });
+    expect(added.state.location.state).toEqual({
+      ...arrived,
+      addedRow: expect.objectContaining({ id: "new-1" }),
+    });
+    cleanup();
+
+    const back = setup(entry());
+    form = await screen.findByRole("dialog", { name: "A collection" });
+    await userEvent.click(within(form).getByRole("button", { name: "Back to Studio Ghibli" }));
+    await screen.findByRole("heading", { name: "Collection editor" });
+    expect(back.state.location.state).toEqual(arrived);
   });
 
   it("counts rows another admin added while Add row was open", async () => {
