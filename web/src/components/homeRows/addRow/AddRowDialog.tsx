@@ -51,6 +51,12 @@ export interface AddRowDialogProps {
   libraries: ParamLibrary[];
   /** Edit row when set, Add row otherwise. */
   session: EditSession | null;
+  /** Add row opened from a link on a draft: starts at step 2 with it. */
+  initialSeed?: {
+    draft: RowDraft;
+    /** Replaces step 2's back link to the picker. */
+    back?: { label: string; onClick: () => void };
+  };
   onClose: () => void;
   /** After a row is added or saved, with the ids of new rows. */
   onSaved: (newIds: string[]) => void;
@@ -80,6 +86,7 @@ export function AddRowDialog({
   catalogFailed,
   libraries,
   session: initialSession,
+  initialSeed,
   onClose,
   onSaved,
   onDelete,
@@ -89,13 +96,13 @@ export function AddRowDialog({
   const narrow = useMediaQuery("(max-width: 1023px)");
   const phone = useMediaQuery("(max-width: 639px)");
   const page = labelOfPage(adapter.page, adapter.pages);
-  const [step, setStep] = useState<"pick" | "form">(editing ? "form" : "pick");
+  const [step, setStep] = useState<"pick" | "form">(editing || initialSeed ? "form" : "pick");
   const [query, setQuery] = useState("");
   const [session, setSession] = useState(initialSession);
   const [original, setOriginal] = useState<RowDraft | null>(() =>
     initialSession ? draftFromRow(initialSession.row, catalog) : null,
   );
-  const [draft, setDraft] = useState<RowDraft | null>(original);
+  const [draft, setDraft] = useState<RowDraft | null>(original ?? initialSeed?.draft ?? null);
   // A row opened before the kinds of rows loaded couldn't tell whether its name
   // is still its variant's preset name; work that out once they arrive.
   const [namedWithCatalog, setNamedWithCatalog] = useState(catalog !== undefined);
@@ -277,7 +284,7 @@ export function AddRowDialog({
   // Step 2 of Add row goes back to the picker; the Change picker goes back to Edit row.
   const back =
     step === "form" && !editing
-      ? { label: "All rows", onClick: () => setStep("pick") }
+      ? (initialSeed?.back ?? { label: "All rows", onClick: () => setStep("pick") })
       : changing
         ? { label: "Edit row", onClick: () => setStep("form") }
         : null;

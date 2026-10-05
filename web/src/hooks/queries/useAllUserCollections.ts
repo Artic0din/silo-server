@@ -88,10 +88,16 @@ export function buildAllUserCollectionOptions(
 }
 
 export function useAllUserCollections() {
-  const { data: libraries } = useUserLibraries();
+  const {
+    data: libraries,
+    isLoading: librariesLoading,
+    isFetching: librariesFetching,
+    isError: librariesFailed,
+  } = useUserLibraries();
   const {
     data: userCollections,
     isLoading: userCollectionsLoading,
+    isFetching: userCollectionsFetching,
     isError: userCollectionsFailed,
   } = useCollections();
 
@@ -102,8 +108,12 @@ export function useAllUserCollections() {
     })),
   });
 
-  const isLoading = libraryQueries.some((q) => q.isLoading) || userCollectionsLoading;
-  const isError = libraryQueries.some((q) => q.isError) || userCollectionsFailed;
+  // Until the libraries load, their collections aren't even asked for.
+  const isLoading =
+    librariesLoading || libraryQueries.some((q) => q.isLoading) || userCollectionsLoading;
+  const isFetching =
+    librariesFetching || libraryQueries.some((q) => q.isFetching) || userCollectionsFetching;
+  const isError = librariesFailed || libraryQueries.some((q) => q.isError) || userCollectionsFailed;
 
   const libraryCollectionsByLibrary = libraryQueries.map((result) =>
     Array.isArray(result.data) ? result.data : undefined,
@@ -114,5 +124,5 @@ export function useAllUserCollections() {
     libraryCollectionsByLibrary,
   );
 
-  return { collections, isLoading, isError };
+  return { collections, isLoading, isFetching, isError };
 }

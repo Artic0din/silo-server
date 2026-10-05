@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMinus,
   Download,
@@ -24,6 +24,7 @@ import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
+import { useRowDialog, useRowLinks } from "@/components/homeRows/useRowLinks";
 import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer";
 import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
 import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
@@ -36,7 +37,7 @@ import {
 } from "@/hooks/queries/settingValues";
 import { collectionKind, profilePageName, type CollectionSummary } from "@/lib/homeRows/describe";
 import { pageLabel } from "@/lib/homeRows/pages";
-import type { EditSession, HomeRow } from "@/lib/homeRows/types";
+import type { HomeRow } from "@/lib/homeRows/types";
 import { SETTING_KEYS } from "@/lib/settingsContract";
 
 export { buildProfileGallerySection } from "@/lib/homeRows/payloads";
@@ -92,8 +93,10 @@ export default function HomeScreenSettings() {
   const pageName = profilePageName(label);
   const layoutExport = useHomeLayoutExport();
   const [importOpen, setImportOpen] = useState(false);
-  const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
+  const [rowDialog, setRowDialog] = useRowDialog();
   const [highlightId, setHighlightId] = useNewRowHighlight();
+  // A row added from a link, waiting for its save to land before going back.
+  const landing = useRef<{ ids: string[]; onAdded: (newIds: string[]) => void } | null>(null);
   const [removing, setRemoving] = useState<HomeRow | null>(null);
   const [deletingRuleRows, setDeletingRuleRows] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -135,6 +138,36 @@ export default function HomeScreenSettings() {
         toast.error(error instanceof Error ? error.message : "Could not open this row"),
       );
   }
+
+  useRowLinks({
+    adapter,
+    catalog: adapter.catalog,
+    catalogFailed: adapter.catalogFailed,
+    // Its saved changes and any rule-row lock decide whether the page can change.
+    settled:
+      adapter.status === "ready" &&
+      !adapter.overridesLoading &&
+      adapter.pageLockCheck !== "loading",
+    onAdd: (seed) => setRowDialog({ session: null, seed }),
+    onEdit: openRow,
+  });
+
+  // Saves are queued, so Add row closes before this one lands. It goes back once
+  // the row is on the page, which may take a later read when the one after the
+  // save fails. A failed save has already said so, and the page stays for
+  // another try.
+  const { pending, rows, lastWriteAt } = adapter;
+  useEffect(() => {
+    const added = landing.current;
+    if (!added || pending) return;
+    const [id] = added.ids;
+    if (rows.some((row) => row.id === id)) {
+      landing.current = null;
+      added.onAdded(added.ids);
+    } else if (!id || lastWriteAt(id) === undefined) {
+      landing.current = null;
+    }
+  }, [pending, rows, lastWriteAt]);
 
   function confirmRemove() {
     if (!removing) return;
@@ -335,13 +368,19 @@ export default function HomeScreenSettings() {
       ) : null}
       {rowDialog ? (
         <AddRowDialog
+          key={rowDialog.key}
           adapter={adapter}
           catalog={adapter.catalog}
           catalogFailed={adapter.catalogFailed}
           libraries={libraries ?? []}
           session={rowDialog.session}
+          initialSeed={rowDialog.seed}
           onClose={() => setRowDialog(null)}
-          onSaved={(newIds) => setHighlightId(newIds[0] ?? null)}
+          onSaved={(newIds) => {
+            const onAdded = rowDialog.seed?.onAdded;
+            if (onAdded) landing.current = { ids: newIds, onAdded };
+            else setHighlightId(newIds[0] ?? null);
+          }}
           deleteLabel={editingRow && !editingRow.own ? `Remove from my ${pageName}…` : undefined}
           onDelete={(session) => {
             setRowDialog(null);

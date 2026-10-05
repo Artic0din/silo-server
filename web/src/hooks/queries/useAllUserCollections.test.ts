@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { LibraryCollection } from "@/api/types";
-import { buildAllUserCollectionOptions } from "./useAllUserCollections";
+import { buildAllUserCollectionOptions, useAllUserCollections } from "./useAllUserCollections";
+
+const mocks = vi.hoisted(() => ({
+  libraries: {} as Record<string, unknown>,
+}));
+vi.mock("./libraries", () => ({ useUserLibraries: () => mocks.libraries }));
+vi.mock("./collections", () => ({
+  useCollections: () => ({ data: [], isLoading: false, isFetching: false, isError: false }),
+}));
 
 function libraryCollection(id: string, title: string): LibraryCollection {
   return {
@@ -145,5 +156,24 @@ describe("buildAllUserCollectionOptions", () => {
         poster_thumbhash: "def",
       },
     ]);
+  });
+});
+
+describe("useAllUserCollections", () => {
+  function render() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    return renderHook(() => useAllUserCollections(), { wrapper }).result.current;
+  }
+
+  it("is still loading while the libraries, and so their collections, are unknown", () => {
+    mocks.libraries = { data: undefined, isLoading: true, isFetching: true, isError: false };
+    expect(render()).toMatchObject({ collections: [], isLoading: true, isFetching: true });
+  });
+
+  it("has failed when the libraries didn't load", () => {
+    mocks.libraries = { data: undefined, isLoading: false, isFetching: false, isError: true };
+    expect(render()).toMatchObject({ isLoading: false, isError: true });
   });
 });

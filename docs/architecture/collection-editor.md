@@ -187,3 +187,34 @@ several, the web searches each (at most four requests at once) and merges the re
 personal collection searches every library the profile can see. The search is a convenience,
 not the access check: the personal item route refuses a title the acting profile can't see, and a
 server collection's members are filtered per viewer when they are read.
+
+## Links into Home rows
+
+Both Home rows pages (`/admin/home-rows` and `/settings/home-screen`) take link parameters next to
+`?page=`, read by `web/src/lib/homeRows/rowLinks.ts` and followed by
+`web/src/components/homeRows/useRowLinks.ts`. Each page reads them once and drops them from the
+address, so a reload doesn't repeat them.
+
+- `?add=collection:library:<id>` (both pages) or `collection:user:<id>` (Settings > Home Screen
+  only) opens Add row at step 2 on that collection. It waits until the page's rows are loaded and
+  it is known whether the page can change, then for the page's collection options, and opens only
+  when the id is among them. A refresh that fails gets the options-failed toast even when the old
+  options hold the id, since they may hold a collection hidden or deleted since. A hidden, deleted, unknown or unshared collection, or a page that
+  can't change, gets a toast and nothing opens; options that fail to load get their own toast.
+  Options read before a collection was made or deleted are
+  refreshed first, and a match or a miss waits for that refresh: the collection scopes'
+  `invalidate` marks the admin collection list, the personal list and the library tabs stale, and
+  those are what the options read.
+- `?edit=<rowId>` opens that row in Edit row; a row that is gone gets a toast.
+- `?return=<path>` makes the dialog's back link "Back to *collection*" and, after Add row, goes to
+  that path with a toast that offers to move the new row (`?edit=` on the same page). Both replace
+  the Home rows history entry. Settings > Home Screen queues its saves, so there it goes back only
+  once the save lands and the row is on the page, even when that takes a later read because the
+  one after the save failed; a failed save keeps the viewer on Home rows with the save's error
+  toast. The toast's position counts the page's rows when the add lands, not when the dialog
+  opened. A link that arrives while the dialog is open starts a fresh dialog on its target. After Add row the navigation state carries `addedRow` (the
+  `AddedRowState` type: new row id, surface, page and position) so
+  the collection's page can show which row is new. The path is honoured only when it starts with
+  `/admin/collections/` or `/collections/` and neither it nor its decoded form holds a backslash,
+  `//`, a control character or a `.`/`..` segment; anything else is ignored, so the parameter
+  can't send a viewer off the site.

@@ -7,6 +7,7 @@ import { adminCollectionFromV2 } from "@/api/adminCollections";
 import { collectionFromV2 } from "@/api/personalCollections";
 import type { Collection, LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
+import { adminKeys, collectionKeys, libraryCollectionKeys } from "@/hooks/queries/keys";
 import {
   adminCollection,
   adminSmartCollection,
@@ -538,6 +539,25 @@ describe("invalidate", () => {
       ["admin", "collections"],
       ["admin", "collectionGroups"],
     ]);
+  });
+
+  // Add to Home follows a save in the editor; the Home rows pages must not
+  // offer collections from before it.
+  it("refreshes the collection options of both Home rows pages", async () => {
+    const adminOptions = adminKeys.collections(undefined);
+    const profileOwn = collectionKeys.list();
+    const profileServer = libraryCollectionKeys.list(7);
+    const stale = async (scope: CollectionScope<never>) => {
+      const client = new QueryClient();
+      for (const key of [adminOptions, profileOwn, profileServer]) client.setQueryData(key, {});
+      await scope.invalidate(client, "c1");
+      const invalidated = (key: readonly unknown[]) =>
+        client.getQueryState(key)?.isInvalidated ?? false;
+      return [invalidated(adminOptions), invalidated(profileOwn), invalidated(profileServer)];
+    };
+    // A profile reads server collections from the library tabs; admin rows offer no personal ones.
+    expect(await stale(SERVER_SCOPE as CollectionScope<never>)).toEqual([true, false, true]);
+    expect(await stale(PERSONAL_SCOPE as CollectionScope<never>)).toEqual([false, true, true]);
   });
 });
 
