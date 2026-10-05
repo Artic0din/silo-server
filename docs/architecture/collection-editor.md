@@ -39,7 +39,7 @@ fails closed, so the page waits for the acting profile before it decides.
   then one `PUT` per staged title in order. Titles that fail stay listed and marked, with Try
   again.
 - **Artwork** saves after the collection: a file or link uploads, a staged removal sends `DELETE
-  …/image`, and a new file in the same slot replaces the image without a DELETE. A slot whose
+…/image`, and a new file in the same slot replaces the image without a DELETE. A slot whose
   upload fails after the collection saved stays staged and offers Retry.
 - **Pin** (`featured`, "Pin to the start of its shelf") is not part of the draft. It is set in
   Arrange. A collection created in the editor is created unpinned, and an editor PATCH leaves
@@ -205,7 +205,7 @@ address, so a reload doesn't repeat them.
   `invalidate` marks the admin collection list, the personal list and the library tabs stale, and
   those are what the options read.
 - `?edit=<rowId>` opens that row in Edit row; a row that is gone gets a toast.
-- `?return=<path>` makes the dialog's back link "Back to *collection*" and, after Add row, goes to
+- `?return=<path>` makes the dialog's back link "Back to _collection_" and, after Add row, goes to
   that path with a toast that offers to move the new row (`?edit=` on the same page). Both replace
   the Home rows history entry. Settings > Home Screen queues its saves, so there it goes back only
   once the save and the refetch after it land with the row on the page; a failed save keeps the
@@ -221,7 +221,7 @@ address, so a reload doesn't repeat them.
 A server collection's Where it shows panel lists the administrator Home and library page rows that
 show it, from `listAdminCollectionSections`, and offers **Add as a row** (Home, then the library
 pages of the collection's own libraries, then the other libraries). The same rows give the header
-its "On Home and the *Kids* page" (turned-off rows left out). Rows profiles add to their own Home
+its "On Home and the _Kids_ page" (turned-off rows left out). Rows profiles add to their own Home
 are not listed, because the route reads the administrator page layouts only. When the collections
 capabilities don't report `section_references`, the list is left out and Add as a row stays.
 
@@ -245,8 +245,14 @@ capabilities don't report `section_references`, the list is left out and Add as 
 - **Deleting** a collection rows show lists them, each with Open row, and offers to delete the
   rows and then the collection. Each row is read again for its ETag right before its `DELETE`; a
   row that is already gone, or that now shows another collection, is left alone (the list of rows
-  can be stale, and the collection's own `DELETE` still refuses while any row uses it). The first row that fails stops the run before the
-  collection is touched, and the dialog names the rows that still show it. Without
-  `section_references`, the server's `409 collection_in_use` answer is shown as "Rows still use it.
-  Remove them first." The List also falls back to the rows list when a `409` arrives for a
-  collection its counts showed as unused.
+  can be stale, and the collection's own `DELETE` still refuses while any row uses it). The first
+  row that fails stops the run before the collection is touched, and the dialog names the rows
+  that still show it. When the rows list fails to load, the delete waits for Retry only if the
+  List's `row_count` says rows show it; otherwise the plain confirm deletes and the server's
+  `409 collection_in_use` guards a row added since. On the List, that `409` is shown as "Rows
+  still use it. Remove them first." without `section_references`, and with it the List falls back
+  to the rows list for a collection its counts showed as unused. The editor shows the server's
+  message and reads the rows again.
+- **Row places** ("Home · row 6 of 9") are each row's rank in its page's order
+  (`getAdminSectionOrder`, read once per page alongside the rows), because stored positions skip
+  numbers after a row is deleted.
