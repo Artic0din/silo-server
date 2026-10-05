@@ -229,16 +229,23 @@ capabilities don't report `section_references`, the list is left out and Add as 
   editor, `?return=` set to the editor's own URL (see Links into Home rows). The List's Add to Home
   and Add to a library page send no `return`, because the List's address is not a collection page
   the allowlist accepts; Home rows keeps its own after-add step. With unsaved changes the editor
-  asks first: Save and continue saves and goes only if the save succeeded, Discard changes drops
-  the draft (titles stay), Cancel stays. A collection not created yet, or one hidden from its
-  Collections tab, can't be added, because a row couldn't open its See all; the button says why.
+  asks first: Save and continue saves and goes only once nothing is left unsaved (artwork that
+  failed to upload stays in the editor with its error), Discard changes drops the draft (titles
+  stay), Cancel stays. Discard changes is off when the collection is saved as hidden, since only
+  saving would show it. A collection not created yet, or one hidden from its Collections tab,
+  can't be added, because a row couldn't open its See all; the button says why.
 - **Back from Home rows**, the `addedRow` state names the new row, which is highlighted once the
-  rows list includes it.
+  rows list includes it. The editor sends Home rows the List view it was opened from as history
+  state, and Home rows hands that state back with `addedRow`, so the editor's Back still reaches
+  that view.
 - **Hiding** a collection rows show asks first, naming the pages the rows are on, as the List does
-  with its `row_count`. The switch stays part of the draft until Save.
+  with its `row_count`. While the rows list hasn't loaded (or failed), the List's `row_count` for
+  the collection still triggers the question, without naming pages. The switch stays part of the
+  draft until Save.
 - **Deleting** a collection rows show lists them, each with Open row, and offers to delete the
   rows and then the collection. Each row is read again for its ETag right before its `DELETE`; a
-  row that is already gone counts as deleted. The first row that fails stops the run before the
+  row that is already gone, or that now shows another collection, is left alone (the list of rows
+  can be stale, and the collection's own `DELETE` still refuses while any row uses it). The first row that fails stops the run before the
   collection is touched, and the dialog names the rows that still show it. Without
   `section_references`, the server's `409 collection_in_use` answer is shown as "Rows still use it.
   Remove them first." The List also falls back to the rows list when a `409` arrives for a
