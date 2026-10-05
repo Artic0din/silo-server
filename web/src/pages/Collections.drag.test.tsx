@@ -198,6 +198,38 @@ describe("Your collections confirm dialogs", () => {
     await vi.waitFor(() => expect(trigger).toHaveFocus());
   });
 
+  it("keep the collection's name in their titles while they close", async () => {
+    show();
+    // Every text the dialogs ever rendered, including frames that a closing
+    // dialog shows only until it unmounts.
+    const titles: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData") titles.push(record.target.nodeValue ?? "");
+        for (const node of record.addedNodes) titles.push(node.textContent ?? "");
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+
+    for (const item of ["Delete…", "Show to other profiles"]) {
+      await userEvent.click(await screen.findByRole("button", { name: "More for Rainy days" }));
+      const menu = await screen.findByRole("menu");
+      await userEvent.click(
+        within(menu).getByRole(item === "Delete…" ? "menuitem" : "menuitemcheckbox", {
+          name: item,
+        }),
+      );
+      const dialog = await screen.findByRole("alertdialog");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await vi.waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    }
+    observer.disconnect();
+
+    expect(titles.some((text) => text.includes('Delete "Rainy days"?'))).toBe(true);
+    expect(titles.some((text) => text.includes("Stop sharing Rainy days?"))).toBe(true);
+    expect(titles.filter((text) => text.includes("undefined"))).toEqual([]);
+  });
+
   it("return focus to the card's ⋯ when stopping sharing is cancelled", async () => {
     show();
     const trigger = await screen.findByRole("button", { name: "More for Rainy days" });

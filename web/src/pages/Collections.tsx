@@ -298,8 +298,15 @@ function YourCollections({
   const sync = useSyncUserCollection();
   const share = useSetCollectionShared();
   const reorderMutation = useReorderCollections();
-  const [confirmDelete, setConfirmDelete] = useState<CollectionEditSnapshot | null>(null);
-  const [confirmUnshare, setConfirmUnshare] = useState<Collection | null>(null);
+  // A closing dialog stays on screen while it animates out, so it keeps the
+  // collection it was about until the next one opens; only `open` resets.
+  const [confirmDelete, setConfirmDelete] = useState<{
+    open: boolean;
+    snapshot?: CollectionEditSnapshot;
+  }>({ open: false });
+  const [confirmUnshare, setConfirmUnshare] = useState<{ open: boolean; collection?: Collection }>({
+    open: false,
+  });
   const dragSnapshot = useRef<Promise<string>>(undefined);
   const ids = collections.map((collection) => collection.id);
   // The confirm dialogs open from a menu item that is gone once they close,
@@ -337,7 +344,7 @@ function YourCollections({
     if (shared) share.mutate({ id: collection.id, shared });
     else {
       confirmFor.current = collection.id;
-      setConfirmUnshare(collection);
+      setConfirmUnshare({ open: true, collection });
     }
   }
 
@@ -349,33 +356,36 @@ function YourCollections({
       note={collections.length > 0 ? "Only you can change these" : undefined}
     >
       <ConfirmDialog
-        open={confirmDelete !== null}
+        open={confirmDelete.open}
         onOpenChange={(open) => {
-          if (!open) setConfirmDelete(null);
+          if (!open) setConfirmDelete((current) => ({ ...current, open: false }));
         }}
-        title={`Delete "${confirmDelete?.collection.name}"?`}
-        description={personalDeleteDescription(confirmDelete?.collection.is_shared ?? false)}
+        title={`Delete "${confirmDelete.snapshot?.collection.name ?? ""}"?`}
+        description={personalDeleteDescription(
+          confirmDelete.snapshot?.collection.is_shared ?? false,
+        )}
         confirmLabel="Delete"
         variant="destructive"
         onCloseAutoFocus={focusMenuTrigger}
         onConfirm={() => {
-          if (confirmDelete)
-            remove.mutate({ id: confirmDelete.collection.id, etag: confirmDelete.etag });
-          setConfirmDelete(null);
+          const { snapshot } = confirmDelete;
+          if (snapshot) remove.mutate({ id: snapshot.collection.id, etag: snapshot.etag });
+          setConfirmDelete({ open: false, snapshot });
         }}
       />
       <ConfirmDialog
-        open={confirmUnshare !== null}
+        open={confirmUnshare.open}
         onOpenChange={(open) => {
-          if (!open) setConfirmUnshare(null);
+          if (!open) setConfirmUnshare((current) => ({ ...current, open: false }));
         }}
-        title={`Stop sharing ${confirmUnshare?.name}?`}
+        title={`Stop sharing ${confirmUnshare.collection?.name ?? ""}?`}
         description={unshareConsequence(otherProfileNames)}
         confirmLabel="Stop sharing"
         onCloseAutoFocus={focusMenuTrigger}
         onConfirm={() => {
-          if (confirmUnshare) share.mutate({ id: confirmUnshare.id, shared: false });
-          setConfirmUnshare(null);
+          const { collection } = confirmUnshare;
+          if (collection) share.mutate({ id: collection.id, shared: false });
+          setConfirmUnshare({ open: false, collection });
         }}
       />
       {collections.length === 0 ? (
@@ -426,7 +436,7 @@ function YourCollections({
                       onDelete={() => {
                         confirmFor.current = collection.id;
                         void fetchCollectionEditSnapshot(collection.id)
-                          .then(setConfirmDelete)
+                          .then((snapshot) => setConfirmDelete({ open: true, snapshot }))
                           .catch((error) => toast.error(error.message));
                       }}
                     />
