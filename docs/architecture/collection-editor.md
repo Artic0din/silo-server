@@ -39,7 +39,7 @@ fails closed, so the page waits for the acting profile before it decides.
   then one `PUT` per staged title in order. Titles that fail stay listed and marked, with Try
   again.
 - **Artwork** saves after the collection: a file or link uploads, a staged removal sends `DELETE
-…/image`, and a new file in the same slot replaces the image without a DELETE. A slot whose
+  …/image`, and a new file in the same slot replaces the image without a DELETE. A slot whose
   upload fails after the collection saved stays staged and offers Retry.
 - **Pin** (`featured`, "Pin to the start of its shelf") is not part of the draft. It is set in
   Arrange. A collection created in the editor is created unpinned, and an editor PATCH leaves
@@ -205,7 +205,7 @@ address, so a reload doesn't repeat them.
   `invalidate` marks the admin collection list, the personal list and the library tabs stale, and
   those are what the options read.
 - `?edit=<rowId>` opens that row in Edit row; a row that is gone gets a toast.
-- `?return=<path>` makes the dialog's back link "Back to _collection_" and, after Add row, goes to
+- `?return=<path>` makes the dialog's back link "Back to *collection*" and, after Add row, goes to
   that path with a toast that offers to move the new row (`?edit=` on the same page). Both replace
   the Home rows history entry. Settings > Home Screen queues its saves, so there it goes back only
   once the save and the refetch after it land with the row on the page; a failed save keeps the
