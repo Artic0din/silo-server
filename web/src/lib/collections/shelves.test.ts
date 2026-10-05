@@ -4,10 +4,12 @@ import type { LibraryCollection, LibraryCollectionGroup } from "@/api/types";
 import {
   UNGROUPED,
   applyCollectionMove,
+  applyPin,
   applyShelfMove,
   boardShelves,
   planCollectionMove,
   planShelfMove,
+  pinnedBand,
   shelfCountLine,
   shownCollections,
   type Shelf,
@@ -109,6 +111,52 @@ describe("shownCollections", () => {
   });
 });
 
+describe("pinned collections", () => {
+  const pinned = (id: string) => collection(id, { featured: true });
+  const shelf = (sortMode: Shelf["sortMode"]): Shelf => ({
+    id: "s",
+    kind: "regular",
+    name: "s",
+    sortMode,
+    collections: [collection("a"), pinned("p1"), collection("b"), pinned("p2")],
+  });
+
+  it("lead a Your order shelf in a band, each part in its stored order", () => {
+    expect(shownCollections(shelf("manual")).map((entry) => entry.id)).toEqual([
+      "p1",
+      "p2",
+      "a",
+      "b",
+    ]);
+    expect(pinnedBand(shelf("manual")).map((entry) => entry.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("lead No heading too, which viewers see in your order", () => {
+    const loose = boardShelves([], [collection("x"), pinned("p")], 0)[0]!;
+    expect(shownCollections(loose).map((entry) => entry.id)).toEqual(["p", "x"]);
+  });
+
+  it("change nothing on a shelf that sorts itself, which has no band", () => {
+    expect(shownCollections(shelf("name_asc")).map((entry) => entry.id)).toEqual([
+      "a",
+      "b",
+      "p1",
+      "p2",
+    ]);
+    expect(pinnedBand(shelf("name_asc"))).toEqual([]);
+  });
+
+  it("show a pin or unpin at once, wherever the collection is", () => {
+    const next = applyPin([shelf("manual")], "a", true);
+    expect(next[0]!.collections.find((entry) => entry.id === "a")?.featured).toBe(true);
+    expect(pinnedBand(next[0]!).map((entry) => entry.id)).toEqual(["a", "p1", "p2"]);
+    expect(pinnedBand(applyPin(next, "p1", false)[0]!).map((entry) => entry.id)).toEqual([
+      "a",
+      "p2",
+    ]);
+  });
+});
+
 describe("shelfCountLine", () => {
   it("counts the collections and names an automatic order", () => {
     expect(shelfCountLine(board[0]!)).toBe("3 collections");
@@ -161,6 +209,68 @@ describe("planCollectionMove", () => {
 
   it("never puts a server collection on My collections", () => {
     expect(planCollectionMove(board, "xmas", "mine", null)).toBeNull();
+  });
+});
+
+describe("planCollectionMove with a pinned band", () => {
+  // Shown as p1, p2 | a, b: the band leads the shelf.
+  const banded = boardShelves(
+    [
+      group("studios", 0, [
+        collection("a"),
+        collection("p1", { featured: true }),
+        collection("b"),
+        collection("p2", { featured: true }),
+      ]),
+      group("awards", 1, [collection("x"), collection("q", { featured: true })]),
+      group("sorted", 2, [collection("n", { featured: true })], { default_sort_mode: "name_asc" }),
+    ],
+    [],
+    3,
+  );
+
+  it("keeps a card dropped on the band right after it, and saves the order shown", () => {
+    expect(planCollectionMove(banded, "b", "studios", "p1")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["p1", "p2", "b", "a"],
+    });
+  });
+
+  it("keeps a pinned card in the band, at its end when dropped below it", () => {
+    expect(planCollectionMove(banded, "p1", "studios", "b")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["p2", "p1", "a", "b"],
+    });
+    expect(planCollectionMove(banded, "p2", "studios", "p1")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["p2", "p1", "a", "b"],
+    });
+  });
+
+  it("changes nothing when the band puts a card back where it was", () => {
+    expect(planCollectionMove(banded, "a", "studios", "p2")).toBeNull();
+  });
+
+  it("puts a card from another shelf after the band, and a pinned one at the band's end", () => {
+    expect(planCollectionMove(banded, "x", "studios", "p1")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["p1", "p2", "x", "a", "b"],
+    });
+    expect(planCollectionMove(banded, "q", "studios", "a")).toEqual({
+      shelfId: "studios",
+      orderedIds: ["p1", "p2", "q", "a", "b"],
+    });
+    expect(planCollectionMove(banded, "n", "studios", null)).toEqual({
+      shelfId: "studios",
+      orderedIds: ["p1", "p2", "n", "a", "b"],
+    });
+  });
+
+  it("leaves a shelf that sorts itself in its stored order", () => {
+    expect(planCollectionMove(banded, "x", "sorted", null)).toEqual({
+      shelfId: "sorted",
+      orderedIds: ["n", "x"],
+    });
   });
 });
 

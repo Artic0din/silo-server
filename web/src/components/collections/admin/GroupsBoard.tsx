@@ -28,7 +28,10 @@ import {
 } from "@/api/adminCollections";
 import type { GroupSortMode, LibraryCollection } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
+import {
+  useAdminCollectionCapabilities,
+  useSetAdminCollectionPin,
+} from "@/hooks/queries/admin/collections";
 import {
   useCreateCollectionGroup,
   useDeleteCollectionGroup,
@@ -49,6 +52,7 @@ import {
   UNGROUPED,
   acceptsCollections,
   applyCollectionMove,
+  applyPin,
   applyShelfMove,
   boardShelves,
   planCollectionMove,
@@ -111,14 +115,22 @@ function collectionDrop(target: ArrangeDragData): { shelfId: string; overId: str
   return { shelfId: target.kind === "shelf" ? target.id : target.shelfId, overId: null };
 }
 
-/** A collection drag only meets cards and shelf bodies; a shelf drag only meets shelves. */
+/**
+ * A collection drag only meets cards and shelf bodies; a shelf drag only
+ * meets shelves. Only a pinned collection meets the cards in a pinned band,
+ * so nothing else is shown landing above it.
+ */
 const collision: CollisionDetection = (args) => {
-  const shelfDrag = (args.active.data.current as ArrangeDragData | undefined)?.kind === "shelf";
+  const active = args.active.data.current as ArrangeDragData | undefined;
+  const shelfDrag = active?.kind === "shelf";
+  const pinnedDrag = active?.kind === "collection" && active.pinned;
   return closestCenter({
     ...args,
-    droppableContainers: args.droppableContainers.filter(
-      (container) => String(container.id).startsWith("shelf:") === shelfDrag,
-    ),
+    droppableContainers: args.droppableContainers.filter((container) => {
+      if (String(container.id).startsWith("shelf:") !== shelfDrag) return false;
+      const target = container.data.current as ArrangeDragData | undefined;
+      return pinnedDrag || target?.kind !== "collection" || !target.banded;
+    }),
   });
 };
 
@@ -197,6 +209,7 @@ export function GroupsBoard({
   const deleteGroup = useDeleteCollectionGroup();
   const reorderGroups = useReorderCollectionGroups(libraryID);
   const reorderCollections = useReorderCollectionsInGroup(libraryID);
+  const setPin = useSetAdminCollectionPin();
 
   const [naming, setNaming] = useState<
     { mode: "create" } | { mode: "rename"; shelf: Shelf; name: string; etag: string } | null
@@ -317,6 +330,13 @@ export function GroupsBoard({
     await deleteGroup.mutateAsync({ id: shelf.id, etag: (await readShelf(shelf.id)).etag });
   }
 
+  /** Pin shows at once; the hook says when it fails, and the board goes back. */
+  function changePin(collection: LibraryCollection, pinned: boolean) {
+    void change(applyPin(shelves, collection.id, pinned), () =>
+      setPin.mutateAsync({ id: collection.id, pinned }),
+    ).catch(() => undefined);
+  }
+
   function moveToShelf(collection: LibraryCollection, shelfId: string) {
     const plan = planCollectionMove(saved, collection.id, shelfId, null);
     if (plan) saveCollectionMove(collection.id, plan);
@@ -381,6 +401,16 @@ export function GroupsBoard({
       const shelf = shelfById(id);
       return shelf ? `shelf ${shelf.name}` : "Shelf";
     };
+    /** Where a planned move puts the collection, as viewers will see it. */
+    const landing = (id: string, plan: CollectionMove): string => {
+      const shelf = applyCollectionMove(shelves, id, plan).find(
+        (entry) => entry.id === plan.shelfId,
+      );
+      if (!shelf) return "";
+      const shown = shownCollections(shelf);
+      const index = shown.findIndex((entry) => entry.id === id);
+      return `position ${index + 1} of ${shown.length} on ${shelf.name}`;
+    };
     const place = (id: UniqueIdentifier): string => {
       const text = String(id);
       if (text.startsWith("col:")) {
@@ -404,13 +434,16 @@ export function GroupsBoard({
       const target = over.data.current as ArrangeDragData | undefined;
       if (String(active.id).startsWith("col:") && target) {
         const { shelfId, overId } = collectionDrop(target);
-        if (!planCollectionMove(shelves, bare(active.id), shelfId, overId)) {
+        const plan = planCollectionMove(shelves, bare(active.id), shelfId, overId);
+        if (!plan) {
           const shelf = shelfById(shelfId);
           const by = shelf && sortedBy(shelf.sortMode);
           if (by && shelfOf(shelves, bare(active.id)) === shelf)
             return `${shelf.name} sorts by ${by}, so the order didn't change.`;
           return `${name(active.id)} dropped. Nothing moved.`;
         }
+        // The pinned band can put it somewhere other than the card it was dropped on.
+        return `${name(active.id)} dropped at ${landing(bare(active.id), plan)}.`;
       }
       return `${name(active.id)} dropped at ${place(over.id)}.`;
     };
@@ -457,8 +490,12 @@ export function GroupsBoard({
         currentShelfId={shelf.id}
         canMove={canEdit && !changing}
         visible={visible}
+        pinned={collection.featured}
+        canPin={canEdit && !changing}
+        inSeveralLibraries={collection.library_ids.length > 1}
         onEdit={() => onEditCollection(collection)}
         onMove={(shelfId) => moveToShelf(collection, shelfId)}
+        onPinChange={(pinned) => changePin(collection, pinned)}
         onVisibleChange={(next) => onVisibleChange(collection, next)}
       />
     );
@@ -467,6 +504,7 @@ export function GroupsBoard({
         variant="compact"
         collection={collection}
         visible={visible}
+        pinned={collection.featured}
         handleProps={sortable.handleProps}
         ref={sortable.ref}
         style={sortable.style}
@@ -477,7 +515,11 @@ export function GroupsBoard({
     );
   }
 
-  const movingShelf = moving ? shelfOf(shelves, moving.id) : undefined;
+  // The sheet follows the board, so a Pin made from it shows there at once.
+  const movingNow = moving
+    ? shelves.flatMap((shelf) => shelf.collections).find((entry) => entry.id === moving.id)
+    : undefined;
+  const movingShelf = movingNow ? shelfOf(shelves, movingNow.id) : undefined;
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start">
@@ -585,17 +627,19 @@ export function GroupsBoard({
         />
       ) : null}
 
-      {moving && movingShelf ? (
+      {movingNow && movingShelf ? (
         <MoveCollectionSheet
-          collection={moving}
+          collection={movingNow}
           libraryName={libraryName}
           shelves={takers}
-          currentShelfId={movingShelf.id}
+          currentShelf={movingShelf}
           canMove={canEdit && !changing}
-          visible={isVisible(moving)}
-          onMove={(shelfId) => moveToShelf(moving, shelfId)}
-          onEdit={() => onEditCollection(moving)}
-          onVisibleChange={(next) => onVisibleChange(moving, next)}
+          visible={isVisible(movingNow)}
+          canPin={canEdit && !changing}
+          onMove={(shelfId) => moveToShelf(movingNow, shelfId)}
+          onEdit={() => onEditCollection(movingNow)}
+          onPinChange={(pinned) => changePin(movingNow, pinned)}
+          onVisibleChange={(next) => onVisibleChange(movingNow, next)}
           onClose={() => setMoving(null)}
         />
       ) : null}

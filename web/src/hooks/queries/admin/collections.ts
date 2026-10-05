@@ -216,27 +216,47 @@ export function useUpdateAdminCollection() {
 }
 
 /**
- * The list's Collections tab switch. It reads the collection fresh for its
- * ETag and type, then sends only `collection_type` and `visibility`, so
- * nothing else on the collection can be overwritten by a stale list.
+ * A list's one-field change. It reads the collection fresh for its ETag and
+ * type, then sends only `collection_type` and `field`, so nothing else on the
+ * collection can be overwritten by a stale list.
  */
+async function patchAdminCollectionField(
+  id: string,
+  field: { visibility: "visible" | "hidden" } | { featured: boolean },
+) {
+  const { collection, etag } = await fetchAdminCollectionSnapshot(id);
+  await v2("PATCH /api/v2/admin/collections/{id}", {
+    path: { id },
+    headers: { "If-Match": requiredETag(etag) },
+    body: { collection_type: collection.collection_type, ...field },
+  });
+}
+
+/** The list's Collections tab switch. */
 export function useSetAdminCollectionVisibility() {
   const queryClient = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: async ({ id, visible }: { id: string; visible: boolean }) => {
-      const { collection, etag } = await fetchAdminCollectionSnapshot(id);
-      await v2("PATCH /api/v2/admin/collections/{id}", {
-        path: { id },
-        headers: { "If-Match": requiredETag(etag) },
-        body: {
-          collection_type: collection.collection_type,
-          visibility: visible ? "visible" : "hidden",
-        },
-      });
-    },
+    mutationFn: ({ id, visible }: { id: string; visible: boolean }) =>
+      patchAdminCollectionField(id, { visibility: visible ? "visible" : "hidden" }),
     onError: (error) => {
       toast.error(SERVER_SCOPE.errorMessage(error, "Couldn't change it"));
+    },
+    onSettled: () => SERVER_SCOPE.invalidate(queryClient),
+  });
+}
+
+/** Arrange's Pin to the start of its shelf (`featured`). Settles once the lists are read again. */
+export function useSetAdminCollectionPin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
+      patchAdminCollectionField(id, { featured: pinned }),
+    onError: (error, { pinned }) => {
+      toast.error(
+        SERVER_SCOPE.errorMessage(error, pinned ? "Couldn't pin it" : "Couldn't unpin it"),
+      );
     },
     onSettled: () => SERVER_SCOPE.invalidate(queryClient),
   });

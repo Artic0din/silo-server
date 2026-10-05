@@ -12,37 +12,51 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { SHOW_ON_TAB_LABEL, arrangeHeading } from "@/lib/collections/copy";
+import {
+  PIN_LABEL,
+  SHOW_ON_TAB_LABEL,
+  arrangeHeading,
+  pinHelp,
+  pinSwitchLabel,
+} from "@/lib/collections/copy";
 import { sortedBy, type Shelf } from "@/lib/collections/shelves";
+
+import { ToggleRow } from "../fields/ToggleRow";
 
 /**
  * Arrange on a phone has no drag: a card's ⋯ opens this sheet, "Move *name*",
- * with a radio per shelf. Arrow keys only pick; Move saves. Edit and the
- * Collections tab sit under the list so the sheet does what the menu would.
+ * with a radio per shelf. Arrow keys only pick; Move saves. The Pin switch
+ * saves right away. Edit and the Collections tab sit under the list so the
+ * sheet does what the menu would.
  */
 export function MoveCollectionSheet({
   collection,
   libraryName,
   shelves,
-  currentShelfId,
+  currentShelf,
   canMove,
   visible,
+  canPin,
   onMove,
   onEdit,
+  onPinChange,
   onVisibleChange,
   onClose,
 }: {
   collection: LibraryCollection;
   libraryName: string;
   shelves: readonly Shelf[];
-  currentShelfId: string;
+  currentShelf: Shelf;
   canMove: boolean;
   visible: boolean;
+  canPin: boolean;
   onMove: (shelfId: string) => void;
   onEdit: () => void;
+  onPinChange: (pinned: boolean) => void;
   onVisibleChange: (visible: boolean) => void;
   onClose: () => void;
 }) {
+  const currentShelfId = currentShelf.id;
   const [shelfId, setShelfId] = useState(currentShelfId);
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -74,6 +88,19 @@ export function MoveCollectionSheet({
             />
           ))}
         </RadioGroup>
+        <div className="border-border/70 mx-4 mt-4 border-t pt-4">
+          <ToggleRow
+            label={PIN_LABEL}
+            switchLabel={pinSwitchLabel(
+              collection.title,
+              currentShelf.kind === "ungrouped" ? null : currentShelf.name,
+            )}
+            help={pinHelp(sortedBy(currentShelf.sortMode), collection.library_ids.length > 1)}
+            checked={collection.featured}
+            disabled={!canPin}
+            onCheckedChange={onPinChange}
+          />
+        </div>
         <SheetFooter className="gap-2">
           <Button
             size="lg"
