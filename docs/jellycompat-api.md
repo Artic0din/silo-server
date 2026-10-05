@@ -348,7 +348,13 @@ advertised as playable.
 | `GET /Playback/BitrateTest` | Returns the requested bounded byte count; default 102,400 bytes. |
 
 Text subtitles support `EndPositionTicks`, `CopyTimestamps`, and
-`AddVttTimeMap`. JSON track events apply the same clipping and timestamp
+`AddVttTimeMap`. The VTT time map follows the segment container of the play
+session's HLS route. MPEG-TS segments (encoded H.264, `remux-ts-v1`, and
+copied MPEG-2 video) carry the muxer's shift of twice `-max_delay` (10 s): with
+`CopyTimestamps=true` the map is `MPEGTS:900000`, as in Jellyfin, and otherwise
+the start position plus that shift. fMP4 segments (`remux-v1`, `remux-dv-v1`,
+`hevc-v1`, and other copied-video routes) keep the source clock, so the map is
+`MPEGTS:0` or the start position. JSON track events apply the same clipping and timestamp
 rebasing; an empty timing window returns `TrackEvents: []`. Raw ASS requests requiring conversion or time-window rewriting
 return 406. There is no fallback-font service, external/downloaded subtitle
 burn-in, or subtitle HLS playlist implementation. Changing a subtitle filter
