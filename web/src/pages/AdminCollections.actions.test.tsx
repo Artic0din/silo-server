@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
 
@@ -58,6 +58,22 @@ vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() 
 vi.mock("@/components/CollectionTemplateGallery", () => ({
   CollectionTemplateGallery: () => null,
 }));
+vi.mock("@/components/collections/StarterPacksDialog", () => ({
+  StarterPacksDialog: ({
+    initialLibraryId,
+    onClose,
+  }: {
+    initialLibraryId: number | null;
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label="Starter packs">
+      Opened on {String(initialLibraryId)}
+      <button type="button" onClick={onClose}>
+        Close
+      </button>
+    </div>
+  ),
+}));
 
 function collection(
   id: string,
@@ -75,6 +91,14 @@ function collection(
     featured: false,
     visibility: "visible",
   } as LibraryCollection;
+}
+
+async function openStarterPacksFromMore() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Starter packs…" }));
+  // More runs a dialog-opening item only once the menu has closed.
+  return screen.findByRole("dialog", { name: "Starter packs" });
 }
 
 function renderPage(path: string) {
@@ -158,5 +182,72 @@ describe("AdminCollections Arrange actions", () => {
       "Delete the 1 collection in this view?",
     );
     expect(state.prepareDeletes).toHaveBeenCalledWith(["Top Rated"]);
+  });
+
+  it("opens Starter packs from More and closes it again", async () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    renderPage("/admin/collections?libraryId=2");
+
+    expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
+    expect(await openStarterPacksFromMore()).toHaveTextContent("Opened on 2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
+  });
+
+  it("leaves the page on Back after Starter packs closes, instead of reopening it", async () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    function BackButton() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => void navigate(-1)}>
+          Back
+        </button>
+      );
+    }
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={["/admin", "/admin/collections"]} initialIndex={1}>
+          <Routes>
+            <Route path="/admin" element={<p>Admin home</p>} />
+            <Route
+              path="/admin/collections"
+              element={
+                <>
+                  <BackButton />
+                  <AdminCollections />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await openStarterPacksFromMore();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Admin home")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
+  });
+
+  it("opens Starter packs from a link", () => {
+    state.collections = [collection("Top Rated", "mdblist")];
+    renderPage("/admin/collections?dialog=starter-packs");
+
+    expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent(
+      "Opened on null",
+    );
+  });
+
+  it.each([
+    ["every library", "/admin/collections"],
+    ["one library", "/admin/collections?libraryId=1"],
+  ])("offers a starter pack when %s has no collections", (_, path) => {
+    state.collections = [];
+    renderPage(path);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add a starter pack" }));
+    expect(screen.getByRole("dialog", { name: "Starter packs" })).toBeInTheDocument();
   });
 });

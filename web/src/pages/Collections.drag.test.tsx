@@ -118,6 +118,37 @@ describe("Dragging a Your collections card", () => {
     expect(v2Recorder.operations()).not.toContain("GET /api/v2/collections/order");
     expect(cardOf("Rainy days")).toHaveStyle({ opacity: "1" });
   });
+
+  it("does not drag the card when a press on its open ⋯ button moves", async () => {
+    show();
+    const trigger = await screen.findByRole("button", { name: "More for Rainy days" });
+    await userEvent.click(trigger);
+    await screen.findByRole("menu");
+
+    // A press that closes the menu is not cancelled by the trigger, so only
+    // the card can keep it from starting a drag.
+    pointerDrag(trigger);
+    expect(v2Recorder.operations()).not.toContain("GET /api/v2/collections/order");
+    expect(cardOf("Rainy days")).toHaveStyle({ opacity: "1" });
+  });
+
+  it("still drags the card from its handle", async () => {
+    show();
+    await screen.findByRole("button", { name: "More for Rainy days" });
+
+    act(() => {
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Drag Rainy days" }), {
+        ...pointer,
+        clientX: 10,
+        clientY: 10,
+      });
+    });
+    act(() => void fireEvent.pointerMove(document, { ...pointer, clientX: 60, clientY: 10 }));
+    expect(cardOf("Rainy days")).toHaveStyle({ opacity: "0.4" });
+    act(() => void fireEvent.pointerUp(document, { ...pointer, clientX: 60, clientY: 10 }));
+    // Let the click guard that follows a pointer drag lift before the next test.
+    await vi.waitFor(() => expect(fireEvent.click(document.body)).toBe(true));
+  });
 });
 
 describe("Your collections confirm dialogs", () => {

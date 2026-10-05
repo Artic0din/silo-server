@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
 
-import { CollectionEditForm, CollectionForm, MDBListImportForm } from "./adminCollectionsShared";
+import { CollectionEditForm, MDBListImportForm } from "./adminCollectionsShared";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/api/v2/request", async () => ({
@@ -105,41 +105,6 @@ function renderForm(form: ReactElement) {
   });
   render(<QueryClientProvider client={client}>{form}</QueryClientProvider>);
 }
-
-function collectionModeSelect(mode: "Manual" | "Smart" = "Manual") {
-  const select = screen.getAllByRole("combobox").find((element) => element.textContent === mode);
-  if (!select) throw new Error("Collection Mode select not found");
-  return select;
-}
-
-describe("admin manual collection type", () => {
-  it("cannot be switched once the collection exists", () => {
-    renderForm(
-      <CollectionForm
-        etag={'"rev-1"'}
-        collection={stored}
-        libraries={libraries}
-        initialLibraryId={7}
-        onClose={vi.fn()}
-      />,
-    );
-
-    expect(collectionModeSelect()).toBeDisabled();
-  });
-
-  it("is made on the collection editor page, so a new collection here is Smart", () => {
-    renderForm(
-      <CollectionForm
-        collection={null}
-        libraries={libraries}
-        initialLibraryId={7}
-        onClose={vi.fn()}
-      />,
-    );
-
-    expect(collectionModeSelect("Smart")).toBeDisabled();
-  });
-});
 
 describe("legacy Trakt collection editor", () => {
   it("shows the source read-only and saves it unchanged", async () => {
