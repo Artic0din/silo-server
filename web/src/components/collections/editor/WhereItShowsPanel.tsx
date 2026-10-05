@@ -22,7 +22,11 @@ interface NamedLibrary {
   name: string;
 }
 
-/** The shelf (group) a server collection sits on in each library's Collections tab. */
+/**
+ * The shelf (group) a server collection sits on in each library's
+ * Collections tab, and "pinned first" where Pin leads it: a shelf in Your
+ * order, No heading included.
+ */
 function useShelves(collectionId: string | undefined, libraries: readonly NamedLibrary[]) {
   const lists = useQueries({
     queries: libraries.map((library) => ({
@@ -34,9 +38,12 @@ function useShelves(collectionId: string | undefined, libraries: readonly NamedL
   });
   return libraries.map((library, index) => {
     const data = lists[index]?.data;
-    const groupId = data?.collections.find((entry) => entry.id === collectionId)?.group_id;
-    const shelf = groupId ? data?.groups.find((group) => group.id === groupId)?.name : undefined;
-    return `${library.name} › ${shelf ?? "no heading"}`;
+    const entry = data?.collections.find((collection) => collection.id === collectionId);
+    const group = entry?.group_id
+      ? data?.groups.find((candidate) => candidate.id === entry.group_id)
+      : undefined;
+    const leads = entry?.featured === true && (group?.default_sort_mode ?? "manual") === "manual";
+    return `${library.name} › ${group?.name ?? "no heading"}${leads ? ", pinned first" : ""}`;
   });
 }
 

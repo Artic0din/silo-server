@@ -594,6 +594,44 @@ describe("the save bar and Where it shows", () => {
     expect(screen.queryByRole("switch", { name: SHOW_TO_OTHER_PROFILES_LABEL })).toBeNull();
   });
 
+  it("server: names each library's shelf, and says a pinned collection leads it", async () => {
+    const shelf = (id: string, name: string, default_sort_mode: string) => ({
+      id,
+      library_id: "1",
+      name,
+      slug: id,
+      kind: "regular",
+      default_sort_mode,
+      sort_order: 0,
+    });
+    v2Recorder.answer("GET /api/v2/admin/collections", {
+      ...adminCollectionList({ ...adminCollection, featured: true, group_id: "studios" }),
+      groups: [shelf("studios", "Studios", "manual")],
+    });
+    showPage("/admin/collections/c1/edit?libraryId=1");
+    expect(await screen.findByText(/Movies › Studios, pinned first/)).toBeInTheDocument();
+  });
+
+  it("server: leaves out pinned first on a shelf that sorts itself", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections", {
+      ...adminCollectionList({ ...adminCollection, featured: true, group_id: "awards" }),
+      groups: [
+        {
+          id: "awards",
+          library_id: "1",
+          name: "Awards",
+          slug: "awards",
+          kind: "regular",
+          default_sort_mode: "name_asc",
+          sort_order: 0,
+        },
+      ],
+    });
+    showPage("/admin/collections/c1/edit?libraryId=1");
+    expect(await screen.findByText(/Movies › Awards/)).toBeInTheDocument();
+    expect(screen.queryByText(/pinned first/)).toBeNull();
+  });
+
   it("personal, one profile: only the Collections tab switch, for you and anyone you share with", async () => {
     showPage("/collections/c1/edit");
     const toggle = await screen.findByRole("switch", { name: SHOW_ON_TAB_LABEL });

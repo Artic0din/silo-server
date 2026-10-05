@@ -72,11 +72,12 @@ function ShowOnlyField({
   );
 }
 
-/** Name, description, artwork; and Show only on a personal Manual collection. */
+/** Name, description, artwork; and Show only on a personal Manual collection or Synced list. */
 export function DetailsPanel({
   draft,
   onChange,
   showOnly,
+  nameNote,
   artworkSlots,
   savedArtwork,
   artworkErrors,
@@ -84,8 +85,10 @@ export function DetailsPanel({
 }: {
   draft: CollectionDraft;
   onChange: (update: (draft: CollectionDraft) => CollectionDraft) => void;
-  /** Personal Manual collections filter what they show while browsing. */
+  /** Personal Manual collections and Synced lists filter what they show while browsing. */
   showOnly: boolean;
+  /** A line under Name, as in "Kept your name". */
+  nameNote?: string;
   artworkSlots: readonly ArtworkSlot[];
   savedArtwork: Partial<Record<ArtworkSlot, string | undefined>>;
   artworkErrors?: Partial<Record<ArtworkSlot, string>>;
@@ -108,12 +111,18 @@ export function DetailsPanel({
         <Input
           id={`${id}-name`}
           required
+          aria-describedby={nameNote ? `${id}-name-note` : undefined}
           value={draft.name}
           onChange={(event) => {
             const name = event.target.value;
             onChange((current) => ({ ...current, name }));
           }}
         />
+        {nameNote ? (
+          <p id={`${id}-name-note`} role="status" className="text-muted-foreground text-[12.5px]">
+            {nameNote}
+          </p>
+        ) : null}
       </div>
       <div className="grid gap-2">
         <label htmlFor={`${id}-description`} className="text-[14.5px] font-semibold">

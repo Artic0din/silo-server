@@ -1,5 +1,6 @@
 import type { DraftField } from "./draft";
 import type { ArtworkSlot } from "./scope";
+import { COLLECTION_KIND_LABEL } from "./types";
 
 /**
  * Words every collections surface shares, so the editor, lists and dialogs
@@ -33,10 +34,6 @@ export function serverTabHelp(libraryNames: readonly string[]): string {
  */
 export const PERSONAL_TAB_HELP = "For you and anyone you share it with";
 
-/** The older builders' wording of the same switch, until they move onto the editor page. */
-export const LIBRARY_TAB_DESCRIPTION =
-  "Pin this collection to your library's Collections tab alongside the admin shelves. Profiles that can see this collection see it there too.";
-
 export const SHOW_TO_OTHER_PROFILES_LABEL = "Show to other profiles";
 export const SHOW_TO_OTHER_PROFILES_HELP =
   "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.";
@@ -55,6 +52,36 @@ export function unshareWarning(profileNames: readonly string[]): string {
 
 /** The ⋯ switch's help on a card: the menu has room for one short line. */
 export const SHOW_TO_OTHER_PROFILES_SHORT_HELP = "Every profile on this account sees it";
+
+// --- Server list ------------------------------------------------------------
+
+export const ON_HOME = "On Home";
+export const HIDDEN_FROM_TAB = "Hidden from Collections tab";
+
+/** "Movies › Collections and Kids › Collections". */
+function collectionsTabs(libraryNames: readonly string[]): string {
+  return joinNames(libraryNames.map((name) => `${name} › Collections`));
+}
+
+export function hideCollectionTitle(name: string): string {
+  return `Hide ${name} from Collections tabs?`;
+}
+
+/** Hiding a collection rows show: they keep showing it, but See all can't open it. */
+export function hideCollectionDescription(
+  libraryNames: readonly string[],
+  rowCount: number,
+): string {
+  const leaves = libraryNames.length > 0 ? `It leaves ${collectionsTabs(libraryNames)}. ` : "";
+  const rows =
+    rowCount === 1
+      ? "1 row still shows it, but its See all won't open while it's hidden."
+      : `${rowCount} rows still show it, but their See all won't open while it's hidden.`;
+  return leaves + rows;
+}
+
+/** A delete the server refused because Home or library page rows still show the collection. */
+export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
 
 // --- Titles -----------------------------------------------------------------
 
@@ -75,6 +102,131 @@ export function removedTitle(title: string): string {
 
 export function createdButNotAdded(count: number): string {
   return `Created, but couldn't add ${plural(count, "title")}`;
+}
+
+// --- Add to collection -----------------------------------------------------
+
+export const ADD_TO_COLLECTION_FOOTNOTE =
+  "Only manual collections take titles by hand. Ticking saves right away.";
+
+/** "Manual · 15 titles": a manual collection's line in a picker. */
+export function manualTitleCount(count: number): string {
+  return `${COLLECTION_KIND_LABEL.manual} · ${plural(count, "title")}`;
+}
+
+/** The Add to collection footer: how many of the profile's collections hold the title. */
+export function inCollections(count: number): string {
+  return count === 0 ? "Not in a collection yet" : `In ${plural(count, "collection")}`;
+}
+
+/** The new collection was kept, but the title it was made for didn't go in. */
+export function madeButNotAdded(collection: string, title: string): string {
+  return `Made ${collection}, but couldn't add ${title}`;
+}
+
+// --- Rules (Smart) ----------------------------------------------------------
+
+export const RULES_CAPTION =
+  "Titles that match are in the collection. New matches join on their own.";
+/** Under a personal Smart collection's rules. */
+export const PERSONAL_RULES_NOTE =
+  "“All my libraries” follows the libraries this profile can see. Rules about you, like Watched, are offered only here.";
+export const ALL_MY_LIBRARIES = "all my libraries";
+/** A personal list's libraries when none is ticked, as the library menu reads. */
+export const ALL_MY_LIBRARIES_LABEL = "All my libraries";
+/** The meta line's last part on a Smart collection. */
+export const SMART_UPDATES_ITSELF = "Updates itself as titles are added";
+/** After "Rules not saved" in the save bar. */
+export const PREVIEW_SHOWS_UNSAVED = "The preview already shows them.";
+
+export const PREVIEW_LIVE = "Live preview";
+export const PREVIEW_EMPTY = "No titles match yet";
+export const PREVIEW_EMPTY_HELP = "You can still save. Titles that match later join on their own.";
+export const PREVIEW_FAILED = "The preview didn't load. You can still save.";
+
+export function previewMatches(total: number): string {
+  return total === 1 ? "1 title matches" : `${total.toLocaleString()} titles match`;
+}
+
+// --- Order ------------------------------------------------------------------
+
+export const ORDER_HELP = "A profile that picks its own sort while browsing keeps that choice.";
+export const NO_LIMIT = "No limit";
+
+/** A smart collection's stored default sort, which wins over Order until cleared. */
+export function storedSortLine(sortLabel: string): string {
+  return `A saved default sort, ${sortLabel}, wins over this Order.`;
+}
+
+// --- Synced list ------------------------------------------------------------
+
+export const SYNCED_HEADING = "The list it follows";
+export const SYNCED_CAPTION = "Titles come from this list and update on its schedule.";
+export const SYNCED_CREATE_SUBTITLE =
+  "Pick the list, check the details, then press Create collection.";
+export const SYNCED_OFF = "Synced lists are off on this server.";
+export const POPULAR_PICKS = "Popular picks";
+export const POPULAR_PICKS_HELP = "Ready-made lists that work well here";
+export const FROM_MDBLIST = "From MDBList";
+export const FROM_MDBLIST_HELP = "Public lists by other people";
+export const PASTE_MDBLIST_LINK = "Or paste any MDBList link";
+export const MDBLIST_LINK_INVALID =
+  "Paste the link to a list on mdblist.com, like https://mdblist.com/lists/…";
+export const MDBLIST_SEARCH_OFF_PROFILE =
+  "Searching MDBList is off on this server. Popular picks and pasted links still work.";
+export const PASTE_TMDB_LIST_LINK = "Paste a TMDB list link";
+export const TMDB_LIST_HELP = "Public lists only. Its titles arrive with the first sync.";
+export const CHART_RULES_NOTE = "“Trending over” and “Both” appear only for Trending.";
+export const NAME_FILLED_HELP =
+  "Filled in from the list. Picking another list keeps anything you typed.";
+export const SYNCS_ON_CREATE = "It syncs for the first time when you create it.";
+export const PICK_A_LIST_FIRST = "Pick a list, then create it.";
+export const SYNCED_ORDER_HELP = "Blank takes the whole list, up to 500.";
+
+/** "Kept your name", "Kept your name and description": what a new pick left alone. */
+export function keptMessage(fields: readonly ("name" | "description")[]): string | null {
+  return fields.length > 0 ? `Kept your ${joinNames([...fields])}` : null;
+}
+
+/** "This list only has movies, so TV Shows isn't offered." */
+export function ineligibleLibrariesLine(
+  mediaKind: "movie" | "tv",
+  libraryNames: readonly string[],
+): string {
+  const only = mediaKind === "movie" ? "movies" : "TV shows";
+  const verb = libraryNames.length === 1 ? "isn't" : "aren't";
+  return `This list only has ${only}, so ${joinNames(libraryNames)} ${verb} offered.`;
+}
+
+/** "Server time (UTC−5)", with the zone's name when the server reports one. */
+export function serverTimeLabel(zone?: { utc_offset: string; name?: string }): string {
+  if (!zone) return "Server time";
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(zone.utc_offset);
+  let offset = "UTC";
+  if (match && (match[2] !== "00" || match[3] !== "00")) {
+    const hours = String(Number(match[2]));
+    offset = `UTC${match[1] === "-" ? "−" : "+"}${hours}${match[3] === "00" ? "" : `:${match[3]}`}`;
+  }
+  return `Server time (${zone.name ? `${offset}, ${zone.name}` : offset})`;
+}
+
+/** The toast after a synced list is created: how its first sync went. */
+export function firstSyncMessage(sync?: { status: string; message: string; itemsMatched: number }) {
+  if (!sync) return { tone: "success" as const, text: "Created. It syncs on its schedule." };
+  const titles = `${sync.itemsMatched} title${sync.itemsMatched === 1 ? "" : "s"}`;
+  if (sync.status === "failed") {
+    return {
+      tone: "warning" as const,
+      text: `Created, but the first sync failed. ${sync.message}`.trim(),
+    };
+  }
+  if (sync.status === "warning") {
+    return {
+      tone: "warning" as const,
+      text: `Created. The first sync found ${titles}, with warnings.`,
+    };
+  }
+  return { tone: "success" as const, text: `Created. The first sync found ${titles}.` };
 }
 
 // --- Save bar ---------------------------------------------------------------
@@ -104,8 +256,13 @@ export const SAVE_FAILED = "Couldn't save";
 /** Why Create waits on a server collection with no library yet. */
 export const PICK_LIBRARIES_FIRST = "Pick its libraries, then create it.";
 
+/** Why Save waits on a saved server collection with every library unticked. */
+export const PICK_A_LIBRARY = "Pick at least one library.";
+
+export const NAME_IT_THEN_CREATE = "Name it, then create it.";
+
 export function titlesReadyToAdd(count: number): string {
-  return count === 0 ? "Name it, then create it." : `${plural(count, "title")} ready to add`;
+  return count === 0 ? NAME_IT_THEN_CREATE : `${plural(count, "title")} ready to add`;
 }
 
 /** "Name and description not saved": the first field as labelled, the rest in lower case. */
@@ -129,4 +286,84 @@ export function personalDeleteDescription(shared: boolean): string {
   return shared
     ? "It's removed for you and every profile you share it with. This can't be undone."
     : "This can't be undone.";
+}
+
+// --- Arrange ----------------------------------------------------------------
+
+export function arrangeHeading(libraryName: string): string {
+  return `Shelves on ${libraryName} › Collections`;
+}
+export const ARRANGE_SUBTITLE =
+  "Shelves are set separately for each library. Top to bottom, the way viewers see them.";
+export const ARRANGE_HINT =
+  "Drag shelves and collections, or focus a handle and press Space, then the arrow keys. ⋯ has Move to shelf. Changes save right away.";
+
+export const NO_HEADING = "No heading";
+export const NO_HEADING_HELP = "Collections not on a shelf, shown without a title";
+export const MY_COLLECTIONS_TAG = "Different for each viewer";
+export const MY_COLLECTIONS_NOTE = `Each viewer's own collections land here when they turn on “${SHOW_ON_TAB_LABEL}”. You can rename or move this shelf.`;
+/** Shown on My collections while a server collection is dragged. */
+export const MY_COLLECTIONS_NO_DROP = "Viewers' own collections only";
+export const HIDDEN_TAG = "Hidden";
+export const MOVE_FAILED = "Couldn't move it";
+/** A move found the order changed by someone else since Arrange read it; nothing was saved. */
+export const ORDER_CHANGED =
+  "Someone else changed this order, so nothing moved. Arrange now shows their order; move it again.";
+
+export const VIEWER_PREVIEW_LABEL = "What viewers see";
+export const VIEWER_PREVIEW_MINE = "Each viewer's own";
+export const VIEWER_PREVIEW_NOTE =
+  "The pin marks a collection kept at the start of its shelf. Hidden collections don't appear.";
+
+// --- Pin (`featured`) ---------------------------------------------------------
+
+export const PIN_LABEL = "Pin to the start of its shelf";
+export const UNPIN_LABEL = "Unpin";
+export const PINNED = "Pinned";
+export const PINNED_BAND = "Pinned to the start";
+
+/** Pin is set on the collection, not per library, so it reaches every library the collection is in. */
+const PIN_EVERY_LIBRARY = " This applies in every library it's in.";
+
+/**
+ * What Pin does, given what the shelf sorts by (null for Your order) and
+ * whether the collection is in more than one library. Pinned collections also
+ * lead the capped Server collections list on every profile's Collections
+ * page, which is all Pin does on a shelf that sorts itself.
+ */
+export function pinHelp(shelfSortedBy: string | null, inSeveralLibraries = false): string {
+  const help =
+    shelfSortedBy === null
+      ? "Shows first on this shelf and in Server collections on the Collections page."
+      : `Shows first in Server collections on the Collections page; this shelf sorts by ${shelfSortedBy}.`;
+  return inSeveralLibraries ? help + PIN_EVERY_LIBRARY : help;
+}
+
+export function unpinHelp(shelfSortedBy: string | null, inSeveralLibraries = false): string {
+  const help =
+    shelfSortedBy === null
+      ? "Stops showing first on this shelf and in Server collections on the Collections page."
+      : "Stops showing first in Server collections on the Collections page.";
+  return inSeveralLibraries ? help + PIN_EVERY_LIBRARY : help;
+}
+
+/**
+ * The phone sheet's Pin switch, which names the collection and its shelf
+ * (null for No heading, which viewers never see as a name).
+ */
+export function pinSwitchLabel(name: string, shelfName: string | null): string {
+  return `Pin ${name} to the start of ${shelfName ?? "the collections with no heading"}`;
+}
+
+export function deleteShelfTitle(name: string): string {
+  return `Delete the ${name} shelf?`;
+}
+
+/** Deleting a shelf never deletes its collections, and touches one library only. */
+export function deleteShelfDescription(collectionCount: number, libraryName: string): string {
+  const members =
+    collectionCount === 0
+      ? "It has no collections."
+      : `${collectionCount === 1 ? "Its 1 collection moves" : `Its ${collectionCount} collections move`} to ${NO_HEADING} on ${libraryName} › Collections. ${collectionCount === 1 ? "It isn't" : "They aren't"} deleted.`;
+  return `${members} Only ${libraryName} changes; shelves in other libraries stay as they are. You can make the shelf again later.`;
 }

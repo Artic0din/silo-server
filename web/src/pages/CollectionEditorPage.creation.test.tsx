@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import type { LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
-import type { CollectionBuilderProps } from "@/components/collections/CollectionBuilder";
 import type { CollectionScope, EditorSnapshot } from "@/lib/collections/scope";
 import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
 import CollectionEditorPage from "./CollectionEditorPage";
@@ -12,8 +11,6 @@ import CollectionEditorPage from "./CollectionEditorPage";
 beforeAll(preloadLegacyCollectionEditors);
 
 const mocks = vi.hoisted(() => ({
-  create: vi.fn(),
-  adminCreate: vi.fn(),
   collection: null as LibraryCollection | null,
   editSnapshotError: null as Error | null,
   adminSnapshotError: null as Error | null,
@@ -33,13 +30,11 @@ vi.mock("@/hooks/queries/collectionScope", () => ({
   },
 }));
 vi.mock("@/hooks/queries/collections", () => ({
-  useCollectionCapabilities: () => ({ data: {} }),
-  useCreateCollection: () => ({ mutate: mocks.create }),
+  useCollectionCapabilities: () => ({ data: { import_sources: ["mdblist", "tmdb", "tmdb_list"] } }),
   useUpdateCollection: () => ({}),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
-  useAdminCollectionCapabilities: () => ({ data: {} }),
-  useCreateAdminCollection: () => ({ mutate: mocks.adminCreate }),
+  useAdminCollectionCapabilities: () => ({ data: { imports: true } }),
   useUpdateAdminCollection: () => ({}),
 }));
 vi.mock("@/hooks/queries/profiles", () => ({ useProfiles: () => ({ data: [] }) }));
@@ -48,54 +43,25 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({ useAdminLibraries: () => ({ 
 vi.mock("@/hooks/useCurrentProfile", () => ({
   useCurrentProfile: () => ({ profile: { id: "p" }, isLoading: false }),
 }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
-}));
 vi.mock("@/components/ImageUploadField", () => ({ ImageUploadField: () => null }));
-vi.mock("./SmartCollectionWizard", () => ({ default: () => <div>Smart wizard</div> }));
-vi.mock("@/components/collections/CollectionBuilder", async () => ({
-  ...(await vi.importActual<typeof import("@/components/collections/CollectionBuilder")>(
-    "@/components/collections/CollectionBuilder",
-  )),
-  default: ({ value, onChange, onSubmit, lockCollectionType }: CollectionBuilderProps) => (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
-      <input
-        aria-label="Name"
-        value={value.title}
-        onChange={(event) => onChange({ ...value, title: event.target.value })}
-      />
-      <select
-        aria-label="Collection Mode"
-        disabled={lockCollectionType}
-        value={value.collection_type}
-        onChange={(event) =>
-          onChange({ ...value, collection_type: event.target.value as "manual" | "smart" })
-        }
-      >
-        <option value="smart">Smart</option>
-        <option value="manual">Manual</option>
-      </select>
-      <button>Save Collection</button>
-    </form>
-  ),
-}));
-vi.mock("@/components/collections/editor/ManualCollectionEditor", () => ({
-  ManualCollectionEditor: ({
+vi.mock("@/components/collections/editor/CollectionEditor", () => ({
+  CollectionEditor: ({
     scope,
+    kind,
     snapshot,
     libraryId,
+    syncedTab,
   }: {
     scope: CollectionScope;
+    kind?: string;
     snapshot?: EditorSnapshot;
     libraryId?: number | null;
+    syncedTab?: string;
   }) => (
     <div
-      data-testid="manual-editor"
+      data-testid="editor"
+      data-tab={syncedTab ?? ""}
+      data-kind={snapshot?.view.kind ?? kind}
       data-source={scope.itemSource}
       data-collection={snapshot?.view.id ?? ""}
       data-library={libraryId ?? ""}
@@ -128,26 +94,17 @@ function show(admin = false, edit = false) {
     </QueryClientProvider>,
   );
 }
-it("creates a personal smart collection from the new collection route", async () => {
+it.each([
+  ["Manual", "manual"],
+  ["Smart", "smart"],
+  ["Synced list", "synced"],
+])("opens the editor page when %s is chosen for a new personal collection", (label, kind) => {
   show();
-  fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "My picks" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-  expect(mocks.create).toHaveBeenCalledWith(
-    expect.objectContaining({
-      body: expect.objectContaining({ name: "My picks", collection_type: "smart" }),
-    }),
-    expect.anything(),
-  );
-});
-
-it("opens the editor page when Manual is chosen for a new personal collection", async () => {
-  show();
-  fireEvent.change(await screen.findByLabelText("Collection Mode"), {
-    target: { value: "manual" },
-  });
-  expect(screen.getByTestId("location")).toHaveTextContent("/collections/new?type=manual");
-  expect(screen.getByTestId("manual-editor")).toHaveAttribute("data-source", "user");
-  expect(mocks.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("link", { name: label }));
+  expect(screen.getByTestId("location")).toHaveTextContent(`/collections/new?type=${kind}`);
+  const editor = screen.getByTestId("editor");
+  expect(editor).toHaveAttribute("data-source", "user");
+  expect(editor).toHaveAttribute("data-kind", kind);
 });
 
 it("opens the editor page from the admin Manual card, keeping the library", async () => {
@@ -167,36 +124,73 @@ it("opens the editor page from the admin Manual card, keeping the library", asyn
   expect(screen.getByTestId("location")).toHaveTextContent(
     "/admin/collections/new?type=manual&libraryId=7",
   );
-  const editor = screen.getByTestId("manual-editor");
+  const editor = screen.getByTestId("editor");
   expect(editor).toHaveAttribute("data-source", "library");
   expect(editor).toHaveAttribute("data-library", "7");
 });
 
-it("creates an admin smart collection from the Smart card", async () => {
-  show(true);
-  fireEvent.click(await screen.findByRole("button", { name: /Smart Match titles with rules/ }));
-  expect(screen.getByLabelText("Collection Mode")).toHaveValue("smart");
-  expect(screen.getByLabelText("Collection Mode")).toBeDisabled();
-  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Staff picks" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-  expect(mocks.adminCreate).toHaveBeenCalledWith(
-    expect.objectContaining({
-      body: expect.objectContaining({ title: "Staff picks", collection_type: "smart" }),
-    }),
-    expect.anything(),
+it("opens the Smart editor from the admin Smart card, keeping the library", async () => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
+        <Routes>
+          <Route element={<CollectionEditorPage scope="server" />}>
+            <Route path="/admin/collections/new" />
+          </Route>
+        </Routes>
+        <Location />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+  fireEvent.click(await screen.findByRole("button", { name: /Smart Match titles with rules/ }));
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/admin/collections/new?type=smart&libraryId=7",
+  );
+  const editor = screen.getByTestId("editor");
+  expect(editor).toHaveAttribute("data-kind", "smart");
+  expect(editor).toHaveAttribute("data-library", "7");
 });
 
-it("opens a saved manual collection in the editor page", () => {
+it.each([
+  [/Browse Templates/, "/admin/collections/new?type=synced&libraryId=7", ""],
+  [/MDBList Sync from/, "/admin/collections/new?type=synced&source=mdblist&libraryId=7", "mdblist"],
+  [
+    /TMDB Auto-populate/,
+    "/admin/collections/new?type=synced&source=tmdb_chart&libraryId=7",
+    "tmdb_chart",
+  ],
+])("opens the Synced list step from the admin card %s", async (card, url, tab) => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
+        <Routes>
+          <Route element={<CollectionEditorPage scope="server" />}>
+            <Route path="/admin/collections/new" />
+          </Route>
+        </Routes>
+        <Location />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: card }));
+  expect(screen.getByTestId("location")).toHaveTextContent(url);
+  const editor = screen.getByTestId("editor");
+  expect(editor).toHaveAttribute("data-kind", "synced");
+  expect(editor).toHaveAttribute("data-tab", tab);
+  expect(editor).toHaveAttribute("data-library", "7");
+});
+
+it.each(["manual", "smart"] as const)("opens a saved %s collection in the editor page", (type) => {
   mocks.collection = {
     id: "collection-1",
     title: "Staff picks",
-    collection_type: "manual",
+    collection_type: type,
     library_ids: [1],
   } as LibraryCollection;
   show(true, true);
-  const editor = screen.getByTestId("manual-editor");
+  const editor = screen.getByTestId("editor");
   expect(editor).toHaveAttribute("data-source", "library");
+  expect(editor).toHaveAttribute("data-kind", type);
   expect(editor).toHaveAttribute("data-collection", "collection-1");
 });
 

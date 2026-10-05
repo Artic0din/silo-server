@@ -19,6 +19,21 @@ const personalPosterDelete: RecordedCall = {
   },
 };
 
+/** The default heroes for the Core pack on Movies (1) and TV Shows (2). */
+const starterPackHeroes = {
+  home: { library_id: "1", template_id: "tmdb_trending_movies_week" },
+  libraries: { "1": "tmdb_trending_movies_week", "2": "tmdb_trending_tv_week" },
+};
+
+function starterPackDryRun(featured?: typeof starterPackHeroes): RecordedCall {
+  return {
+    operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
+    path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
+    headers: {},
+    body: { library_ids: ["1", "2"], dry_run: true, delete_existing: false, featured },
+  };
+}
+
 export const goldens = {
   /** Admin manual create from the editor page: the POST, then the poster file, then the backdrop URL. */
   adminManualCreate: [
@@ -54,7 +69,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin smart create: `query_definition` keeps numeric library ids; the top-level `library_ids` are strings. */
+  /** Admin smart create from the editor page: `query_definition` keeps numeric library ids; the top-level `library_ids` are strings. */
   adminSmartCreate: [
     {
       operation: "POST /api/v2/admin/collections",
@@ -149,7 +164,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** A loaded admin smart collection saved unchanged. The sentinel saves as no limit; the PATCH carries `featured`. */
+  /** A loaded admin smart collection saved unchanged from the editor page. The sentinel saves as no limit; the PATCH leaves out `featured`, so Pin set in Arrange stays. */
   adminSmartUnchanged: {
     "no limit": [
       {
@@ -163,7 +178,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -201,7 +215,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -239,7 +252,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -267,7 +279,7 @@ export const goldens = {
       },
     ],
   } satisfies ByLimit,
-  /** A loaded personal smart collection saved unchanged; the PATCH carries no `description`. */
+  /** A loaded personal smart collection saved unchanged from the editor page, with `description`. */
   personalSmartUnchanged: {
     "no limit": [
       {
@@ -278,6 +290,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -313,6 +326,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -348,6 +362,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -376,7 +391,7 @@ export const goldens = {
       },
     ],
   } satisfies ByLimit,
-  /** Personal create: the new collection form starts as Smart; the poster file uploads after the POST. */
+  /** Personal smart create from the editor page, with `description`; the poster file uploads after the POST. */
   personalSmartCreate: [
     {
       operation: "POST /api/v2/collections",
@@ -384,6 +399,7 @@ export const goldens = {
       headers: {},
       body: {
         name: "Comfort",
+        description: "",
         collection_type: "smart",
         is_shared: false,
         query_definition: {
@@ -485,7 +501,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal smart wizard, poster removed: the DELETE follows the PATCH on Save. */
+  /** Personal smart editor page, poster removed: the DELETE follows the PATCH on Save. */
   personalSmartStagedPosterRemoval: [
     {
       operation: "PATCH /api/v2/collections/{id}",
@@ -495,6 +511,7 @@ export const goldens = {
       },
       body: {
         name: "Rainy days",
+        description: "",
         is_shared: false,
         query_definition: {
           library_ids: [1],
@@ -546,7 +563,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin MDBList import: `featured` defaults on. */
+  /** Admin MDBList import from a pasted link: imported unpinned (`featured: false`). */
   adminImportMDBList: [
     {
       operation: "POST /api/v2/admin/collections/import/mdblist",
@@ -556,13 +573,13 @@ export const goldens = {
         title: "Top Watched",
         description: "",
         url: "https://mdblist.com/lists/user/top-watched/json",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Admin TMDB chart import with the form's defaults. */
+  /** Admin TMDB chart import: Trending starts on Both, today, and is named for it. */
   adminImportTMDBChart: [
     {
       operation: "POST /api/v2/admin/collections/import/tmdb",
@@ -574,7 +591,7 @@ export const goldens = {
         preset: "trending",
         time_window: "day",
         media_type: "all",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
@@ -590,13 +607,13 @@ export const goldens = {
         title: "Festival Picks",
         description: "",
         url: "https://www.themoviedb.org/list/310-festival-picks",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Admin template import: the template's server poster is sent as `poster_url`, and `featured` defaults on. */
+  /** Admin template pick: the template's server poster is sent as `poster_url`; imported unpinned. */
   adminTemplateTMDB: [
     {
       operation: "POST /api/v2/admin/collections/import/tmdb",
@@ -605,7 +622,7 @@ export const goldens = {
       body: {
         title: "Trending Movies This Week",
         description: "Top trending movies on TMDB.",
-        featured: true,
+        featured: false,
         sync_schedule: "0 4 * * *",
         limit: 50,
         sort_config: {},
@@ -617,7 +634,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin template import of a list picked in MDBList search: the list's JSON URL and name. */
+  /** Admin pick from MDBList search: the list's JSON URL, name and own description. */
   adminTemplateMDBListPick: [
     {
       operation: "POST /api/v2/admin/collections/import/mdblist",
@@ -625,15 +642,15 @@ export const goldens = {
       headers: {},
       body: {
         title: "Oscar Winners",
-        description: "Any public MDBList list.",
-        featured: true,
+        description: "Best Picture winners.",
+        featured: false,
         sort_config: {},
         url: "https://mdblist.com/lists/cinephile/oscar-winners/json",
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Personal template import: the cron default maps to a named schedule; the server poster is `poster_url`. */
+  /** Personal template pick: the cron default maps to a named schedule; the server poster is `poster_url`. */
   personalTemplateTMDB: [
     {
       operation: "POST /api/v2/collections/import/tmdb",
@@ -809,101 +826,41 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Bundle preview with the default hero sections. */
-  bundleDryRunWithHeroes: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        dry_run: true,
-        delete_existing: false,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
-    },
-  ] satisfies Writes,
-  /** Bundle preview with every hero off and Delete Existing on: no `featured` member. */
-  bundleDryRunNoHeroesDeleteExisting: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        dry_run: true,
-        delete_existing: true,
-      },
-    },
-  ] satisfies Writes,
-  /** Bundle apply job with the default hero sections. */
-  bundleJobWithHeroes: [
+  /**
+   * Starter packs, hero switch off: the dry run when the pack opens, the same
+   * dry run again right before Add, the job, and one more dry run once the job
+   * ends so the table shows what is there now. No `featured` member, so the
+   * server never touches existing hero rows; `delete_existing` is always false.
+   */
+  starterPackApply: [
+    starterPackDryRun(),
+    starterPackDryRun(),
     {
       operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
       path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
       headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: false,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
+      body: { library_ids: ["1", "2"], delete_existing: false },
     },
-  ] satisfies Writes,
-  /** Bundle apply job with every hero off: no `featured` member. */
-  bundleJobNoHeroes: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: false,
-      },
-    },
+    starterPackDryRun(),
   ] satisfies Writes,
   /**
-   * Bundle apply job with the default hero sections and Delete Existing on.
-   * This is the request that deletes server collections; today it is sent
-   * with no confirmation step.
+   * Starter packs, hero switch turned on with the default heroes: the first
+   * dry run has no heroes; the rest, the job included, carry the same `featured`.
+   * When the job ends the switch turns back off, so after the refresh of the
+   * open check comes one more dry run without heroes.
    */
-  bundleJobDeleteExisting: [
+  starterPackApplyWithHeroes: [
+    starterPackDryRun(),
+    starterPackDryRun(starterPackHeroes),
+    starterPackDryRun(starterPackHeroes),
     {
       operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
       path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
       headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: true,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
+      body: { library_ids: ["1", "2"], delete_existing: false, featured: starterPackHeroes },
     },
+    starterPackDryRun(starterPackHeroes),
+    starterPackDryRun(),
   ] satisfies Writes,
   /** Add to collection, own manual collection: the personal item route. */
   addToPersonalCollection: [
@@ -916,28 +873,42 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Add to collection as an acting admin, server manual collection: the admin item route. */
-  addToServerCollection: [
+  /**
+   * What Add to collection lists: the profile's own manual collections, for
+   * an acting admin too. Server collections are no longer offered here;
+   * admins add titles to them from the collection's editor.
+   */
+  addToCollectionChoices: ["Rainy days"],
+  /** What Add to collection reads to fill its list: one list, marked for the title. */
+  addToCollectionReads: [
     {
-      operation: "PUT /api/v2/admin/collections/{id}/items/{item_id}",
-      path: "/api/v2/admin/collections/lc1/items/movie:heat-1995",
+      operation: "GET /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      query: { contains_item: "movie:heat-1995" },
+    },
+  ] satisfies RecordedCall[],
+  /** Add to collection's inline create: the personal manual collection, then the title. */
+  addToNewCollection: [
+    {
+      operation: "POST /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      body: {
+        name: "Night in",
+        description: "",
+        is_shared: false,
+        include_in_server_collections: false,
+        collection_type: "manual",
+      },
+    },
+    {
+      operation: "PUT /api/v2/collections/{id}/items/{item_id}",
+      path: "/api/v2/collections/c1/items/movie:heat-1995",
       headers: {},
       body: {
         position: 0,
       },
     },
   ] satisfies Writes,
-  /** What Add to collection lists, by group. */
-  addToCollectionGroups: {
-    profile: [{ group: "My Collections", collections: ["Rainy days"] }],
-    actingAdmin: [
-      { group: "My Collections", collections: ["Rainy days"] },
-      { group: "Movies", collections: ["Oscar Winners · Library"] },
-    ],
-  },
-  /** What Add to collection reads to fill its list. */
-  addToCollectionReads: {
-    profile: ["GET /api/v2/collections"],
-    actingAdmin: ["GET /api/v2/collections", "GET /api/v2/library/{id}/collections"],
-  },
 };

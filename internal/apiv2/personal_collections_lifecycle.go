@@ -356,14 +356,15 @@ func (reg *Registry) listPersonalCollectionTemplates(_ context.Context, _ *struc
 	if !ok {
 		return nil, unavailable("collection templates")
 	}
-	return &PersonalCollectionTemplatesOutput{Body: importableCollectionTemplates(s.CollectionTemplates())}, nil
+	return &PersonalCollectionTemplatesOutput{Body: creatableCollectionTemplates(s.CollectionTemplates())}, nil
 }
 
-// importableCollectionTemplates keeps the templates a personal collection can
-// be created from. The shared catalog also lists TMDB Discover and franchise
-// templates, which only admin template bundles can apply; a category left
-// with no templates is dropped.
-func importableCollectionTemplates(catalog templates.Catalog) templates.Catalog {
+// creatableCollectionTemplates keeps the templates whose source is one of
+// importableCollectionSources (mdblist, tmdb, tmdb_list), the set a single
+// collection can be created from. The shared catalog also lists TMDB Discover and
+// franchise templates, which only admin template bundles can apply; a
+// category left with no templates is dropped.
+func creatableCollectionTemplates(catalog templates.Catalog) templates.Catalog {
 	out := templates.Catalog{Categories: make([]templates.CategoryGroup, 0, len(catalog.Categories))}
 	for _, group := range catalog.Categories {
 		kept := make([]templates.Template, 0, len(group.Templates))

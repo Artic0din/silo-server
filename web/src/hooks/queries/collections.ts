@@ -19,6 +19,7 @@ import {
   fetchCollectionEditSnapshot,
   fetchItemOrderSnapshot,
   collectionCreateToV2,
+  collectionsFromV2,
   collectionUpdateToV2,
   saveCollectionPoster,
   serverCollectionsFromV2,
@@ -27,7 +28,7 @@ import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { catalogKeys, collectionKeys } from "./keys";
 import { toast } from "sonner";
 import { invalidateAdminCollectionQueries } from "./collectionSurfaceRefresh";
-import { useScopeDelete } from "./collectionScope";
+import { putCollectionItem, useScopeDelete } from "./collectionScope";
 
 const collectionMutationMessage = PERSONAL_SCOPE.errorMessage;
 
@@ -39,7 +40,7 @@ export function useCollections() {
   });
 }
 
-export function useCollectionCapabilities() {
+export function useCollectionCapabilities(enabled = true) {
   return useQuery({
     queryKey: PERSONAL_SCOPE.keys.capabilities,
     queryFn: () =>
@@ -48,6 +49,7 @@ export function useCollectionCapabilities() {
         display_filter_presets:
           value.display_filter_presets as CollectionCapabilitiesResponse["display_filter_presets"],
       })),
+    enabled,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }
@@ -195,43 +197,26 @@ export function useDeleteCollection() {
   return useScopeDelete(PERSONAL_SCOPE);
 }
 
-// useAddItemToCollection adds a single media item to either a personal user
-// collection (PUT /collections/{id}/items/{itemId}) or an admin library
-// collection (PUT /admin/collections/{id}/items/{itemId}). Source determines
-// the route; manual collections are the only ones that meaningfully accept
-// hand-curated items — synced collections will overwrite on the next sync.
+/** The profile's collections, each own manual one marked with whether it holds `contentId`. */
+export function useCollectionsContaining(contentId: string) {
+  return useQuery({
+    queryKey: collectionKeys.containing(contentId),
+    queryFn: () =>
+      v2("GET /api/v2/collections", { query: { contains_item: contentId } }).then(
+        collectionsFromV2,
+      ),
+    select: (data) => data.collections,
+  });
+}
+
+/** Adds one title to one of the profile's own manual collections. */
 export function useAddItemToCollection() {
   const queryClient = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: ({
-      collectionId,
-      mediaItemId,
-      source,
-      position,
-    }: {
-      collectionId: string;
-      mediaItemId: string;
-      source: "user" | "library";
-      position?: number;
-    }) => {
-      if (source === "user")
-        return v2("PUT /api/v2/collections/{id}/items/{item_id}", {
-          path: { id: collectionId, item_id: mediaItemId },
-          body: { position: position ?? 0 },
-        });
-      return v2("PUT /api/v2/admin/collections/{id}/items/{item_id}", {
-        path: { id: collectionId, item_id: mediaItemId },
-        body: { position: position ?? 0 },
-      });
-    },
-    onSuccess: (_data, vars) => {
-      toast.success("Added to collection");
-      if (vars.source === "user") {
-        return PERSONAL_SCOPE.invalidate(queryClient, vars.collectionId);
-      }
-      return invalidateAdminCollectionQueries(queryClient);
-    },
+    mutationFn: ({ collectionId, mediaItemId }: { collectionId: string; mediaItemId: string }) =>
+      putCollectionItem(PERSONAL_SCOPE, collectionId, mediaItemId, 0),
+    onSuccess: (_data, vars) => PERSONAL_SCOPE.invalidate(queryClient, vars.collectionId),
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to add to collection");
     },

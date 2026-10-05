@@ -44,6 +44,6 @@ describe("LibraryCollections empty state", () => {
     const markup = render();
 
     expect(markup).toContain("No collections yet");
-    expect(markup).toContain('href="/admin/collections?libraryId=7"');
+    expect(markup).toContain('href="/admin/collections?libraryId=7&amp;view=list"');
   });
 });

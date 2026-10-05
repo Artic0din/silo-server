@@ -31,9 +31,6 @@ vi.mock("@/hooks/useCurrentProfile", () => ({
 vi.mock("@/hooks/useUICustomization", () => ({
   useUICustomization: () => ({ cardPresentation: { poster_size: "medium" } }),
 }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
-}));
 vi.mock("@/hooks/useDocumentTitle", () => ({ useDocumentTitle: () => {} }));
 
 function collection(id: string, name: string, creator: string, shared = false): Collection {

@@ -257,7 +257,12 @@ export function useProfileHomeRows(): ProfileHomeRows {
       draftProfile.current = profile;
       draftBaseline.current = baseline;
       const q = queue.current;
-      const changedIds = new Set(q.next?.kind === "save" ? q.next.changedIds : []);
+      // A queued save by another profile is dropped, and its rows with it.
+      const queued =
+        q.next?.kind === "save" && q.next.profile.profileId === profile.profileId
+          ? q.next.changedIds
+          : [];
+      const changedIds = new Set(queued);
       for (const id of idList(ids)) changedIds.add(id);
       q.next = { kind: "save", page, profile, state: next, baseline, changedIds };
       void drain();
