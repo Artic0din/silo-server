@@ -72,6 +72,8 @@ import { SyncedListPanel, type SyncedListPanelProps } from "./SyncedListPanel";
 import { WhereItShowsPanel } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
+/** How often the editor reads a list again while a sync it didn't start runs. */
+const RUNNING_SYNC_POLL_MS = 5_000;
 /** The fields the live preview already reflects before they are saved. */
 const PREVIEWED: ReadonlySet<DraftField> = new Set(["rules", "libraryIds", "rawSortConfig"]);
 
@@ -270,6 +272,19 @@ export function CollectionEditor<Raw extends WireCollection>({
       },
     });
   }
+
+  // A scheduled sync, or one started elsewhere, ends without telling this
+  // page: read the list again until it does.
+  const runningElsewhere = view?.sync?.status === "running" && !syncList.isPending;
+  const { syncWithServer } = editor;
+  useEffect(() => {
+    if (!runningElsewhere) return;
+    const timer = window.setInterval(
+      () => void syncWithServer().catch(() => {}),
+      RUNNING_SYNC_POLL_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [runningElsewhere, syncWithServer]);
 
   const staged = draft.stagedItems ?? NO_TITLES;
   // After Create the page moves to the collection's edit URL. Until it gets

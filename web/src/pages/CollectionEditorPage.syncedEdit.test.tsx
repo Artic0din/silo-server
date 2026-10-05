@@ -284,6 +284,30 @@ describe("server Synced list editor", () => {
     expect(patch.body).toMatchObject({ title: "Netflix Originals" });
   });
 
+  it("reads the list again until a sync started elsewhere ends", async () => {
+    const running = serverList("mdblist", MDBLIST, { last_sync_status: "running" });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      showPage(SERVER_EDIT);
+      await nameField();
+      expect(within(statusStrip()).getByText("Syncing now…")).toBeInTheDocument();
+
+      v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
+        ...running,
+        last_sync_status: "success",
+        last_sync_at: new Date().toISOString(),
+      });
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
+      const menu = await openMoreActions();
+      expect(within(menu).getByRole("menuitem", { name: "Sync now" })).not.toHaveAttribute(
+        "aria-disabled",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("puts a failed sync at the top of the list, with the reason and Sync now", async () => {
     serverList("mdblist", MDBLIST, {
       last_sync_status: "failed",
