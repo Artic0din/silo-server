@@ -168,6 +168,11 @@ describe("Starter packs", () => {
       expect.stringContaining("Trending Movies This Week"),
       "TV Shows2 new1 pinned first03 movie lists",
     ]);
+    expect(
+      within(table())
+        .getAllByRole("rowheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Movies", "TV Shows"]);
     const movies = within(table()).getByRole("button", { name: "Movies" });
     expect(movies).toHaveAttribute("aria-expanded", "true");
     const list = screen.getByRole("list", { name: "Lists for Movies" });
@@ -226,7 +231,7 @@ describe("Starter packs", () => {
     );
     await user.click(screen.getByRole("button", { name: "Add 4 collections" }));
     await screen.findByRole("heading", { name: "Core Defaults added" });
-    await waitFor(() => expect(v2Recorder.callsOf(DRY_RUN)).toHaveLength(5));
+    await waitFor(() => expect(within(table()).queryByText("Hero banner on Home")).toBeNull());
     expect(v2Recorder.writes()).toEqual(goldens.starterPackApplyWithHeroes);
   });
 
@@ -243,6 +248,50 @@ describe("Starter packs", () => {
     expect(heroSwitch).not.toBeChecked();
     await waitFor(() => expect(within(table()).queryByText("Hero banner on Home")).toBeNull());
     expect(screen.queryByRole("button", { name: "Set hero banners" })).toBeNull();
+  });
+
+  it("says in words why a hero banner can't be set", async () => {
+    v2Recorder.answer(DRY_RUN, (call: RecordedCall) =>
+      (call.body as { featured?: unknown }).featured
+        ? {
+            ...coreDryRunWithHeroes,
+            featured: coreDryRunWithHeroes.featured.slice(1),
+            featured_failed: [
+              { ...coreDryRunWithHeroes.featured[0]!, reason: "collection_not_available" },
+            ],
+          }
+        : coreDryRun,
+    );
+    const { user } = renderDialog();
+    await checked();
+    await user.click(screen.getByRole("switch", { name: "Also use the pack's hero banners" }));
+    const home = await within(table()).findByRole("rowheader", { name: "Hero banner on Home" });
+    expect(home.closest("tr")).toHaveTextContent(
+      "Trending Movies This Week · Can't set it: its list wasn't added to that library",
+    );
+    expect(table()).not.toHaveTextContent("collection_not_available");
+  });
+
+  it("locks the pack, its libraries and its heroes while the pack is being added", async () => {
+    v2Recorder.answer(JOB, {
+      id: "collection-job",
+      kind: "template_bundle_apply",
+      state: "running",
+      terminal: false,
+      cancelable: false,
+      created_at: "2026-01-02T03:04:05.678Z",
+    });
+    const { user } = renderDialog();
+    await checked();
+    await user.click(screen.getByRole("switch", { name: "Also use the pack's hero banners" }));
+    await user.click(screen.getByRole("button", { name: "Add 4 collections" }));
+    expect(await screen.findByText(/Adding Core Defaults…/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Movies" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "TV Shows" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Also use the pack's hero banners" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Hero banner on Home" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: /Popular Genres/ })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: /Core Defaults/ })).toBeEnabled();
   });
 
   it("names the hero each page line replaces, and lets a page keep its current one", async () => {
@@ -361,9 +410,7 @@ describe("Starter packs", () => {
     await waitFor(() => expect(summary).toHaveFocus());
     expect(summary).toHaveTextContent("Added 2 lists to Movies.");
     expect(summary).toHaveTextContent("Added 1 list to TV Shows.");
-    expect(summary).toHaveTextContent(
-      "Couldn't add Popular TV to TV Shows: TMDB is not configured",
-    );
+    expect(summary).toHaveTextContent("Couldn't add Popular TV to TV Shows: something went wrong.");
     expect(screen.getByRole("tab", { name: /Core Defaults/ })).toHaveTextContent("Added");
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "Starter packs" })).toBeInTheDocument();
@@ -387,7 +434,7 @@ describe("Starter packs", () => {
       name: "Core Defaults finished with problems",
     });
     expect(heading.closest("section")).toHaveTextContent(
-      "Couldn't add Popular Movies to Movies: TMDB is not configured",
+      "Couldn't add Popular Movies to Movies: something went wrong.",
     );
     expect(screen.getByRole("tab", { name: /Core Defaults/ })).not.toHaveTextContent("Added");
   });

@@ -2,12 +2,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Library, LibraryCollection } from "@/api/types";
+import type { AdminJob, Library, LibraryCollection } from "@/api/types";
+import { coreApplied, starterPackBundles } from "@/test/fixtures/starterPacks";
 
 import AdminCollections from "./AdminCollections";
 
 const { state, idle } = vi.hoisted(() => ({
-  state: { collections: [] as LibraryCollection[], snapshot: vi.fn(), prepareDeletes: vi.fn() },
+  state: {
+    collections: [] as LibraryCollection[],
+    jobs: [] as AdminJob[],
+    snapshot: vi.fn(),
+    prepareDeletes: vi.fn(),
+  },
   idle: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -47,7 +53,11 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
   useDeleteAdminCollection: idle,
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
   useSyncAdminCollection: () => ({ ...idle(), variables: undefined }),
-  useTemplateBundleApplyJobs: () => ({ data: [] }),
+  useTemplateBundleApplyJobs: () => ({ data: state.jobs }),
+}));
+vi.mock("@/lib/collectionTemplates", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/collectionTemplates")>()),
+  useCollectionTemplateBundles: () => ({ data: starterPackBundles }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
 vi.mock("@/components/CollectionTemplateGallery", () => ({
@@ -112,6 +122,7 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  state.jobs = [];
   cleanup();
   vi.clearAllMocks();
 });
@@ -267,5 +278,40 @@ describe("AdminCollections actions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add a starter pack" }));
     expect(screen.getByRole("dialog", { name: "Starter packs" })).toBeInTheDocument();
+  });
+
+  it("names the finished starter pack and counts only the lists it shows", () => {
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: coreApplied,
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    expect(screen.getByText("Core Defaults added")).toBeInTheDocument();
+    expect(screen.getByText("Added 3 lists. 1 list couldn't be added.")).toBeInTheDocument();
+  });
+
+  it("says a finished starter pack had problems when nothing new landed", () => {
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: { ...coreApplied, created: [], sync_queued: [] },
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    expect(screen.getByText("Core Defaults finished with problems")).toBeInTheDocument();
+    expect(
+      screen.getByText("Nothing new was added. 1 list couldn't be added."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Starter pack added/)).toBeNull();
   });
 });
