@@ -74,6 +74,8 @@ import { WhereItShowsPanel } from "./WhereItShowsPanel";
 const NO_TITLES: readonly string[] = [];
 /** The fields the live preview already reflects before they are saved. */
 const PREVIEWED: ReadonlySet<DraftField> = new Set(["rules", "libraryIds", "rawSortConfig"]);
+/** The fields a sync reads; Sync now runs the saved copy, so it waits while they're unsaved. */
+const SYNC_INPUTS: ReadonlySet<DraftField> = new Set(["list", "libraryIds", "limit"]);
 
 /**
  * "3 titles are only in Kids: …" when unticking libraries would drop titles a
@@ -254,6 +256,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   // Spec §3.1: only server lists offer Sync now here; a profile syncs its
   // lists from their cards on the Collections page.
   const canSync = created && isServer && Boolean(view?.source);
+  const saveFirst = editor.changed.some((field) => SYNC_INPUTS.has(field));
   // Discards put the list's source card back.
   const [discards, setDiscards] = useState(0);
 
@@ -263,7 +266,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   }
 
   function syncNow() {
-    if (!editor.id || syncing) return;
+    if (!editor.id || syncing || saveFirst) return;
     syncList.mutate(editor.id, {
       onSuccess: (run) => setSkipped(run.itemsUnmatched),
       // A sync records its run on the collection, even one that fails: read
@@ -431,7 +434,14 @@ export function CollectionEditor<Raw extends WireCollection>({
     panel = {
       ...common,
       draft: { ...draft, list: draft.list },
-      saved: { view, syncing, skipped, onSyncNow: canSync ? syncNow : undefined, discards },
+      saved: {
+        view,
+        syncing,
+        skipped,
+        saveFirst,
+        onSyncNow: canSync ? syncNow : undefined,
+        discards,
+      },
     };
   }
   if (panel) {
@@ -523,7 +533,7 @@ export function CollectionEditor<Raw extends WireCollection>({
               ) : null
             }
             open={open}
-            sync={canSync ? { syncing, onSyncNow: syncNow } : undefined}
+            sync={canSync ? { syncing, saveFirst, onSyncNow: syncNow } : undefined}
             onDelete={() => setConfirmDelete(true)}
           />
         }

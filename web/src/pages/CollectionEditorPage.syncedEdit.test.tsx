@@ -328,6 +328,33 @@ describe("server Synced list editor", () => {
     );
   });
 
+  it("holds Sync now until changes to what the sync reads are saved", async () => {
+    serverList("mdblist", MDBLIST, {
+      last_sync_status: "failed",
+      last_sync_message: "MDBList didn't answer.",
+      last_sync_at: new Date(Date.now() - 6 * HOUR).toISOString(),
+    });
+    showPage(SERVER_EDIT);
+    await rename("Netflix Originals");
+    // A new name doesn't change what the sync reads.
+    let menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: /Sync now/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    fireEvent.keyDown(menu, { key: "Escape" });
+
+    // Sync now runs the saved list, not these unsaved Max titles.
+    await setMaxTitles("20");
+    menu = await openMoreActions();
+    const item = within(menu).getByRole("menuitem", { name: /Sync now/ });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent("Save your changes first");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    const alert = screen.getByRole("alert");
+    expect(within(alert).getByRole("button", { name: "Sync now" })).toBeDisabled();
+    expect(alert).toHaveTextContent("Save your changes first");
+  });
+
   it("puts a failed sync at the top of the list, with the reason and Sync now", async () => {
     serverList("mdblist", MDBLIST, {
       last_sync_status: "failed",

@@ -358,6 +358,8 @@ export function firstSyncMessage(sync?: { status: string; message: string; items
 
 export const SYNC_NOW = "Sync now";
 export const SYNCING_NOW = "Syncing now…";
+/** Why Sync now waits: it runs the saved list, not unsaved changes to it. */
+export const SAVE_BEFORE_SYNC = "Save your changes first; a sync runs the saved list.";
 export const LAST_SYNC = "Last sync";
 export const NEXT_SYNC = "Next sync";
 export const NOT_IN_YOUR_LIBRARIES = "Not in your libraries";
