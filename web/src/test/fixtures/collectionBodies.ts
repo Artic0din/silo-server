@@ -19,6 +19,21 @@ const personalPosterDelete: RecordedCall = {
   },
 };
 
+/** The default heroes for the Core pack on Movies (1) and TV Shows (2). */
+const starterPackHeroes = {
+  home: { library_id: "1", template_id: "tmdb_trending_movies_week" },
+  libraries: { "1": "tmdb_trending_movies_week", "2": "tmdb_trending_tv_week" },
+};
+
+function starterPackDryRun(featured?: typeof starterPackHeroes): RecordedCall {
+  return {
+    operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
+    path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
+    headers: {},
+    body: { library_ids: ["1", "2"], dry_run: true, delete_existing: false, featured },
+  };
+}
+
 export const goldens = {
   /** Admin manual create from the editor page: the POST, then the poster file, then the backdrop URL. */
   adminManualCreate: [
@@ -800,101 +815,41 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Bundle preview with the default hero sections. */
-  bundleDryRunWithHeroes: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        dry_run: true,
-        delete_existing: false,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
-    },
-  ] satisfies Writes,
-  /** Bundle preview with every hero off and Delete Existing on: no `featured` member. */
-  bundleDryRunNoHeroesDeleteExisting: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        dry_run: true,
-        delete_existing: true,
-      },
-    },
-  ] satisfies Writes,
-  /** Bundle apply job with the default hero sections. */
-  bundleJobWithHeroes: [
+  /**
+   * Starter packs, hero switch off: the dry run when the pack opens, the same
+   * dry run again right before Add, the job, and one more dry run once the job
+   * ends so the table shows what is there now. No `featured` member, so the
+   * server never touches existing hero rows; `delete_existing` is always false.
+   */
+  starterPackApply: [
+    starterPackDryRun(),
+    starterPackDryRun(),
     {
       operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
       path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
       headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: false,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
+      body: { library_ids: ["1", "2"], delete_existing: false },
     },
-  ] satisfies Writes,
-  /** Bundle apply job with every hero off: no `featured` member. */
-  bundleJobNoHeroes: [
-    {
-      operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
-      path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
-      headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: false,
-      },
-    },
+    starterPackDryRun(),
   ] satisfies Writes,
   /**
-   * Bundle apply job with the default hero sections and Delete Existing on.
-   * This is the request that deletes server collections; today it is sent
-   * with no confirmation step.
+   * Starter packs, hero switch turned on with the default heroes: the first
+   * dry run has no heroes; the rest, the job included, carry the same `featured`.
+   * When the job ends the switch turns back off, so after the refresh of the
+   * open check comes one more dry run without heroes.
    */
-  bundleJobDeleteExisting: [
+  starterPackApplyWithHeroes: [
+    starterPackDryRun(),
+    starterPackDryRun(starterPackHeroes),
+    starterPackDryRun(starterPackHeroes),
     {
       operation: "POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply-job",
       path: "/api/v2/admin/collections/template-bundles/core_defaults/apply-job",
       headers: {},
-      body: {
-        library_ids: ["1", "2"],
-        delete_existing: true,
-        featured: {
-          home: {
-            library_id: "1",
-            template_id: "tmdb_trending_movies_week",
-          },
-          libraries: {
-            "1": "tmdb_trending_movies_week",
-            "2": "tmdb_trending_tv_week",
-          },
-        },
-      },
+      body: { library_ids: ["1", "2"], delete_existing: false, featured: starterPackHeroes },
     },
+    starterPackDryRun(starterPackHeroes),
+    starterPackDryRun(),
   ] satisfies Writes,
   /** Add to collection, own manual collection: the personal item route. */
   addToPersonalCollection: [
@@ -907,28 +862,42 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Add to collection as an acting admin, server manual collection: the admin item route. */
-  addToServerCollection: [
+  /**
+   * What Add to collection lists: the profile's own manual collections, for
+   * an acting admin too. Server collections are no longer offered here;
+   * admins add titles to them from the collection's editor.
+   */
+  addToCollectionChoices: ["Rainy days"],
+  /** What Add to collection reads to fill its list: one list, marked for the title. */
+  addToCollectionReads: [
     {
-      operation: "PUT /api/v2/admin/collections/{id}/items/{item_id}",
-      path: "/api/v2/admin/collections/lc1/items/movie:heat-1995",
+      operation: "GET /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      query: { contains_item: "movie:heat-1995" },
+    },
+  ] satisfies RecordedCall[],
+  /** Add to collection's inline create: the personal manual collection, then the title. */
+  addToNewCollection: [
+    {
+      operation: "POST /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      body: {
+        name: "Night in",
+        description: "",
+        is_shared: false,
+        include_in_server_collections: false,
+        collection_type: "manual",
+      },
+    },
+    {
+      operation: "PUT /api/v2/collections/{id}/items/{item_id}",
+      path: "/api/v2/collections/c1/items/movie:heat-1995",
       headers: {},
       body: {
         position: 0,
       },
     },
   ] satisfies Writes,
-  /** What Add to collection lists, by group. */
-  addToCollectionGroups: {
-    profile: [{ group: "My Collections", collections: ["Rainy days"] }],
-    actingAdmin: [
-      { group: "My Collections", collections: ["Rainy days"] },
-      { group: "Movies", collections: ["Oscar Winners · Library"] },
-    ],
-  },
-  /** What Add to collection reads to fill its list. */
-  addToCollectionReads: {
-    profile: ["GET /api/v2/collections"],
-    actingAdmin: ["GET /api/v2/collections", "GET /api/v2/library/{id}/collections"],
-  },
 };

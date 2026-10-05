@@ -68,4 +68,21 @@ describe("ConfirmDialog", () => {
     expect(within(dialog).queryByText("This can't be undone.")).not.toBeInTheDocument();
     expect(dialog).toHaveAccessibleDescription("You'll need to sign in again.");
   });
+
+  it("says why the action didn't happen, as an alert inside the dialog", () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={vi.fn()}
+        title="Delete Studio Ghibli?"
+        description="It's removed for everyone."
+        error="Rows still use it. Remove them first."
+        onConfirm={vi.fn()}
+      />,
+    );
+    const dialog = screen.getByRole("alertdialog", { name: "Delete Studio Ghibli?" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Rows still use it. Remove them first.",
+    );
+  });
 });

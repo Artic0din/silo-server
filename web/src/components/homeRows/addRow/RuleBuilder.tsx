@@ -98,10 +98,11 @@ export function RuleBuilder({
   const scope: MediaScope = value.media_scope ?? "all";
   const fieldOptions = getFilterRuleFieldOptions(allowPersonalized, scope);
   const several = groups.length > 1;
-  // Follows the picker's summary: only names it shows get "library"/"libraries" after them.
-  const namedLibraries = value.library_ids.filter((id) =>
+  // Follows the picker's summary: "library"/"libraries" only follows a summary that shows a
+  // name, and counts every chosen library, named or not.
+  const summaryShowsAName = value.library_ids.some((id) =>
     libraries.some((library) => library.id === id),
-  ).length;
+  );
 
   const setGroups = (next: QueryGroup[]) => onChange({ ...value, groups: next });
   const setGroup = (index: number, group: QueryGroup) =>
@@ -201,7 +202,9 @@ export function RuleBuilder({
             triggerClassName={`${INLINE_TRIGGER} justify-between`}
           />
         </span>
-        {namedLibraries > 0 ? <span>{namedLibraries === 1 ? "library" : "libraries"}</span> : null}
+        {summaryShowsAName ? (
+          <span>{value.library_ids.length === 1 ? "library" : "libraries"}</span>
+        ) : null}
         {groups.length > 0 ? (
           <>
             {/* The mockup starts the matching clause on its own line. */}

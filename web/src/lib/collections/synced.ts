@@ -91,6 +91,8 @@ export function emptySyncedDraft(): SyncedDraft {
 // --- Links ------------------------------------------------------------------
 
 const MDBLIST_HOSTS = new Set(["mdblist.com", "www.mdblist.com"]);
+/** `URL.port` is "" for the scheme's default port. */
+const MDBLIST_PORTS = new Set(["", "80", "443"]);
 
 /** The link as sent: no `?query`, `#fragment` or trailing slash; a `/json` ending stays. */
 export function cleanMDBListLink(raw: string): string {
@@ -105,7 +107,10 @@ export function franchiseIdOf(typed: string): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-/** True for a list page on mdblist.com (`/lists/...`), with or without `/json`. */
+/**
+ * True for a list page on mdblist.com (`/lists/...`), with or without `/json`.
+ * Mirrors the server's `ValidateMDBListURL`: no credentials, and no port but 80 or 443.
+ */
 export function isMDBListLink(link: string): boolean {
   let parsed: URL;
   try {
@@ -115,7 +120,10 @@ export function isMDBListLink(link: string): boolean {
   }
   return (
     (parsed.protocol === "https:" || parsed.protocol === "http:") &&
-    MDBLIST_HOSTS.has(parsed.hostname.toLowerCase()) &&
+    parsed.username === "" &&
+    parsed.password === "" &&
+    MDBLIST_PORTS.has(parsed.port) &&
+    MDBLIST_HOSTS.has(parsed.hostname.toLowerCase().replace(/\.$/, "")) &&
     /^\/lists\/[^/]+/.test(parsed.pathname)
   );
 }

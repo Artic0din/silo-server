@@ -333,8 +333,14 @@ describe("personal Synced list editor", () => {
 
   describe("poster removal", () => {
     beforeEach(() => {
-      v2Recorder.answer("GET /api/v2/collections", {
-        items: [{ id: "c1", poster_url: "https://images.example/poster.png" }],
+      // The list carries the poster until the image DELETE lands.
+      let posterUrl = "https://images.example/poster.png";
+      v2Recorder.answer("GET /api/v2/collections", () => ({
+        items: [{ id: "c1", poster_url: posterUrl }],
+      }));
+      v2Recorder.answer("DELETE /api/v2/collections/{id}/image", () => {
+        posterUrl = "";
+        return undefined;
       });
     });
 
@@ -362,6 +368,40 @@ describe("personal Synced list editor", () => {
       await removePoster();
       await saveAndWait(2);
       expect(v2Recorder.writes()).toEqual(goldens.personalSyncedStagedPosterRemoval);
+    });
+
+    it("starts again from the saved collection after Save", async () => {
+      await removePoster();
+      await saveAndWait(2);
+      expect(within(posterSlot()).queryByRole("img")).toBeNull();
+
+      await type("Name", "Top Watched");
+      fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+      expect(within(posterSlot()).queryByRole("img")).toBeNull();
+
+      // The second save sends the ETag the first one left, so it is not a 412.
+      const savedETag = v2Recorder.etag("/api/v2/collections/c1");
+      await type("Name", "Top Watched");
+      await saveAndWait(3);
+      expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
+    });
+
+    it("starts again from the saved collection after Save", async () => {
+      await removePoster();
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      expect(await screen.findByText("0 unsaved changes")).toBeTruthy();
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+
+      // The second save sends the ETag the first one left, so it is not a 412.
+      const savedETag = v2Recorder.etag("/api/v2/collections/c1");
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(3));
+      expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
     });
   });
 

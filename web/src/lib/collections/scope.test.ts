@@ -81,7 +81,9 @@ describe("keys", () => {
 describe("paths", () => {
   it("lead to today's server pages", () => {
     expect(SERVER_SCOPE.paths.list()).toBe("/admin/collections");
-    expect(SERVER_SCOPE.paths.list({ libraryId: 3 })).toBe("/admin/collections?libraryId=3");
+    expect(SERVER_SCOPE.paths.list({ libraryId: 3 })).toBe(
+      "/admin/collections?libraryId=3&view=list",
+    );
     expect(SERVER_SCOPE.paths.list({ libraryId: 3, view: "arrange" })).toBe(
       "/admin/collections?libraryId=3&view=arrange",
     );

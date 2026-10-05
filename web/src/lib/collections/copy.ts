@@ -1,5 +1,6 @@
 import type { DraftField } from "./draft";
 import type { ArtworkSlot } from "./scope";
+import { COLLECTION_KIND_LABEL } from "./types";
 
 /**
  * Words every collections surface shares, so the editor, lists and dialogs
@@ -37,11 +38,49 @@ export const SHOW_TO_OTHER_PROFILES_LABEL = "Show to other profiles";
 export const SHOW_TO_OTHER_PROFILES_HELP =
   "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.";
 
+/** What turning sharing off costs: "Maya and Leo lose it, including Home rows they made from it." */
+export function unshareConsequence(profileNames: readonly string[]): string {
+  const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
+  return `${who} lose it, including Home rows they made from it.`;
+}
+
 /** Shown when sharing is turned off on a saved collection. */
 export function unshareWarning(profileNames: readonly string[]): string {
-  const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
-  return `When you save, ${who} lose it, including Home rows they made from it.`;
+  return `When you save, ${unshareConsequence(profileNames)}`;
 }
+
+/** The ⋯ switch's help on a card: the menu has room for one short line. */
+export const SHOW_TO_OTHER_PROFILES_SHORT_HELP = "Every profile on this account sees it";
+
+// --- Server list ------------------------------------------------------------
+
+export const ON_HOME = "On Home";
+export const HIDDEN_FROM_TAB = "Hidden from Collections tab";
+
+/** "Movies › Collections and Kids › Collections". */
+function collectionsTabs(libraryNames: readonly string[]): string {
+  return joinNames(libraryNames.map((name) => `${name} › Collections`));
+}
+
+export function hideCollectionTitle(name: string): string {
+  return `Hide ${name} from Collections tabs?`;
+}
+
+/** Hiding a collection rows show: they keep showing it, but See all can't open it. */
+export function hideCollectionDescription(
+  libraryNames: readonly string[],
+  rowCount: number,
+): string {
+  const leaves = libraryNames.length > 0 ? `It leaves ${collectionsTabs(libraryNames)}. ` : "";
+  const rows =
+    rowCount === 1
+      ? "1 row still shows it, but its See all won't open while it's hidden."
+      : `${rowCount} rows still show it, but their See all won't open while it's hidden.`;
+  return leaves + rows;
+}
+
+/** A delete the server refused because Home or library page rows still show the collection. */
+export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
 
 // --- Titles -----------------------------------------------------------------
 
@@ -62,6 +101,26 @@ export function removedTitle(title: string): string {
 
 export function createdButNotAdded(count: number): string {
   return `Created, but couldn't add ${plural(count, "title")}`;
+}
+
+// --- Add to collection -----------------------------------------------------
+
+export const ADD_TO_COLLECTION_FOOTNOTE =
+  "Only manual collections take titles by hand. Ticking saves right away.";
+
+/** "Manual · 15 titles": a manual collection's line in a picker. */
+export function manualTitleCount(count: number): string {
+  return `${COLLECTION_KIND_LABEL.manual} · ${plural(count, "title")}`;
+}
+
+/** The Add to collection footer: how many of the profile's collections hold the title. */
+export function inCollections(count: number): string {
+  return count === 0 ? "Not in a collection yet" : `In ${plural(count, "collection")}`;
+}
+
+/** The new collection was kept, but the title it was made for didn't go in. */
+export function madeButNotAdded(collection: string, title: string): string {
+  return `Made ${collection}, but couldn't add ${title}`;
 }
 
 // --- Rules (Smart) ----------------------------------------------------------
@@ -314,4 +373,43 @@ export function personalDeleteDescription(shared: boolean): string {
   return shared
     ? "It's removed for you and every profile you share it with. This can't be undone."
     : "This can't be undone.";
+}
+
+// --- Arrange ----------------------------------------------------------------
+
+export function arrangeHeading(libraryName: string): string {
+  return `Shelves on ${libraryName} › Collections`;
+}
+export const ARRANGE_SUBTITLE =
+  "Shelves are set separately for each library. Top to bottom, the way viewers see them.";
+export const ARRANGE_HINT =
+  "Drag shelves and collections, or focus a handle and press Space, then the arrow keys. ⋯ has Move to shelf. Changes save right away.";
+
+export const NO_HEADING = "No heading";
+export const NO_HEADING_HELP = "Collections not on a shelf, shown without a title";
+export const MY_COLLECTIONS_TAG = "Different for each viewer";
+export const MY_COLLECTIONS_NOTE = `Each viewer's own collections land here when they turn on “${SHOW_ON_TAB_LABEL}”. You can rename or move this shelf.`;
+/** Shown on My collections while a server collection is dragged. */
+export const MY_COLLECTIONS_NO_DROP = "Viewers' own collections only";
+export const HIDDEN_TAG = "Hidden";
+export const MOVE_FAILED = "Couldn't move it";
+/** A move found the order changed by someone else since Arrange read it; nothing was saved. */
+export const ORDER_CHANGED =
+  "Someone else changed this order, so nothing moved. Arrange now shows their order; move it again.";
+
+export const VIEWER_PREVIEW_LABEL = "What viewers see";
+export const VIEWER_PREVIEW_MINE = "Each viewer's own";
+export const VIEWER_PREVIEW_NOTE = "Hidden collections don't appear.";
+
+export function deleteShelfTitle(name: string): string {
+  return `Delete the ${name} shelf?`;
+}
+
+/** Deleting a shelf never deletes its collections, and touches one library only. */
+export function deleteShelfDescription(collectionCount: number, libraryName: string): string {
+  const members =
+    collectionCount === 0
+      ? "It has no collections."
+      : `${collectionCount === 1 ? "Its 1 collection moves" : `Its ${collectionCount} collections move`} to ${NO_HEADING} on ${libraryName} › Collections. ${collectionCount === 1 ? "It isn't" : "They aren't"} deleted.`;
+  return `${members} Only ${libraryName} changes; shelves in other libraries stay as they are. You can make the shelf again later.`;
 }

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 import { SERVER_SCOPE } from "@/lib/collections/scope";
 
 /** The Synced list tab each import card opens; templates open on the first. */
@@ -79,7 +80,7 @@ export default function AdminCollectionEditor({
   initialLibraryId?: number | null;
 }) {
   const navigate = useNavigate();
-  const returnPath = SERVER_SCOPE.paths.list({ libraryId: initialLibraryId });
+  const returnPath = useListReturnPath(SERVER_SCOPE.paths.list({ libraryId: initialLibraryId }));
   useDocumentTitle("Add Collection");
 
   return (

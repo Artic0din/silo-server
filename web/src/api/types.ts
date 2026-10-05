@@ -1349,6 +1349,8 @@ export interface Collection {
   include_in_server_collections?: boolean;
   poster_url?: string;
   poster_thumbhash?: string;
+  /** Whether it holds the list's `contains_item` title; only on the profile's own manual collections. */
+  contains?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1548,6 +1550,10 @@ export interface LibraryCollection {
   sync_schedule?: string;
   next_sync_at?: string;
   item_count: number;
+  /** Admin list only: turned-on Home rows that show it. */
+  home_row_count?: number;
+  /** Admin list only: Home and library page rows that show it, turned-off ones included. */
+  row_count?: number;
   created_at: string;
   updated_at: string;
 }

@@ -22,6 +22,7 @@ import {
   type CreateKind,
   type ScopeKind,
 } from "@/lib/collections/scope";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 import type { SyncedTab } from "@/lib/collections/synced";
 
 // The server create chooser loads on its own, so a profile never downloads it.
@@ -102,7 +103,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
   const carriedOn = Boolean(id) && id === created.id;
   const editor = useScopeEditor(scope, carriedOn ? undefined : id);
   const { profile, isLoading: profileLoading } = useCurrentProfile();
-  const listPath = scope.paths.list({ libraryId });
+  const listPath = useListReturnPath(scope.paths.list({ libraryId }));
 
   if ((!id && type) || carriedOn) {
     const kind = carriedOn ? created.kind : createKind;

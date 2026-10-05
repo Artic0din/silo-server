@@ -28,6 +28,8 @@ type fakeAdminCollections struct {
 	template                                           handlers.AdminCollectionTemplateResult
 	bundles                                            []templates.BundleWithTemplates
 	bundleReads                                        int
+	catalog                                            *templates.Catalog
+	catalogReads                                       int
 	featureReads                                       int
 	listed                                             []handlers.AdminCollection
 	listReads, sectionReads, countReads                int
