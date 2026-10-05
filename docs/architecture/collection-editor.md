@@ -199,13 +199,16 @@ address, so a reload doesn't repeat them.
   it is known whether the page can change, then for the page's collection options, and opens only
   when the id is among them. A hidden, deleted, unknown or unshared collection, or a page that
   can't change, gets a toast and nothing opens; options that fail to load get their own toast.
-  Options read before a collection was made are
-  refreshed first: the collection scopes' `invalidate` marks the admin collection list, the
-  personal list and the library tabs stale, and those are what the options read.
+  Options read before a collection was made or deleted are
+  refreshed first, and a match or a miss waits for that refresh: the collection scopes'
+  `invalidate` marks the admin collection list, the personal list and the library tabs stale, and
+  those are what the options read.
 - `?edit=<rowId>` opens that row in Edit row; a row that is gone gets a toast.
 - `?return=<path>` makes the dialog's back link "Back to *collection*" and, after Add row, goes to
   that path with a toast that offers to move the new row (`?edit=` on the same page). Both replace
-  the Home rows history entry. After Add row the navigation state carries `addedRow` (the
+  the Home rows history entry. Settings > Home Screen queues its saves, so there it goes back only
+  once the save and the refetch after it land with the row on the page; a failed save keeps the
+  viewer on Home rows with the save's error toast. After Add row the navigation state carries `addedRow` (the
   `AddedRowState` type: new row id, copies on other library pages, surface, page and position) so
   the collection's page can show which row is new. The path is honoured only when it starts with
   `/admin/collections/` or `/collections/` and neither it nor its decoded form holds a backslash,
