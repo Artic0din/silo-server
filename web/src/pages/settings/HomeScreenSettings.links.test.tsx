@@ -238,7 +238,17 @@ describe("?add= on Settings > Home Screen", () => {
 
     expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/collections/mine/edit");
+    expect(router.state.historyAction).toBe("REPLACE");
     await waitFor(() => expect(puts).toHaveLength(1));
+    expect(router.state.location.state).toEqual({
+      addedRow: {
+        id: puts[0]!.overrides.find((o) => o.section_type === "collection")!.id,
+        copyIds: [],
+        surface: "profile",
+        page: { kind: "home" },
+        position: 3,
+      },
+    });
     expect(mocks.success).toHaveBeenCalledWith(
       "Added to Home as row 3 of 3",
       expect.objectContaining({ action: expect.objectContaining({ label: "Move it" }) }),

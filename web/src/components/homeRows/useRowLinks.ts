@@ -8,6 +8,7 @@ import {
   homeRowsPath,
   readRowLinks,
   ROW_LINK_PARAMS,
+  type AddedRowState,
   type RowLinks,
 } from "@/lib/homeRows/rowLinks";
 import type { HomeRow, HomeRowsAdapter } from "@/lib/homeRows/types";
@@ -26,6 +27,7 @@ const CANT_ADD = "This collection can't be added here.";
 const PAGE_LOCKED = "This page can't change right now.";
 const ROW_GONE = "That row no longer exists.";
 const NO_KINDS = "The kinds of rows didn't load, so Add row couldn't open.";
+const NO_COLLECTIONS = "Collections didn't load, so Add row couldn't open.";
 
 /** Every link parameter's value, to notice a new link. Empty when there is none. */
 function linkKey(params: URLSearchParams) {
@@ -95,15 +97,19 @@ export function useRowLinks({
       if (!returnTo) return { draft };
       const { surface, page, pages, rows } = adapter;
       const where = page.kind === "home" ? "Home" : `the ${pageLabel(page, pages)} page`;
+      // Home rows was a detour from `returnTo`: replace it, so Back doesn't return to it.
       return {
         draft,
-        back: { label: `Back to ${option.title}`, onClick: () => navigate(returnTo) },
-        onAdded: (newIds) => {
-          navigate(returnTo);
-          const id = newIds[0];
-          if (!id) return;
-          // New rows go to the bottom.
-          const position = rows.filter((row) => row.id !== id).length + 1;
+        back: {
+          label: `Back to ${option.title}`,
+          onClick: () => navigate(returnTo, { replace: true }),
+        },
+        onAdded: ([id, ...copyIds]) => {
+          if (!id) return navigate(returnTo, { replace: true });
+          // `rows` is the page before the add; new rows go to the bottom.
+          const position = rows.length + 1;
+          const state: AddedRowState = { addedRow: { id, copyIds, surface, page, position } };
+          navigate(returnTo, { replace: true, state });
           toast.success(`Added to ${where} as row ${position} of ${position}`, {
             action: {
               label: "Move it",
@@ -137,7 +143,7 @@ export function useRowLinks({
       }
       // Options read before the collection was made are refreshing.
       if (collections?.fetching) return;
-      refuse(CANT_ADD);
+      refuse(collections?.failed ? NO_COLLECTIONS : CANT_ADD);
     } else if (edit) {
       const row = adapter.rows.find((candidate) => candidate.id === edit);
       if (!adapter.canEdit) refuse(PAGE_LOCKED);

@@ -198,12 +198,16 @@ address, so a reload doesn't repeat them.
   only) opens Add row at step 2 on that collection. It waits until the page's rows are loaded and
   it is known whether the page can change, then for the page's collection options, and opens only
   when the id is among them. A hidden, deleted, unknown or unshared collection, or a page that
-  can't change, gets a toast and nothing opens. Options read before a collection was made are
+  can't change, gets a toast and nothing opens; options that fail to load get their own toast.
+  Options read before a collection was made are
   refreshed first: the collection scopes' `invalidate` marks the admin collection list, the
   personal list and the library tabs stale, and those are what the options read.
 - `?edit=<rowId>` opens that row in Edit row; a row that is gone gets a toast.
 - `?return=<path>` makes the dialog's back link "Back to *collection*" and, after Add row, goes to
-  that path with a toast that offers to move the new row (`?edit=` on the same page). It is honoured
-  only when it starts with `/admin/collections/` or `/collections/` and neither it nor its decoded
-  form holds a backslash, `//`, a control character or a `.`/`..` segment; anything else is
-  ignored, so the parameter can't send a viewer off the site.
+  that path with a toast that offers to move the new row (`?edit=` on the same page). Both replace
+  the Home rows history entry. After Add row the navigation state carries `addedRow` (the
+  `AddedRowState` type: new row id, copies on other library pages, surface, page and position) so
+  the collection's page can show which row is new. The path is honoured only when it starts with
+  `/admin/collections/` or `/collections/` and neither it nor its decoded form holds a backslash,
+  `//`, a control character or a `.`/`..` segment; anything else is ignored, so the parameter
+  can't send a viewer off the site.

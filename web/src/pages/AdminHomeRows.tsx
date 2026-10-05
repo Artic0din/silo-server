@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PageSectionConfig } from "@/api/types";
 import {
+  useAdminSectionCapabilities,
   useDeleteSection,
   useDeleteSections,
   useRestoreDefaultSections,
@@ -78,6 +79,7 @@ function reportShownBatch({ changedIds, failures }: ShownBatchResult, shown: boo
 export default function AdminHomeRows() {
   const adapter = useAdminHomeRows();
   const { scope, serverCapabilities: capabilities } = adapter;
+  const capabilitiesFailed = useAdminSectionCapabilities().isError;
   const activeLibraryId = adapter.libraryId ?? null;
   const currentPageKey = pageParam(adapter.page);
   const currentPageLabel = pageLabel(adapter.page, adapter.pages);
@@ -255,8 +257,12 @@ export default function AdminHomeRows() {
     adapter,
     catalog: recipeCatalog,
     catalogFailed: recipeCatalogFailed,
-    // Whether the page can change is known once the capabilities load.
-    settled: adapter.status === "ready" && capabilities !== undefined,
+    // Whether the page can change is known once the capabilities load (or
+    // fail, which locks it); a row being read first finishes, as the buttons wait.
+    settled:
+      adapter.status === "ready" &&
+      (capabilities !== undefined || capabilitiesFailed) &&
+      !snapshotLoading,
     onAdd: (seed) => {
       snapshotRequest.current++;
       setRowDialog({ session: null, seed });

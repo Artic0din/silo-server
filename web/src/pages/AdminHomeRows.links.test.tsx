@@ -70,6 +70,19 @@ function serverCollection(id: string, title: string, visibility = "visible") {
 let rows: Row[];
 let collections: unknown[];
 let creates: Args[];
+/** Requests that wait for the test to answer them, by operation. */
+let held: Record<string, Promise<void>>;
+let failing: Set<string>;
+
+function deferred() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -87,7 +100,11 @@ beforeEach(() => {
     serverCollection("secret", "Staff only", "hidden"),
   ];
   creates = [];
+  held = {};
+  failing = new Set();
   mocks.request.mockImplementation(async (operation: string, args: Args = {}) => {
+    await held[operation];
+    if (failing.has(operation)) throw new Error(`${operation} failed`);
     args.onResponse?.(new Response(null, { headers: { ETag: '"rev-1"' } }));
     const scope = args.query?.scope ?? "home";
     const here = rows.filter((row) => row.scope === scope);
@@ -192,6 +209,8 @@ describe("?add= on admin Home rows", () => {
 
   it("finds a collection made in the editor once its options refresh", async () => {
     const client = newClient();
+    // The refresh answers only after the rest of the page is ready.
+    const refresh = deferred();
     // The Home rows options were read before the collection existed.
     await client.fetchQuery({
       queryKey: adminKeys.collections(undefined),
@@ -199,12 +218,41 @@ describe("?add= on admin Home rows", () => {
     });
     collections = [...collections, serverCollection("fresh", "Made just now")];
     // What the editor runs after saving it.
+    held["GET /api/v2/admin/collections"] = refresh.promise;
     await SERVER_SCOPE.invalidate(client);
 
     setup("/admin/home-rows?add=collection:library:fresh", client);
+    // The rows and capabilities are in: Add row is ready.
+    const add = await screen.findByRole("button", { name: "Add row" });
+    await waitFor(() => expect(add).toBeEnabled());
+    await act(async () => {});
+    expect(mocks.error).not.toHaveBeenCalled();
+
+    refresh.resolve();
     const form = await screen.findByRole("dialog", { name: "A collection" });
     expect(within(form).getByRole("radio", { name: "Made just now" })).toBeChecked();
     expect(mocks.error).not.toHaveBeenCalled();
+  });
+
+  it("says the collections didn't load rather than that this one can't be added", async () => {
+    failing.add("GET /api/v2/admin/collections");
+    setup("/admin/home-rows?add=collection:library:lib-1");
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "Collections didn't load, so Add row couldn't open.",
+      ),
+    );
+    expect(mocks.error).not.toHaveBeenCalledWith("This collection can't be added here.");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("says the page can't change when its capabilities don't load", async () => {
+    failing.add("GET /api/v2/admin/sections/capabilities");
+    setup("/admin/home-rows?add=collection:library:lib-1");
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith("This page can't change right now."),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
@@ -220,6 +268,18 @@ describe("?return= on admin Home rows", () => {
 
     expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/admin/collections/lib-1/edit");
+    // Home rows was a detour: Back from the collection doesn't return to it.
+    expect(router.state.historyAction).toBe("REPLACE");
+    // The collection's page is told which row is new, to show it.
+    expect(router.state.location.state).toEqual({
+      addedRow: {
+        id: "new-1",
+        copyIds: [],
+        surface: "admin",
+        page: { kind: "home" },
+        position: 3,
+      },
+    });
     expect(mocks.success).toHaveBeenCalledWith(
       "Added to Home as row 3 of 3",
       expect.objectContaining({ action: expect.objectContaining({ label: "Move it" }) }),
@@ -241,6 +301,8 @@ describe("?return= on admin Home rows", () => {
     await userEvent.click(within(form).getByRole("button", { name: "Back to Studio Ghibli" }));
     expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/admin/collections/lib-1/edit");
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(router.state.location.state).toBeNull();
     expect(creates).toEqual([]);
   });
 
@@ -269,6 +331,24 @@ describe("?edit= on admin Home rows", () => {
     const dialog = await screen.findByRole("dialog", { name: "Edit row" });
     expect(within(dialog).getByLabelText("Row name")).toHaveValue("Trending");
     expect(searchOf(router)).toBe("");
+  });
+
+  it("opens the linked row once a row the page was already reading is done", async () => {
+    const router = setup("/admin/home-rows");
+    const read = deferred();
+    held["GET /api/v2/admin/sections/{id}"] = read.promise;
+    await userEvent.click(await screen.findByRole("button", { name: "More for Row a" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Edit row…" }));
+    await act(async () => {
+      await router.navigate("/admin/home-rows?edit=b");
+    });
+    expect(searchOf(router)).toBe("");
+
+    // That read fails, so nothing else is open when the link's row is ready.
+    delete held["GET /api/v2/admin/sections/{id}"];
+    await act(async () => read.reject(new Error("Could not read Row a")));
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(dialog).getByLabelText("Row name")).toHaveValue("Trending");
   });
 
   it("says a row that is gone no longer exists and opens nothing", async () => {

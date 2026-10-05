@@ -9,6 +9,23 @@ import type { PageRef, Surface } from "./types";
  */
 export const ROW_LINK_PARAMS = ["add", "edit", "return"] as const;
 
+/**
+ * Navigation state on the `?return=` page after Add row from a link, so that
+ * page can show which row is new.
+ */
+export interface AddedRowState {
+  addedRow: {
+    /** The new row on `page`. */
+    id: string;
+    /** Copies added with it on other library pages. */
+    copyIds: string[];
+    surface: Surface;
+    page: PageRef;
+    /** Its place on `page`: new rows go to the bottom, so also the row count. */
+    position: number;
+  };
+}
+
 export interface RowLinkCollection {
   source: "library" | "user";
   id: string;
