@@ -323,6 +323,26 @@ describe("server Synced list editor", () => {
     );
   });
 
+  it("drops the skipped count when a later Sync now fails", async () => {
+    serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
+    showPage(SERVER_EDIT);
+    await nameField();
+    let menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    expect(await within(statusStrip()).findByText("41 titles skipped")).toBeInTheDocument();
+
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {
+      throw new Error("MDBList didn't answer.");
+    });
+    await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
+    menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    // The 41 belonged to the run before; the failed one counted nothing.
+    expect(await within(statusStrip()).findByText("Not counted yet")).toBeInTheDocument();
+    expect(within(statusStrip()).queryByText("41 titles skipped")).toBeNull();
+  });
+
   it("reads the list again after a failed Sync now, for its reason and token", async () => {
     const saved = serverList("mdblist", MDBLIST);
     v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {

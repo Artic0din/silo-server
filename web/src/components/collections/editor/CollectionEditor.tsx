@@ -273,6 +273,8 @@ export function CollectionEditor<Raw extends WireCollection>({
     if (!editor.id || syncing || saveFirst) return;
     syncList.mutate(editor.id, {
       onSuccess: (run) => setSkipped(run.itemsUnmatched),
+      // The last run counted nothing; an earlier run's count would read as its.
+      onError: () => setSkipped(undefined),
       // A sync records its run on the collection, even one that fails: read
       // it for the status and so Save and Delete send the new token.
       onSettled: () => {
