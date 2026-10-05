@@ -240,6 +240,24 @@ describe("AdminCollections Select collections", () => {
     expect(within(bar()).getByRole("button", { name: "Hide from tabs" })).toBeEnabled();
   });
 
+  it("offers no Sync when the server can't import lists", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      groups: true,
+      imports: false,
+      import_sources: [],
+      artwork: true,
+      item_reorder: true,
+      section_references: true,
+    });
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Best Picture Winners", "Christmas Classics");
+    expect(within(bar()).getByRole("status")).toHaveTextContent("2 selected");
+    expect(within(bar()).queryByRole("button", { name: /^Sync/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Sync skips/)).not.toBeInTheDocument();
+    expect(within(bar()).getByRole("button", { name: "Hide from tabs" })).toBeEnabled();
+  });
+
   it("refuses more than 100 at a time", async () => {
     items = Array.from({ length: 101 }, (_, index) => stored(`List ${index + 1}`));
     items.push(stored("Studio Ghibli"));
