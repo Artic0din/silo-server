@@ -18,8 +18,6 @@ import { useAddedRowHighlight } from "./useAddedRowHighlight";
 interface PersonalRowsProps {
   /** The saved collection; undefined until it is created. */
   collectionId: string | undefined;
-  /** The libraries the saved collection matches, whose pages are read. */
-  savedLibraryIds: readonly number[];
   /** The libraries the draft matches, whose pages Add as a row offers. */
   draftLibraryIds: readonly number[];
   /** A row Home Screen just added from here (navigation state). */
@@ -33,8 +31,8 @@ interface PersonalRowsProps {
 
 /**
  * Where it shows on a personal collection: the rows on the viewer's own Home
- * and on each library page the collection can show on that show it, and Add
- * as a row (My Home, My *Library* page). Nothing is read until the panel
+ * and library pages that show it, and Add as a row (My Home, My *Library*
+ * page for each library the draft matches). Nothing is read until the panel
  * comes near the screen; then one page at a time per slot (see
  * `useProfileCollectionRows`). It only links into Settings > Home Screen and
  * never changes a row itself.
@@ -52,7 +50,6 @@ export function PersonalRowsThatShowIt(props: PersonalRowsProps) {
 
 function PersonalRows({
   collectionId,
-  savedLibraryIds,
   draftLibraryIds,
   addedRowId,
   disabledReason,
@@ -62,12 +59,11 @@ function PersonalRows({
   const libraries = useUserLibraries();
   // Until the display preferences load, the list still holds hidden libraries.
   const visible = libraries.isLoading ? undefined : libraries.data;
+  // Every page, not only the matched ones: Home Screen offers a personal
+  // collection on any page, and its libraries can change after a row is added.
   const pages: PageRef[] | undefined = visible && [
     { kind: "home" },
-    ...matchedLibraries(visible, savedLibraryIds).map((library) => ({
-      kind: "library" as const,
-      libraryId: library.id,
-    })),
+    ...visible.map((library) => ({ kind: "library" as const, libraryId: library.id })),
   ];
   const read = useProfileCollectionRows(collectionId, pages);
   const rows: RowsState =

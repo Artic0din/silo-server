@@ -267,15 +267,16 @@ capabilities don't report `section_references`, the list is left out and Add as 
 ## Where it shows: personal rows
 
 A personal collection's Where it shows panel lists the rows on the viewer's own Home and on the
-library page of each library the collection matches (every library the profile sees when it names
-none) that show it, read from `GET /api/v2/profile/sections/settings`, one read per page. That is
-the read Settings > Home Screen makes, so both share one cache and a row added there is listed on
-the way back. Pages are read only once the panel comes near the screen, and at most four at once
-(the poster peeks' limit), and not before the profile's hidden libraries are known. The header's
-"On my Home…" line comes from the same read, so it appears only after the panel has been near the
-screen. A row's place ("My Home · row 4 of 8") is its rank on its page, hidden rows counted; a row
-the profile hid reads "Hidden" and is left out of the header's "On my Home". Rows other profiles
-make from a shared collection are not listed.
+library page of every library the profile sees that show it, read from
+`GET /api/v2/profile/sections/settings`, one read per page. Every page is read, not only those of
+the libraries the collection matches, because Home Screen offers a personal collection on any page
+and its libraries can change after a row is added. That is the read Settings > Home Screen makes, so
+both share one cache and a row added there is listed on the way back. Pages are read only once the
+panel comes near the screen, and at most four at once (the poster peeks' limit), and not before the
+profile's hidden libraries are known. The header's "On my Home…" line comes from the same read, so
+it appears only after the panel has been near the screen. A row's place ("My Home · row 4 of 8") is
+its rank on its page, hidden rows counted; a row the profile hid reads "Hidden" and is left out of
+the header's "On my Home". Rows other profiles make from a shared collection are not listed.
 
 - **Add as a row** offers My Home and the matched library pages, and goes to Settings > Home Screen
   with `?page=…&add=collection:user:<id>&return=<editor path>`, asking first about unsaved changes

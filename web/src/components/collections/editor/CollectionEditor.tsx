@@ -797,7 +797,6 @@ export function CollectionEditor<Raw extends WireCollection>({
               ) : (
                 <PersonalRowsThatShowIt
                   collectionId={created ? editor.id : undefined}
-                  savedLibraryIds={view?.libraryIds ?? []}
                   draftLibraryIds={draft.libraryIds}
                   addedRowId={addedRowId}
                   disabledReason={addRowBlocked}

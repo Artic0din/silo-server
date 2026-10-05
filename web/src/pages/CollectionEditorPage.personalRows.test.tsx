@@ -237,7 +237,7 @@ describe("rows that show a personal collection", () => {
     expect(settingsReads()).toHaveLength(0);
   });
 
-  it("lists the rows on your Home and the pages of the libraries it matches", async () => {
+  it("lists the rows on your Home and your library pages", async () => {
     showPage(EDITOR);
     const group = await rowsGroup();
     const home = await within(group).findByRole("link", {
@@ -251,8 +251,21 @@ describe("rows that show a personal collection", () => {
     ).toHaveAttribute("href", "/settings/home-screen?page=2&edit=u-kids");
     expect(group).toHaveTextContent("2 rows");
     expect(group).not.toHaveTextContent(ROWS_NOT_LISTED);
-    // Home, Movies and Kids: not 4K Movies, which it doesn't match.
-    expect(settingsReads().map(pageKey).sort()).toEqual(["1", "2", "home"]);
+  });
+
+  it("lists a row on the page of a library it doesn't match", async () => {
+    // Home Screen offers every personal collection on every page, and a
+    // collection's libraries can change after its rows were added.
+    pages["3"] = [entry("s-4k"), collectionRow("u-4k", "Big screen")];
+    showPage(EDITOR);
+    const group = await rowsGroup();
+    expect(
+      await within(group).findByRole("link", {
+        name: "Big screen, My 4K Movies page · row 2 of 2",
+      }),
+    ).toHaveAttribute("href", "/settings/home-screen?page=3&edit=u-4k");
+    expect(group).toHaveTextContent("3 rows");
+    expect(settingsReads().map(pageKey).sort()).toEqual(["1", "2", "3", "home"]);
   });
 
   it("says in the header where your rows show it, leaving hidden rows out", async () => {
