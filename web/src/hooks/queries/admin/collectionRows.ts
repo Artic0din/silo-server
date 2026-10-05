@@ -27,7 +27,13 @@ export function useDeleteCollectionRows() {
   const queryClient = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: (rows: readonly CollectionRow[]) => deleteAdminCollectionRows(rows),
+    mutationFn: ({
+      collectionId,
+      rows,
+    }: {
+      collectionId: string;
+      rows: readonly CollectionRow[];
+    }) => deleteAdminCollectionRows(collectionId, rows),
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: sectionKeys.all }),

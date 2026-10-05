@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CREATE_IT_FIRST,
+  DISCARD_KEEPS_IT_HIDDEN,
   ROWS_NOT_LISTED,
   SHOW_IT_FIRST,
   SHOW_ON_TAB_LABEL,
@@ -57,6 +58,7 @@ function section(id: string, overrides: Record<string, unknown>) {
     enabled: true,
     position: 0,
     page_row_count: 1,
+    config: { library_collection_id: "c1" },
     ...overrides,
   };
 }
@@ -81,6 +83,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
+  URL.createObjectURL = () => "blob:artwork";
   HTMLElement.prototype.scrollIntoView = () => {};
   HTMLElement.prototype.hasPointerCapture = () => false;
   rows = [HOME_ROW, KIDS_ROW];
@@ -309,6 +312,60 @@ describe("Add as a row", () => {
     expect(v2Recorder.writes()).toHaveLength(0);
   });
 
+  it("takes the list it was opened from along, so it can go back there afterwards", async () => {
+    const returnTo = "/admin/collections?view=list&q=ghibli";
+    const user = userEvent.setup();
+    const router = showPage({
+      pathname: "/admin/collections/c1/edit",
+      search: "?libraryId=1",
+      state: { returnTo },
+    });
+    const menu = await openAddAsRow(user);
+    await user.click(within(menu).getByRole("menuitem", { name: "Home" }));
+    await waitFor(() => expect(location()).toMatch(/^\/admin\/home-rows\?/));
+    expect(router.state.location.state).toEqual({ returnTo });
+  });
+
+  it("can't discard into Home rows when it's saved as hidden: only saving shows it", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}", { ...GHIBLI, visibility: "hidden" });
+    rows = [];
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    await screen.findByText("No Home or library page row shows it yet.");
+    fireEvent.click(await screen.findByRole("switch", { name: SHOW_ON_TAB_LABEL }));
+    const menu = await openAddAsRow(user);
+    await user.click(within(menu).getByRole("menuitem", { name: "Home" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Save changes first?" });
+    const discard = within(dialog).getByRole("button", { name: "Discard changes" });
+    expect(discard).toBeDisabled();
+    expect(discard).toHaveAccessibleDescription(DISCARD_KEEPS_IT_HIDDEN);
+    await user.click(within(dialog).getByRole("button", { name: "Save and continue" }));
+    await waitFor(() => expect(location()).toMatch(/^\/admin\/home-rows\?/));
+    const [patch] = v2Recorder.callsOf("PATCH /api/v2/admin/collections/{id}");
+    expect(patch!.body).toMatchObject({ visibility: "visible" });
+  });
+
+  it("stays when Save and continue couldn't save the poster, showing why", async () => {
+    v2Recorder.answer("PUT /api/v2/admin/collections/{id}/poster", () => {
+      throw new Error("too large");
+    });
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    await rowsGroup();
+    fireEvent.change(
+      within(screen.getByRole("group", { name: "Poster" })).getByLabelText("Upload poster"),
+      { target: { files: [new File(["image"], "poster.png", { type: "image/png" })] } },
+    );
+    const menu = await openAddAsRow(user);
+    await user.click(within(menu).getByRole("menuitem", { name: "Home" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Save changes first?" });
+    await user.click(within(dialog).getByRole("button", { name: "Save and continue" }));
+    expect(await screen.findByText(/Couldn't save the poster/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(v2Recorder.callsOf("PUT /api/v2/admin/collections/{id}/poster")).toHaveLength(1);
+    expect(screen.queryByRole("status", { name: "Location" })).toBeNull();
+  });
+
   it("asks first about unsaved changes: Save and continue saves, then goes on", async () => {
     const user = userEvent.setup();
     showPage(EDITOR);
@@ -348,6 +405,26 @@ describe("hiding a collection rows show", () => {
     expect(toggle).not.toBeChecked();
     // The switch is part of the draft: nothing saves until Save.
     expect(v2Recorder.writes()).toHaveLength(0);
+  });
+
+  it("still asks from the list's row count while the rows don't load", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}/sections", () => {
+      throw new Error("offline");
+    });
+    v2Recorder.answer(
+      "GET /api/v2/admin/collections",
+      adminCollectionList({ ...GHIBLI, row_count: 2 }),
+    );
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    await within(await rowsGroup()).findByRole("alert");
+    await user.click(screen.getByRole("switch", { name: SHOW_ON_TAB_LABEL }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Hide Original from Collections tabs?",
+    });
+    expect(dialog).toHaveTextContent(
+      "2 rows still show it, but their See all won't open while it's hidden.",
+    );
   });
 
   it("hides at once when no row shows it", async () => {
@@ -408,6 +485,22 @@ describe("deleting a collection rows show", () => {
     ]);
     const rowDeletes = v2Recorder.callsOf("DELETE /api/v2/admin/sections/{id}");
     expect(rowDeletes[0]!.headers["If-Match"]).toBe('"/api/v2/admin/sections/s-home#1"');
+  });
+
+  it("leaves a row that now shows another collection, and still deletes the collection", async () => {
+    v2Recorder.answer("GET /api/v2/admin/sections/{id}", (call: RecordedCall) => {
+      const row = rows.find((candidate) => call.path.endsWith(`/${candidate.id}`))!;
+      return row.id === "s-kids" ? { ...row, config: { library_collection_id: "c2" } } : row;
+    });
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    const dialog = await openDelete(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete it and its 2 rows" }));
+    await waitFor(() => expect(location()).toMatch(/^\/admin\/collections(\?|$)/));
+    expect(
+      v2Recorder.callsOf("DELETE /api/v2/admin/sections/{id}").map((call) => call.path),
+    ).toEqual(["/api/v2/admin/sections/s-home"]);
+    expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(1);
   });
 
   it("stops before the collection when a row can't be deleted, and names what's left", async () => {

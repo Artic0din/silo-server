@@ -420,7 +420,9 @@ export default function AdminCollections() {
     const rows = deleteRowsState?.status === "ready" ? [...deleteRowsState.rows] : [];
     if (rows.length > 0) {
       setPendingDelete((current) => current && { ...current, rows, error: null });
-      const { remaining } = await deleteRows.mutateAsync(rows).catch(() => ({ remaining: rows }));
+      const { remaining } = await deleteRows
+        .mutateAsync({ collectionId: id, rows })
+        .catch(() => ({ remaining: rows }));
       if (remaining.length > 0) {
         setPendingDelete((current) =>
           current?.collection.id === id

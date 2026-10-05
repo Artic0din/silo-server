@@ -38,16 +38,21 @@ function isGone(error: unknown) {
 }
 
 /**
- * Deletes `rows` one at a time, each with the ETag of a fresh read. A row
- * that is already gone counts as deleted. The first failure stops the run:
- * `remaining` holds that row and every row after it, with the error.
+ * Deletes the `rows` that show collection `collectionId`, one at a time, each
+ * with the ETag of a fresh read. `rows` can be stale: a row that is already
+ * gone, or that now shows another collection, is left alone and counts as
+ * done (the collection's own delete still refuses if a row uses it). The
+ * first failure stops the run: `remaining` holds that row and every row after
+ * it, with the error.
  */
 export async function deleteAdminCollectionRows(
+  collectionId: string,
   rows: readonly CollectionRow[],
 ): Promise<{ remaining: CollectionRow[]; error?: unknown }> {
   for (const [index, row] of rows.entries()) {
     try {
-      const { etag } = await fetchAdminSectionSnapshot(row.id);
+      const { section, etag } = await fetchAdminSectionSnapshot(row.id);
+      if (section.config?.library_collection_id !== collectionId) continue;
       await deleteAdminSection({ id: row.id, etag });
     } catch (error) {
       if (isGone(error)) continue;

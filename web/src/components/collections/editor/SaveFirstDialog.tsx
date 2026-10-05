@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -13,12 +15,14 @@ import { SAVE_FIRST_TITLE } from "@/lib/collections/copy";
 /**
  * Asks before leaving the editor for Home rows with unsaved changes: save
  * them and carry on, drop them and carry on, or stay. Save and continue
- * keeps the dialog open until the save answers.
+ * keeps the dialog open until the save answers. `discardBlockedReason`
+ * turns Discard off, saying why, when only saving would let Home rows add it.
  */
 export function SaveFirstDialog({
   open,
   description,
   isSaving,
+  discardBlockedReason = null,
   onCancel,
   onDiscard,
   onSave,
@@ -26,10 +30,12 @@ export function SaveFirstDialog({
   open: boolean;
   description: string;
   isSaving: boolean;
+  discardBlockedReason?: string | null;
   onCancel: () => void;
   onDiscard: () => void;
   onSave: () => void;
 }) {
+  const reasonId = useId();
   return (
     <AlertDialog
       open={open}
@@ -41,13 +47,23 @@ export function SaveFirstDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{SAVE_FIRST_TITLE}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
+          {discardBlockedReason ? (
+            <p id={reasonId} className="text-muted-foreground text-sm">
+              {discardBlockedReason}
+            </p>
+          ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter className="sm:justify-between">
           <AlertDialogCancel variant="ghost" disabled={isSaving}>
             Cancel
           </AlertDialogCancel>
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button variant="outline" disabled={isSaving} onClick={onDiscard}>
+            <Button
+              variant="outline"
+              disabled={isSaving || Boolean(discardBlockedReason)}
+              aria-describedby={discardBlockedReason ? reasonId : undefined}
+              onClick={onDiscard}
+            >
               Discard changes
             </Button>
             <Button disabled={isSaving} onClick={onSave}>

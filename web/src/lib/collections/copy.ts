@@ -137,6 +137,8 @@ export const ADD_AS_A_ROW = "Add as a row";
 export const OTHER_LIBRARIES = "Other libraries";
 export const CREATE_IT_FIRST = "Create it first, then add it as a row.";
 export const SHOW_IT_FIRST = "Show it on the Collections tab first. Viewers couldn't open See all.";
+export const DISCARD_KEEPS_IT_HIDDEN =
+  "It's saved as hidden from the Collections tab, so save to show it before adding it as a row.";
 export const ADD_TO_HOME = "Add to Home…";
 export const ADD_TO_HOME_HELP = "A row on everyone's Home";
 export const ADD_TO_LIBRARY_PAGE = "Add to a library page…";

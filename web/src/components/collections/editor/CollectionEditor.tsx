@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -40,6 +40,7 @@ import {
   PREVIEW_SHOWS_UNSAVED,
   SAVE_FAILED,
   SHOW_IT_FIRST,
+  DISCARD_KEEPS_IT_HIDDEN,
   SMART_UPDATES_ITSELF,
   SYNCED_CREATE_SUBTITLE,
   SYNCS_ON_CREATE,
@@ -54,7 +55,7 @@ import {
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
 import { draftRules, type DraftField } from "@/lib/collections/draft";
-import { useListReturnPath } from "@/lib/collections/listReturn";
+import { listReturnState, useListReturnPath } from "@/lib/collections/listReturn";
 import {
   addRowPath,
   onRowsLine,
@@ -93,7 +94,7 @@ import { RowsThatShowIt } from "./RowsThatShowIt";
 import { SaveFirstDialog } from "./SaveFirstDialog";
 import { SmartRulesPanel } from "./SmartRulesPanel";
 import { SyncedListPanel, type SyncedListPanelProps } from "./SyncedListPanel";
-import { WhereItShowsPanel } from "./WhereItShowsPanel";
+import { WhereItShowsPanel, type HideConfirm } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
 /** The fields the live preview already reflects before they are saved. */
@@ -265,6 +266,8 @@ export function CollectionEditor<Raw extends WireCollection>({
   const [leaving, setLeaving] = useState<string | null>(null);
   // A trip to Home rows (Add as a row), from which the editor expects to be handed back.
   const [detour, setDetour] = useState<string | null>(null);
+  // Save and continue saved: the trip to take once that save has settled.
+  const [afterSave, setAfterSave] = useState<string | null>(null);
   const [openEdit, setOpenEdit] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const listPath = useListReturnPath(
@@ -313,14 +316,34 @@ export function CollectionEditor<Raw extends WireCollection>({
     if (leaving) {
       navigate(leaving, { replace: true });
     } else if (detour) {
-      navigate(detour);
+      // Carry the list the editor was opened from, so it can go back there afterwards.
+      navigate(detour, { state: listReturnState(listPath) });
     } else if (moving && openEdit) {
       navigate(scope.paths.edit(openEdit, { libraryId }), { replace: true });
       // Create unmounts its button; carry on where the contents start.
       if (smart) focusLibrariesLine();
       else if (!newList) document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();
     }
-  }, [hasUnsaved, leaving, detour, libraryId, moving, navigate, newList, openEdit, scope, smart]);
+  }, [
+    hasUnsaved,
+    leaving,
+    detour,
+    libraryId,
+    listPath,
+    moving,
+    navigate,
+    newList,
+    openEdit,
+    scope,
+    smart,
+  ]);
+
+  // Something the save couldn't keep (artwork that failed to upload, an edit
+  // made while saving) stays here with its message rather than being dropped.
+  if (afterSave && !editor.isSaving) {
+    setAfterSave(null);
+    if (!editor.isDirty) setDetour(afterSave);
+  }
 
   const libraryOptions = adminLibraries.map(({ id, name, type }) => ({ id, name, type }));
   const named = (ids: readonly number[]) =>
@@ -354,6 +377,26 @@ export function CollectionEditor<Raw extends WireCollection>({
     else rowsState = { status: "loading" };
   }
 
+  // Until the rows load (or when they don't), the list's count of them still
+  // warns before a hide. The editor page reads that list already.
+  const { data: listedRowCount = 0 } = useQuery({
+    queryKey: scope.keys.list,
+    queryFn: () => scope.fetchList(),
+    staleTime: Infinity,
+    enabled: isServer && created,
+    select: (data) =>
+      (data.collections as Array<{ id: string; row_count?: number }>).find(
+        (entry) => entry.id === editor.id,
+      )?.row_count ?? 0,
+  });
+  let hideConfirm: HideConfirm | null = null;
+  if (savedRows) {
+    if (savedRows.length > 0)
+      hideConfirm = { rowCount: savedRows.length, places: rowPlaces(savedRows, libraryNames) };
+  } else if (isServer && listedRowCount > 0) {
+    hideConfirm = { rowCount: listedRowCount, places: null };
+  }
+
   // Back from Add row in Home rows: the new row flashes once it's listed.
   const addedRow = (location.state as Partial<AddedRowState> | null)?.addedRow;
   const addedRowId = addedRow?.surface === "admin" ? addedRow.id : undefined;
@@ -383,11 +426,13 @@ export function CollectionEditor<Raw extends WireCollection>({
     if (!savingFirst) return;
     const saved = await editor.save();
     setSavingFirst(null);
-    if (saved) setDetour(savingFirst.path);
+    if (saved) setAfterSave(savingFirst.path);
   }
   let addRowBlocked: string | null = null;
   if (!created) addRowBlocked = CREATE_IT_FIRST;
   else if (draft.server?.visibility === "hidden") addRowBlocked = SHOW_IT_FIRST;
+  // Hidden as saved: discarding keeps it hidden, so only saving lets Home rows add it.
+  const discardKeepsHidden = view?.server?.visibility === "hidden";
 
   // Delete: rows that show it go first, each with a fresh token, then the collection.
   const deleteRows = useDeleteCollectionRows();
@@ -406,7 +451,7 @@ export function CollectionEditor<Raw extends WireCollection>({
     if (rows.length > 0) {
       setDeletingRows(rows);
       const { remaining } = await deleteRows
-        .mutateAsync(rows)
+        .mutateAsync({ collectionId: view.id, rows })
         .catch(() => ({ remaining: [...rows] }));
       if (remaining.length > 0) {
         setDeletingRows(remaining);
@@ -697,11 +742,7 @@ export function CollectionEditor<Raw extends WireCollection>({
                 </RowsThatShowIt>
               ) : undefined
             }
-            hideConfirm={
-              savedRows && savedRows.length > 0
-                ? { rowCount: savedRows.length, places: rowPlaces(savedRows, libraryNames) }
-                : null
-            }
+            hideConfirm={hideConfirm}
           />
         }
         footer={saveBar}
@@ -747,8 +788,9 @@ export function CollectionEditor<Raw extends WireCollection>({
         }
         isSaving={editor.isSaving}
         onCancel={() => setSavingFirst(null)}
+        discardBlockedReason={discardKeepsHidden ? DISCARD_KEEPS_IT_HIDDEN : null}
         onDiscard={() => {
-          if (!savingFirst) return;
+          if (!savingFirst || discardKeepsHidden) return;
           editor.discard();
           setDiscards((count) => count + 1);
           setSavingFirst(null);
