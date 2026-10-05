@@ -275,6 +275,8 @@ export function CollectionEditor<Raw extends WireCollection>({
   // A scheduled sync, or one started elsewhere, ends without telling this
   // page: read the list again until it does.
   const runningElsewhere = view?.sync?.status === "running" && !syncList.isPending;
+  // That run's skipped titles aren't the ones counted here.
+  if (runningElsewhere && skipped !== undefined) setSkipped(undefined);
   const { syncWithServer } = editor;
   useEffect(() => {
     if (!runningElsewhere) return;
