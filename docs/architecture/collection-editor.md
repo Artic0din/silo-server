@@ -235,7 +235,8 @@ capabilities don't report `section_references`, the list is left out and Add as 
   asks first: Save and continue saves and goes only once nothing is left unsaved (artwork that
   failed to upload stays in the editor with its error), Discard changes drops the draft (titles
   stay), Cancel stays. Discard changes is off when the collection is saved as hidden, since only
-  saving would show it. A collection not created yet, or one hidden from its Collections tab,
+  saving would show it. Save and continue is off whenever Save is, including while a field
+  changed in both places waits for Keep mine or Use theirs. A collection not created yet, or one hidden from its Collections tab,
   can't be added, because a row couldn't open its See all; the button says why.
 - **Back from Home rows**, the `addedRow` state names the new row, which is highlighted once the
   rows list includes it. The editor sends Home rows the List view it was opened from as history
@@ -246,7 +247,10 @@ capabilities don't report `section_references`, the list is left out and Add as 
   the collection still triggers the question, without naming pages. The switch stays part of the
   draft until Save.
 - **Deleting** a collection rows show lists them, each with Open row, and offers to delete the
-  rows and then the collection. Each row is read again for its ETag right before its `DELETE`; a
+  rows and then the collection. Before any row goes, the editor reads the collection again: when
+  its ETag no longer matches the editor's, nothing is deleted (the collection's `DELETE` would
+  answer `412` after its rows were gone) and the editor takes the new copy, so the next Delete
+  sends the current token. Each row is read again for its ETag right before its `DELETE`; a
   row that is already gone, or that now shows another collection, is left alone (the list of rows
   can be stale, and the collection's own `DELETE` still refuses while any row uses it). The first
   row that fails stops the run before the collection is touched, and the dialog names the rows
@@ -255,7 +259,7 @@ capabilities don't report `section_references`, the list is left out and Add as 
   `409 collection_in_use` guards a row added since. On the List, that `409` is shown as "Rows
   still use it. Remove them first." without `section_references`, and with it the List falls back
   to the rows list for a collection its counts showed as unused. The editor shows the server's
-  message and reads the rows again.
+  message and reads the rows again (only when the server reports rows).
 - **Row places** ("Home · row 6 of 9") are each row's rank in its page's order
   (`getAdminSectionOrder`, read once per page alongside the rows), because stored positions skip
   numbers after a row is deleted.

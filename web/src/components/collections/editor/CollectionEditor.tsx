@@ -29,6 +29,8 @@ import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import {
+  CHANGED_BEFORE_DELETE,
+  CHECK_BEFORE_DELETE_FAILED,
   CREATE_IT_FIRST,
   DRAFT_FIELD_LABEL,
   NAME_FILLED_HELP,
@@ -38,7 +40,9 @@ import {
   PICK_A_LIST_FIRST,
   PICK_LIBRARIES_FIRST,
   PREVIEW_SHOWS_UNSAVED,
+  SAVE_AFTER_CONFLICTS,
   SAVE_FAILED,
+  SAVE_NOT_READY,
   SHOW_IT_FIRST,
   DISCARD_KEEPS_IT_HIDDEN,
   SMART_UPDATES_ITSELF,
@@ -446,7 +450,7 @@ export function CollectionEditor<Raw extends WireCollection>({
     else setDetour(path);
   }
   async function saveAndContinue() {
-    if (!savingFirst) return;
+    if (!savingFirst || saveBlockedReason) return;
     const saved = await editor.save();
     setSavingFirst(null);
     if (saved) setAfterSave(savingFirst.path);
@@ -462,6 +466,8 @@ export function CollectionEditor<Raw extends WireCollection>({
   // The rows the delete is working through, so the dialog doesn't change under it.
   const [deletingRows, setDeletingRows] = useState<readonly CollectionRow[] | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Reading the collection's token before any row goes.
+  const [checkingDelete, setCheckingDelete] = useState(false);
   function closeDelete() {
     setConfirmDelete(false);
     setDeletingRows(null);
@@ -475,6 +481,20 @@ export function CollectionEditor<Raw extends WireCollection>({
     const rows = deletingRows ?? savedRows ?? [];
     setDeleteError(null);
     if (rows.length > 0) {
+      // A deleted row can't come back: check the collection's token first, so
+      // a Delete that would answer 412 deletes nothing.
+      setCheckingDelete(true);
+      const current = await scope.fetchSnapshot(view.id).then(
+        (snapshot) => snapshot.etag,
+        () => null,
+      );
+      // Changed: read it again, so the next Delete sends the new token.
+      if (current && current !== editor.etag) await reread();
+      setCheckingDelete(false);
+      if (current !== editor.etag) {
+        setDeleteError(current ? CHANGED_BEFORE_DELETE : CHECK_BEFORE_DELETE_FAILED);
+        return;
+      }
       setDeletingRows(rows);
       const { remaining } = await deleteRows
         .mutateAsync({ collectionId: view.id, rows })
@@ -549,6 +569,11 @@ export function CollectionEditor<Raw extends WireCollection>({
     afterPending = PICK_A_LIBRARY;
     createHint = PICK_LIBRARIES_FIRST;
   }
+  // Save and Save and continue wait for the same things.
+  let saveBlockedReason: string | null = null;
+  if (editor.conflicts.length > 0) saveBlockedReason = SAVE_AFTER_CONFLICTS;
+  else if (draft.name.trim() === "" || needsLibraries || listProblem)
+    saveBlockedReason = SAVE_NOT_READY;
   const saveBar = created ? (
     <SaveBar
       placement="page"
@@ -556,9 +581,7 @@ export function CollectionEditor<Raw extends WireCollection>({
       visible={editor.isDirty || Boolean(editor.saveError)}
       isSaving={editor.isSaving}
       saveLabel={editor.saveError ? "Try again" : "Save"}
-      canSave={
-        draft.name.trim() !== "" && !needsLibraries && !listProblem && editor.conflicts.length === 0
-      }
+      canSave={!saveBlockedReason}
       onSave={() => void editor.save()}
       onDiscard={() => {
         editor.discard();
@@ -789,7 +812,7 @@ export function CollectionEditor<Raw extends WireCollection>({
           libraryNames={savedLibraries.map((library) => library.name)}
           rows={deletingRows ? { status: "ready", rows: deletingRows } : deleteRowsState}
           rowLibraryNames={libraryNames}
-          isPending={deleteRows.isPending || remove.isPending}
+          isPending={checkingDelete || deleteRows.isPending || remove.isPending}
           error={deleteError}
           onConfirm={() => void deleteServerCollection()}
         />
@@ -823,6 +846,7 @@ export function CollectionEditor<Raw extends WireCollection>({
         isSaving={editor.isSaving}
         onCancel={() => setSavingFirst(null)}
         discardBlockedReason={discardKeepsHidden ? DISCARD_KEEPS_IT_HIDDEN : null}
+        saveBlockedReason={saveBlockedReason}
         onDiscard={() => {
           if (!savingFirst || discardKeepsHidden) return;
           editor.discard();

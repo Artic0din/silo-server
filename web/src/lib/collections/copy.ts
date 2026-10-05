@@ -156,6 +156,11 @@ export function libraryPageLabel(libraryName: string): string {
 }
 
 export const SAVE_FIRST_TITLE = "Save changes first?";
+/** Save and continue waits, like Save, for a choice on each field changed in both places. */
+export const SAVE_AFTER_CONFLICTS =
+  "Some fields changed here and elsewhere. Choose Keep mine or Use theirs for each, then save.";
+/** Save and continue waits, like Save, for changes that can be saved. */
+export const SAVE_NOT_READY = "These changes can't be saved yet. The save bar says what's missing.";
 
 /** "You're about to add Studio Ghibli as a row on Home. Name not saved yet." */
 export function saveFirstDescription(
@@ -188,6 +193,13 @@ export const CHECKING_ROWS = "Checking which rows show it…";
 export function deleteWithRowsLabel(rowCount: number): string {
   return `Delete it and its ${rowCountLabel(rowCount)}`;
 }
+
+/** A delete with rows found the collection changed since the editor read it: nothing went. */
+export const CHANGED_BEFORE_DELETE =
+  "This collection changed since you opened it, so nothing was deleted. Check it, then delete again.";
+/** A delete with rows couldn't read the collection first: nothing went. */
+export const CHECK_BEFORE_DELETE_FAILED =
+  "Couldn't check the collection before deleting its rows, so nothing was deleted. Try again.";
 
 /** A delete with rows that stopped part way: the collection stays. */
 export function rowsLeftMessage(rows: readonly string[]): string {
