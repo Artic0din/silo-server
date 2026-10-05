@@ -248,7 +248,11 @@ export function CollectionEditor<Raw extends WireCollection>({
   const listPath = useListReturnPath(
     scope.paths.list({ libraryId: isServer ? (draft.libraryIds[0] ?? null) : null }),
   );
-  const remove = useScopeDelete(scope, { onDeleted: () => setLeaving(listPath) });
+  const remove = useScopeDelete(scope, {
+    onDeleted: () => setLeaving(listPath),
+    // The editor keeps its own copy: read it so the next Delete sends the new token.
+    onStale: reread,
+  });
   const syncList = useScopeSync(scope);
   // How many titles the last sync run here skipped, and the draft it ran
   // with; the collection doesn't carry the count.

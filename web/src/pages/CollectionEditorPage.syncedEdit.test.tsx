@@ -323,6 +323,29 @@ describe("server Synced list editor", () => {
     );
   });
 
+  it("reads the list again when Delete finds it changed, so the next Delete goes through", async () => {
+    serverList("mdblist", MDBLIST);
+    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", undefined);
+    showPage(SERVER_EDIT);
+    await nameField();
+    // A scheduled sync moves the list's revision while the editor is open.
+    v2Recorder.bump("/api/v2/admin/collections/c1");
+    const deleteOnce = async () => {
+      const menu = await openMoreActions();
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    };
+    await deleteOnce();
+    await vi.waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await deleteOnce();
+    await vi.waitFor(() =>
+      expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(2),
+    );
+    const removes = v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}");
+    expect(removes[1]!.headers["If-Match"]).toBe(v2Recorder.etag("/api/v2/admin/collections/c1"));
+  });
+
   it("hides the skipped count while what the sync read is changed", async () => {
     serverList("mdblist", MDBLIST);
     v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
