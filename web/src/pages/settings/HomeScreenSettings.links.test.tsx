@@ -69,6 +69,8 @@ let saved: Record<string, SectionOverride[]>;
 let puts: Array<{ page: string; overrides: SectionOverride[] }>;
 /** When set, a profile PUT waits for it and fails when it rejects. */
 let putGate: Promise<void> | null;
+/** When set, the next read of the page's rows fails. */
+let failNextRead: boolean;
 
 function deferred() {
   let resolve!: () => void;
@@ -121,6 +123,7 @@ beforeEach(() => {
   saved = { home: [{ section_id: "b", hidden: true, position: 1 }] };
   puts = [];
   putGate = null;
+  failNextRead = false;
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -136,6 +139,10 @@ beforeEach(() => {
       case "GET /api/v2/profile/sections/flags":
         return { allow_profile_custom_sections: false };
       case "GET /api/v2/profile/sections/settings":
+        if (failNextRead) {
+          failNextRead = false;
+          throw new Error("read failed");
+        }
         return { items: resolve(key) };
       case "GET /api/v2/profile/sections":
         return { items: saved[key] ?? [] };
@@ -160,7 +167,13 @@ afterEach(() => {
   setAccessToken(null);
 });
 
-function setup(entryPath: string) {
+function newClient() {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+}
+
+function setup(entryPath: string, client = newClient()) {
   const router = createMemoryRouter(
     [
       { path: "/settings/home-screen", element: <HomeScreenSettings /> },
@@ -169,13 +182,7 @@ function setup(entryPath: string) {
     { initialEntries: [entryPath] },
   );
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-        })
-      }
-    >
+    <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
@@ -265,7 +272,6 @@ describe("?add= on Settings > Home Screen", () => {
     expect(router.state.location.state).toEqual({
       addedRow: {
         id: puts[0]!.overrides.find((o) => o.section_type === "collection")!.id,
-        copyIds: [],
         surface: "profile",
         page: { kind: "home" },
         position: 3,
@@ -302,6 +308,35 @@ describe("?add= on Settings > Home Screen", () => {
     expect(router.state.location.pathname).toBe("/settings/home-screen");
     expect(mocks.success).not.toHaveBeenCalled();
     expect(screen.queryByText("Rainy days")).not.toBeInTheDocument();
+  });
+
+  it("goes back to the collection once a saved row shows up after a failed refetch", async () => {
+    const client = newClient();
+    const router = setup(
+      `/settings/home-screen?add=collection:user:mine&return=${encodeURIComponent("/collections/mine/edit")}`,
+      client,
+    );
+    const form = await screen.findByRole("dialog", { name: "A collection" });
+    // The save lands, but the read after it fails.
+    failNextRead = true;
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await waitFor(() => expect(failNextRead).toBe(false));
+    await act(async () => {});
+    expect(router.state.location.pathname).toBe("/settings/home-screen");
+
+    // A later read shows the row: the link still goes back.
+    await act(() => client.invalidateQueries());
+    expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
+    expect(mocks.success).toHaveBeenCalledWith("Added to Home as row 3 of 3", expect.anything());
+  });
+
+  it("follows a new link while Add row is open", async () => {
+    const router = setup("/settings/home-screen?add=collection:user:mine");
+    await screen.findByRole("dialog", { name: "A collection" });
+    await act(() => router.navigate("/settings/home-screen?edit=a"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(dialog).getByLabelText("Row name")).toHaveValue("Row a");
   });
 
   it("ignores a return path outside collections", async () => {

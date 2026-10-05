@@ -42,8 +42,6 @@ import {
   starterPackDryRunQuery,
   useQueueCollectionTemplateBundleApply,
 } from "@/hooks/queries/admin/collections";
-import { invalidateAdminCollectionQueries } from "@/hooks/queries/collectionSurfaceRefresh";
-import { sectionKeys } from "@/hooks/queries/keys";
 import { adminSectionsQuery } from "@/hooks/queries/sections";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
@@ -57,11 +55,14 @@ import {
   currentHero,
   defaultPackLibraryIds,
   effectiveHeroes,
+  failureReason,
   featuredRequest,
   heroTemplates,
   packAdded,
   packLibraries,
   packPlan,
+  packResultHeading,
+  plural,
   starterPacksOf,
   type HeroChoices,
   type PackLibraryRow,
@@ -80,10 +81,6 @@ interface PackDraft {
 
 function freshDraft(packId: string): PackDraft {
   return { packId, libraryIds: null, heroesOn: false, heroes: {} };
-}
-
-function plural(count: number, word: string) {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
 function libraryPageLabel(libraryName: string) {
@@ -167,18 +164,17 @@ export function StarterPacksDialog({
   useEffect(() => {
     if (!finished || !run || handledJob.current === finished.id) return;
     handledJob.current = finished.id;
-    if (finished.state === "succeeded") {
-      if (finishedAdded) setAdded((prev) => new Set(prev).add(run.pack.id));
-      // The heroes are set now; leaving the switch on would offer to set them again.
-      setDraft((prev) =>
-        prev?.packId === run.pack.id && prev.heroesOn ? { ...prev, heroesOn: false } : prev,
-      );
-    }
-    // Also checks the pack again, so the table shows what is there now.
-    void invalidateAdminCollectionQueries(queryClient);
-    void queryClient.invalidateQueries({ queryKey: sectionKeys.all });
+    const succeeded = finished.state === "succeeded";
+    if (succeeded && finishedAdded) setAdded((prev) => new Set(prev).add(run.pack.id));
+    // The heroes are set now; leaving the switch on would offer to set them again.
+    // Either way the pack is checked again, so the table shows what is there now:
+    // turning the switch off changes the check's key, which runs it by itself.
+    // The page refreshes the collections and Home rows the job changed.
+    const heroesOff = succeeded && draft?.packId === run.pack.id && draft.heroesOn;
+    if (heroesOff) setDraft({ ...draft, heroesOn: false });
+    else void queryClient.invalidateQueries({ queryKey: dryRunQuery.queryKey, exact: true });
     resultRef.current?.focus();
-  }, [finished, finishedAdded, run, queryClient]);
+  }, [finished, finishedAdded, run, draft, dryRunQuery.queryKey, queryClient]);
 
   async function add() {
     if (!pack) return;
@@ -254,6 +250,7 @@ export function StarterPacksDialog({
                 packs={packs}
                 active={pack.id}
                 added={added}
+                locked={running}
                 tabId={tabId}
                 panelId={panelId}
                 onSelect={selectPack}
@@ -278,7 +275,13 @@ export function StarterPacksDialog({
           ) : (
             <>
               {narrow ? (
-                <PackSelect packs={packs} active={pack.id} added={added} onSelect={selectPack} />
+                <PackSelect
+                  packs={packs}
+                  active={pack.id}
+                  added={added}
+                  locked={running}
+                  onSelect={selectPack}
+                />
               ) : null}
               <div>
                 <h3 className="text-lg font-semibold tracking-[-0.02em]">{pack.title}</h3>
@@ -312,6 +315,7 @@ export function StarterPacksDialog({
                   <LibraryChips
                     libraries={fitting}
                     selectedIds={libraryIds}
+                    locked={running}
                     onChange={(ids) => update({ libraryIds: ids })}
                   />
                   <WhatWillHappen
@@ -330,6 +334,7 @@ export function StarterPacksDialog({
                       libraries={chosen}
                       heroes={heroes}
                       on={current.heroesOn}
+                      locked={running}
                       onToggle={(on) => update({ heroesOn: on })}
                       onChange={(next) => update({ heroes: next })}
                     />
@@ -357,6 +362,7 @@ function PackRail({
   packs,
   active,
   added,
+  locked,
   tabId,
   panelId,
   onSelect,
@@ -364,6 +370,8 @@ function PackRail({
   packs: StarterPack[];
   active: string;
   added: ReadonlySet<string>;
+  /** While a pack is being added, the open pack stays put. */
+  locked: boolean;
   tabId: (packId: string) => string;
   panelId: string;
   onSelect: (id: string) => void;
@@ -375,6 +383,7 @@ function PackRail({
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (locked) return;
     let next: number | null = null;
     if (event.key === "ArrowUp") next = (activeIndex - 1 + packs.length) % packs.length;
     else if (event.key === "ArrowDown") next = (activeIndex + 1) % packs.length;
@@ -409,8 +418,12 @@ function PackRail({
             aria-controls={panelId}
             aria-selected={index === activeIndex}
             tabIndex={index === activeIndex ? 0 : -1}
-            onClick={() => onSelect(pack.id)}
-            className="text-muted-foreground hover:text-foreground aria-selected:bg-accent aria-selected:text-foreground aria-selected:ring-border focus-visible:ring-ring/50 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded-[10px] px-3 py-[9px] text-left text-sm outline-none focus-visible:ring-[3px] aria-selected:ring-1 aria-selected:ring-inset"
+            disabled={locked && index !== activeIndex}
+            // The active tab stays enabled while locked, so guard its click too.
+            onClick={() => {
+              if (!locked) onSelect(pack.id);
+            }}
+            className="text-muted-foreground hover:text-foreground aria-selected:bg-accent aria-selected:text-foreground aria-selected:ring-border focus-visible:ring-ring/50 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded-[10px] px-3 py-[9px] text-left text-sm outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60 aria-selected:ring-1 aria-selected:ring-inset"
           >
             <span className="truncate">{pack.title}</span>
             <span className="text-xs tabular-nums opacity-80">
@@ -434,15 +447,17 @@ function PackSelect({
   packs,
   active,
   added,
+  locked,
   onSelect,
 }: {
   packs: StarterPack[];
   active: string;
   added: ReadonlySet<string>;
+  locked: boolean;
   onSelect: (id: string) => void;
 }) {
   return (
-    <Select value={active} onValueChange={onSelect}>
+    <Select value={active} onValueChange={onSelect} disabled={locked}>
       <SelectTrigger aria-label="Pack" className="h-11 w-full">
         <SelectValue />
       </SelectTrigger>
@@ -461,10 +476,12 @@ function PackSelect({
 function LibraryChips({
   libraries,
   selectedIds,
+  locked,
   onChange,
 }: {
   libraries: Library[];
   selectedIds: number[];
+  locked: boolean;
   onChange: (ids: number[]) => void;
 }) {
   const id = useId();
@@ -480,12 +497,13 @@ function LibraryChips({
             <label
               key={library.id}
               className={cn(
-                "border-border has-focus-visible:ring-ring/50 hover:bg-accent/60 inline-flex h-10 cursor-pointer items-center gap-2.5 rounded-[12px] border pr-3.5 pl-3 text-sm font-medium transition-colors has-focus-visible:ring-[3px]",
+                "border-border has-focus-visible:ring-ring/50 hover:bg-accent/60 inline-flex h-10 cursor-pointer items-center gap-2.5 rounded-[12px] border pr-3.5 pl-3 text-sm font-medium transition-colors has-focus-visible:ring-[3px] has-disabled:cursor-not-allowed has-disabled:opacity-60",
                 checked && "bg-accent border-foreground/55",
               )}
             >
               <Checkbox
                 checked={checked}
+                disabled={locked}
                 className="size-[18px] rounded-[5px] focus-visible:ring-0"
                 onCheckedChange={(next) =>
                   onChange(
@@ -603,7 +621,7 @@ function WhatWillHappen({
                 const listId = `${id}-lists-${row.libraryId}`;
                 const rows = [
                   <tr key={row.libraryId} className="border-border border-t">
-                    <td className="px-3.5 py-2.5">
+                    <th scope="row" className="px-3.5 py-2.5 font-medium">
                       <button
                         type="button"
                         aria-expanded={open}
@@ -618,7 +636,7 @@ function WhatWillHappen({
                         )}
                         {row.libraryName}
                       </button>
-                    </td>
+                    </th>
                     <td className="px-3.5 py-2.5">
                       <span className="inline-flex flex-wrap items-center gap-1.5">
                         <span className="whitespace-nowrap">
@@ -654,7 +672,7 @@ function WhatWillHappen({
                   </th>
                   <td colSpan={2} className="px-3.5 py-2.5">
                     {entry.template_title}
-                    {heroFailed ? ` · Can't set it: ${entry.reason ?? "failed"}` : null}
+                    {heroFailed ? ` · Can't set it: ${failureReason(entry.reason)}` : null}
                   </td>
                 </tr>
               ))}
@@ -733,6 +751,7 @@ function HeroBanners({
   libraries,
   heroes,
   on,
+  locked,
   onToggle,
   onChange,
 }: {
@@ -740,6 +759,7 @@ function HeroBanners({
   libraries: Library[];
   heroes: HeroChoices;
   on: boolean;
+  locked: boolean;
   onToggle: (on: boolean) => void;
   onChange: (heroes: HeroChoices) => void;
 }) {
@@ -770,6 +790,7 @@ function HeroBanners({
         </div>
         <Switch
           checked={on}
+          disabled={locked}
           onCheckedChange={onToggle}
           aria-label="Also use the pack's hero banners"
         />
@@ -781,7 +802,7 @@ function HeroBanners({
           icon={<House aria-hidden className="size-3.5" />}
           page="Home"
           label="Hero banner on Home"
-          disabled={!on}
+          disabled={!on || locked}
           value={heroes.home}
           options={homeOptions.map(({ library, template }) => ({
             value: `${library.id}:${template.id}`,
@@ -800,7 +821,7 @@ function HeroBanners({
             icon={<LibraryBig aria-hidden className="size-3.5" />}
             page={`${library.name} page`}
             label={`Hero banner on ${libraryPageLabel(library.name)}`}
-            disabled={!on}
+            disabled={!on || locked}
             value={heroes.libraries[library.id] ?? KEEP_CURRENT}
             options={heroTemplates(pack, library).map((template) => ({
               value: template.id,
@@ -895,9 +916,7 @@ function ApplyResult({
   result: ApplyCollectionTemplateBundleResponse | undefined;
 }) {
   const id = useId();
-  let heading = `${pack.title} added`;
-  if (!succeeded) heading = `${pack.title} wasn't added`;
-  else if (!added) heading = `${pack.title} finished with problems`;
+  const heading = packResultHeading(pack.title, succeeded, added);
   const rows = result ? appliedRows(result, pack) : [];
   const lines: string[] = [];
   if (!succeeded) {
@@ -907,14 +926,14 @@ function ApplyResult({
       if (row.added.length > 0)
         lines.push(`Added ${plural(row.added.length, "list")} to ${row.libraryName}.`);
       for (const entry of row.failed)
-        lines.push(`Couldn't add ${entry.title} to ${row.libraryName}: ${entry.reason}`);
+        lines.push(`Couldn't add ${entry.title} to ${row.libraryName}: ${entry.reason}.`);
     }
     if (rows.every((row) => row.added.length === 0)) lines.unshift("Nothing new was added.");
     for (const entry of result?.featured ?? [])
       lines.push(`${heroEntryLabel(entry)}: ${entry.template_title}.`);
     for (const entry of result?.featured_failed ?? [])
       lines.push(
-        `Couldn't set the ${heroEntryLabel(entry).toLowerCase()}: ${entry.reason ?? "failed"}`,
+        `Couldn't set the ${heroEntryLabel(entry).toLowerCase()}: ${failureReason(entry.reason)}.`,
       );
     if ((result?.sync_queued?.length ?? 0) > 0)
       lines.push("First syncs run in the background; lists fill in as each one finishes.");

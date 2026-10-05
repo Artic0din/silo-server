@@ -110,7 +110,7 @@ export interface PackListEntry {
   title: string;
   /** The template pins its collections to the start of their shelf. */
   pinned: boolean;
-  /** Why the list couldn't be added (failed entries only). */
+  /** Why the list couldn't be added, in words (failed entries only). */
   reason?: string;
 }
 
@@ -125,6 +125,21 @@ export interface PackLibraryRow {
 }
 
 const EXISTING_REASONS = new Set(["already_exists", "already_exists_delete_failed"]);
+
+// The server's reason codes for a list or hero it couldn't add, in words.
+// Anything else (v2 sends `operation_failed` for raw errors) gets the fallback.
+const FAILURE_REASONS: Record<string, string> = {
+  ineligible_library: "that library can't take this list",
+  collection_not_available: "its list wasn't added to that library",
+  template_not_in_bundle: "that list isn't in this pack",
+  library_not_selected: "that library isn't one you picked",
+  template_not_found: "this server doesn't have that list anymore",
+};
+
+/** Why a list or hero couldn't be added, as a clause to follow a colon. */
+export function failureReason(code: string | undefined): string {
+  return FAILURE_REASONS[code ?? ""] ?? "something went wrong";
+}
 
 /**
  * One row per chosen library from a dry run or a finished apply: the lists it
@@ -161,7 +176,7 @@ export function packPlan(
         existing: skipped
           .filter((entry) => EXISTING_REASONS.has(entry.reason ?? ""))
           .map((entry) => listEntry(entry)),
-        failed: failed.map((entry) => listEntry(entry, entry.reason ?? "failed")),
+        failed: failed.map((entry) => listEntry(entry, failureReason(entry.reason))),
         notForLibrary: listCount(
           ineligible.map((entry) => templates.get(entry.template_id)?.media_kind),
         ),
@@ -192,11 +207,41 @@ export function packAdded(result: ApplyCollectionTemplateBundleResponse, pack: S
   return rows.every((row) => row.failed.length === 0) && result.featured_failed.length === 0;
 }
 
+export function plural(count: number, word: string) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+/** A finished apply's heading, the same in the dialog and the page's job banner. */
+export function packResultHeading(packTitle: string, succeeded: boolean, added: boolean) {
+  if (!succeeded) return `${packTitle} wasn't added`;
+  return added ? `${packTitle} added` : `${packTitle} finished with problems`;
+}
+
+/** A finished apply in a line, counting only the lists the pack shows. */
+export function packResultSummary(
+  result: ApplyCollectionTemplateBundleResponse,
+  pack: StarterPack,
+): string {
+  const rows = appliedRows(result, pack);
+  const added = rows.reduce((sum, row) => sum + row.added.length, 0);
+  const failed = rows.reduce((sum, row) => sum + row.failed.length, 0);
+  const heroes = result.featured.length;
+  const heroesFailed = result.featured_failed.length;
+  return [
+    added > 0 ? `Added ${plural(added, "list")}.` : "Nothing new was added.",
+    failed > 0 ? `${plural(failed, "list")} couldn't be added.` : "",
+    heroes > 0 ? `Set ${plural(heroes, "hero banner")}.` : "",
+    heroesFailed > 0 ? `${plural(heroesFailed, "hero banner")} couldn't be set.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function listCount(kinds: readonly (string | undefined)[]): string {
   if (kinds.length === 0) return "";
   const kind = kinds.every((value) => value === kinds[0]) ? kinds[0] : undefined;
   const noun = kind === "movie" ? "movie list" : kind === "tv" ? "TV list" : "list";
-  return `${kinds.length} ${noun}${kinds.length === 1 ? "" : "s"}`;
+  return plural(kinds.length, noun);
 }
 
 // --- Hero banners -----------------------------------------------------------
@@ -245,7 +290,7 @@ function defaultHomeHero(pack: StarterPack, libraries: readonly Library[]): stri
 }
 
 /** Splits Home's `${libraryId}:${templateId}` choice. */
-export function parseHomeHero(value: string): { libraryId: number; templateId: string } | null {
+function parseHomeHero(value: string): { libraryId: number; templateId: string } | null {
   const separator = value.indexOf(":");
   const libraryId = Number(value.slice(0, separator));
   const templateId = value.slice(separator + 1);

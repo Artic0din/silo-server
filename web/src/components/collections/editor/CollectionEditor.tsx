@@ -28,6 +28,8 @@ import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import {
+  CHANGED_BEFORE_DELETE,
+  CHECK_BEFORE_DELETE_FAILED,
   CREATE_IT_FIRST,
   DRAFT_FIELD_LABEL,
   NAME_FILLED_HELP,
@@ -37,7 +39,9 @@ import {
   PICK_A_LIST_FIRST,
   PICK_LIBRARIES_FIRST,
   PREVIEW_SHOWS_UNSAVED,
+  SAVE_AFTER_CONFLICTS,
   SAVE_FAILED,
+  SAVE_NOT_READY,
   SHOW_IT_FIRST,
   DISCARD_KEEPS_IT_HIDDEN,
   SMART_UPDATES_ITSELF,
@@ -53,7 +57,7 @@ import {
   saveFirstDescription,
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
-import { draftRules, type DraftField } from "@/lib/collections/draft";
+import { changedFields, draftRules, type DraftField } from "@/lib/collections/draft";
 import { listReturnState, useListReturnPath } from "@/lib/collections/listReturn";
 import {
   addRowPath,
@@ -101,6 +105,10 @@ import { WhereItShowsPanel, type HideConfirm } from "./WhereItShowsPanel";
 const NO_TITLES: readonly string[] = [];
 /** The fields the live preview already reflects before they are saved. */
 const PREVIEWED: ReadonlySet<DraftField> = new Set(["rules", "libraryIds", "rawSortConfig"]);
+/** The fields a sync reads; Sync now runs the saved copy, so it waits while they're unsaved. */
+const SYNC_INPUTS: ReadonlySet<DraftField> = new Set(["list", "libraryIds", "limit"]);
+const touchesSync = (fields: readonly DraftField[]) =>
+  fields.some((field) => SYNC_INPUTS.has(field));
 
 /**
  * "3 titles are only in Kids: …" when unticking libraries would drop titles a
@@ -275,31 +283,50 @@ export function CollectionEditor<Raw extends WireCollection>({
   const listPath = useListReturnPath(
     scope.paths.list({ libraryId: isServer ? (draft.libraryIds[0] ?? null) : null }),
   );
-  const remove = useScopeDelete(scope, { onDeleted: () => setLeaving(listPath) });
+  const remove = useScopeDelete(scope, {
+    onDeleted: () => setLeaving(listPath),
+    // The editor keeps its own copy: read it so the next Delete sends the new token.
+    onStale: reread,
+  });
   const syncList = useScopeSync(scope);
-  // How many titles the last sync run here skipped; the collection doesn't carry it.
-  const [skipped, setSkipped] = useState<number>();
+  // How many titles the last sync run here skipped, and the draft it ran
+  // with; the collection doesn't carry the count.
+  const [lastRun, setLastRun] = useState<{ skipped: number; draft: CollectionDraft }>();
+  // A count from other settings than the ones on screen would read as theirs.
+  const skipped =
+    lastRun && !touchesSync(changedFields(lastRun.draft, draft)) ? lastRun.skipped : undefined;
+  // Reading the collection again after Sync now, for its status and token.
+  const [rereading, setRereading] = useState(false);
   // The server records a sync's status only when the run ends, and Sync now
-  // answers once it has: the request is the only sync this page can see.
-  const syncing = syncList.isPending;
+  // answers once it has: the request is the only sync this page can see. It
+  // counts as running until the read after it brings the new token.
+  const syncing = syncList.isPending || rereading;
   // Spec §3.1: only server lists offer Sync now here; a profile syncs its
-  // lists from their cards on the Collections page.
-  const canSync = created && isServer && Boolean(view?.source);
+  // lists from their cards on the Collections page. Sync answers 501 when the
+  // server can't import, so it needs the capability.
+  const canSync = created && isServer && Boolean(view?.source) && capabilities?.imports === true;
+  const saveFirst = touchesSync(editor.changed);
   // Discards put the list's source card back.
   const [discards, setDiscards] = useState(0);
 
   /** Reads the collection again; a failed read keeps the old token, and Save's 412 merges. */
   function reread() {
-    editor.syncWithServer().catch(() => {});
+    return editor.syncWithServer().catch(() => {});
   }
 
   function syncNow() {
-    if (!editor.id || syncing) return;
+    if (!editor.id || syncing || saveFirst) return;
+    const ran = draft;
     syncList.mutate(editor.id, {
-      onSuccess: (run) => setSkipped(run.itemsUnmatched),
+      onSuccess: (run) => setLastRun({ skipped: run.itemsUnmatched, draft: ran }),
+      // The last run counted nothing; an earlier run's count would read as its.
+      onError: () => setLastRun(undefined),
       // A sync records its run on the collection, even one that fails: read
-      // it for the status and so Save sends the new token.
-      onSettled: reread,
+      // it for the status and so Save and Delete send the new token.
+      onSettled: () => {
+        setRereading(true);
+        void reread().finally(() => setRereading(false));
+      },
     });
   }
 
@@ -421,7 +448,7 @@ export function CollectionEditor<Raw extends WireCollection>({
     else setDetour(path);
   }
   async function saveAndContinue() {
-    if (!savingFirst) return;
+    if (!savingFirst || saveBlockedReason) return;
     const saved = await editor.save();
     setSavingFirst(null);
     if (saved) setAfterSave(savingFirst.path);
@@ -439,6 +466,8 @@ export function CollectionEditor<Raw extends WireCollection>({
   // The rows the delete is working through, so the dialog doesn't change under it.
   const [deletingRows, setDeletingRows] = useState<readonly CollectionRow[] | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Reading the collection's token before any row goes.
+  const [checkingDelete, setCheckingDelete] = useState(false);
   function closeDelete() {
     setConfirmDelete(false);
     setDeletingRows(null);
@@ -452,6 +481,20 @@ export function CollectionEditor<Raw extends WireCollection>({
     const rows = deletingRows ?? savedRows ?? [];
     setDeleteError(null);
     if (rows.length > 0) {
+      // A deleted row can't come back: check the collection's token first, so
+      // a Delete that would answer 412 deletes nothing.
+      setCheckingDelete(true);
+      const current = await scope.fetchSnapshot(view.id).then(
+        (snapshot) => snapshot.etag,
+        () => null,
+      );
+      // Changed: read it again, so the next Delete sends the new token.
+      if (current && current !== editor.etag) await reread();
+      setCheckingDelete(false);
+      if (current !== editor.etag) {
+        setDeleteError(current ? CHANGED_BEFORE_DELETE : CHECK_BEFORE_DELETE_FAILED);
+        return;
+      }
       setDeletingRows(rows);
       const { remaining } = await deleteRows
         .mutateAsync({ collectionId: view.id, rows })
@@ -465,10 +508,11 @@ export function CollectionEditor<Raw extends WireCollection>({
     remove.mutate(
       { id: view.id, etag: editor.etag },
       // Read the rows again, so the dialog shows what still stands in the way.
+      // refetch() ignores `enabled`, so ask only a server that reports rows.
       {
         onError: () => {
           setDeletingRows(null);
-          void rowsQuery.refetch();
+          if (rowsReported) void rowsQuery.refetch();
         },
       },
     );
@@ -525,6 +569,11 @@ export function CollectionEditor<Raw extends WireCollection>({
     afterPending = PICK_A_LIBRARY;
     createHint = PICK_LIBRARIES_FIRST;
   }
+  // Save and Save and continue wait for the same things.
+  let saveBlockedReason: string | null = null;
+  if (editor.conflicts.length > 0) saveBlockedReason = SAVE_AFTER_CONFLICTS;
+  else if (draft.name.trim() === "" || needsLibraries || listProblem)
+    saveBlockedReason = SAVE_NOT_READY;
   const saveBar = created ? (
     <SaveBar
       placement="page"
@@ -532,9 +581,7 @@ export function CollectionEditor<Raw extends WireCollection>({
       visible={editor.isDirty || Boolean(editor.saveError)}
       isSaving={editor.isSaving}
       saveLabel={editor.saveError ? "Try again" : "Save"}
-      canSave={
-        draft.name.trim() !== "" && !needsLibraries && !listProblem && editor.conflicts.length === 0
-      }
+      canSave={!saveBlockedReason}
       onSave={() => void editor.save()}
       onDiscard={() => {
         editor.discard();
@@ -593,7 +640,14 @@ export function CollectionEditor<Raw extends WireCollection>({
     panel = {
       ...common,
       draft: { ...draft, list: draft.list },
-      saved: { view, syncing, skipped, onSyncNow: canSync ? syncNow : undefined, discards },
+      saved: {
+        view,
+        syncing,
+        skipped,
+        saveFirst,
+        onSyncNow: canSync ? syncNow : undefined,
+        discards,
+      },
     };
   }
   if (panel) {
@@ -688,7 +742,7 @@ export function CollectionEditor<Raw extends WireCollection>({
               ) : null
             }
             open={open}
-            sync={canSync ? { syncing, onSyncNow: syncNow } : undefined}
+            sync={canSync ? { syncing, saveFirst, onSyncNow: syncNow } : undefined}
             onDelete={() => setConfirmDelete(true)}
           />
         }
@@ -765,7 +819,7 @@ export function CollectionEditor<Raw extends WireCollection>({
           libraryNames={savedLibraries.map((library) => library.name)}
           rows={deletingRows ? { status: "ready", rows: deletingRows } : deleteRowsState}
           rowLibraryNames={libraryNames}
-          isPending={deleteRows.isPending || remove.isPending}
+          isPending={checkingDelete || deleteRows.isPending || remove.isPending}
           error={deleteError}
           onConfirm={() => void deleteServerCollection()}
         />
@@ -797,6 +851,7 @@ export function CollectionEditor<Raw extends WireCollection>({
         isSaving={editor.isSaving}
         onCancel={() => setSavingFirst(null)}
         discardBlockedReason={discardKeepsHidden ? DISCARD_KEEPS_IT_HIDDEN : null}
+        saveBlockedReason={saveBlockedReason}
         onDiscard={() => {
           if (!savingFirst || discardKeepsHidden) return;
           editor.discard();

@@ -81,7 +81,8 @@ export const SHOW_TO_OTHER_PROFILES_HELP =
 /** What turning sharing off costs: "Maya and Leo lose it, including Home rows they made from it." */
 export function unshareConsequence(profileNames: readonly string[]): string {
   const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
-  return `${who} lose it, including Home rows they made from it.`;
+  const verb = profileNames.length === 1 ? "loses" : "lose";
+  return `${who} ${verb} it, including Home rows they made from it.`;
 }
 
 /** Shown when sharing is turned off on a saved collection. */
@@ -162,6 +163,11 @@ export function libraryPageLabel(libraryName: string): string {
 }
 
 export const SAVE_FIRST_TITLE = "Save changes first?";
+/** Save and continue waits, like Save, for a choice on each field changed in both places. */
+export const SAVE_AFTER_CONFLICTS =
+  "Some fields changed here and elsewhere. Choose Keep mine or Use theirs for each, then save.";
+/** Save and continue waits, like Save, for changes that can be saved. */
+export const SAVE_NOT_READY = "These changes can't be saved yet. The save bar says what's missing.";
 
 /** "You're about to add Studio Ghibli as a row on Home. Name not saved yet." */
 export function saveFirstDescription(
@@ -194,6 +200,13 @@ export const CHECKING_ROWS = "Checking which rows show it…";
 export function deleteWithRowsLabel(rowCount: number): string {
   return `Delete it and its ${rowCountLabel(rowCount)}`;
 }
+
+/** A delete with rows found the collection changed since the editor read it: nothing went. */
+export const CHANGED_BEFORE_DELETE =
+  "This collection changed since you opened it, so nothing was deleted. Check it, then delete again.";
+/** A delete with rows couldn't read the collection first: nothing went. */
+export const CHECK_BEFORE_DELETE_FAILED =
+  "Couldn't check the collection before deleting its rows, so nothing was deleted. Try again.";
 
 /** A delete with rows that stopped part way: the collection stays. */
 export function rowsLeftMessage(rows: readonly string[]): string {
@@ -476,6 +489,8 @@ export function firstSyncMessage(sync?: { status: string; message: string; items
 
 export const SYNC_NOW = "Sync now";
 export const SYNCING_NOW = "Syncing now…";
+/** Why Sync now waits: it runs the saved list, not unsaved changes to it. */
+export const SAVE_BEFORE_SYNC = "Save your changes first; a sync runs the saved list.";
 export const LAST_SYNC = "Last sync";
 export const NEXT_SYNC = "Next sync";
 export const NOT_IN_YOUR_LIBRARIES = "Not in your libraries";

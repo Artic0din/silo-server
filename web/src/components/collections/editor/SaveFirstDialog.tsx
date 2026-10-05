@@ -16,13 +16,15 @@ import { SAVE_FIRST_TITLE } from "@/lib/collections/copy";
  * Asks before leaving the editor for Home rows with unsaved changes: save
  * them and carry on, drop them and carry on, or stay. Save and continue
  * keeps the dialog open until the save answers. `discardBlockedReason`
- * turns Discard off, saying why, when only saving would let Home rows add it.
+ * turns Discard off, saying why, when only saving would let Home rows add it;
+ * `saveBlockedReason` turns Save and continue off when Save couldn't save.
  */
 export function SaveFirstDialog({
   open,
   description,
   isSaving,
   discardBlockedReason = null,
+  saveBlockedReason = null,
   onCancel,
   onDiscard,
   onSave,
@@ -31,11 +33,13 @@ export function SaveFirstDialog({
   description: string;
   isSaving: boolean;
   discardBlockedReason?: string | null;
+  saveBlockedReason?: string | null;
   onCancel: () => void;
   onDiscard: () => void;
   onSave: () => void;
 }) {
   const reasonId = useId();
+  const saveReasonId = useId();
   return (
     <AlertDialog
       open={open}
@@ -52,6 +56,11 @@ export function SaveFirstDialog({
               {discardBlockedReason}
             </p>
           ) : null}
+          {saveBlockedReason ? (
+            <p id={saveReasonId} className="text-muted-foreground text-sm">
+              {saveBlockedReason}
+            </p>
+          ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter className="sm:justify-between">
           <AlertDialogCancel variant="ghost" disabled={isSaving}>
@@ -66,7 +75,11 @@ export function SaveFirstDialog({
             >
               Discard changes
             </Button>
-            <Button disabled={isSaving} onClick={onSave}>
+            <Button
+              disabled={isSaving || Boolean(saveBlockedReason)}
+              aria-describedby={saveBlockedReason ? saveReasonId : undefined}
+              onClick={onSave}
+            >
               {isSaving ? (
                 <span
                   aria-hidden

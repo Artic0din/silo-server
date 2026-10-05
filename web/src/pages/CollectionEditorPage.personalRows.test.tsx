@@ -297,7 +297,6 @@ describe("rows that show a personal collection", () => {
     const state: AddedRowState = {
       addedRow: {
         id: "u-kids",
-        copyIds: [],
         surface: "profile",
         page: { kind: "library", libraryId: 2 },
         position: 2,

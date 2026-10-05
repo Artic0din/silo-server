@@ -10,9 +10,11 @@ import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHANGED_BEFORE_DELETE,
   CREATE_IT_FIRST,
   DISCARD_KEEPS_IT_HIDDEN,
   ROWS_NOT_LISTED,
+  SAVE_AFTER_CONFLICTS,
   SHOW_IT_FIRST,
   SHOW_ON_TAB_LABEL,
 } from "@/lib/collections/copy";
@@ -229,7 +231,6 @@ describe("rows that show a server collection", () => {
     const state: AddedRowState = {
       addedRow: {
         id: "s-kids",
-        copyIds: [],
         surface: "admin",
         page: { kind: "library", libraryId: 2 },
         position: 3,
@@ -404,6 +405,26 @@ describe("Add as a row", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(v2Recorder.callsOf("PUT /api/v2/admin/collections/{id}/poster")).toHaveLength(1);
     expect(screen.queryByRole("status", { name: "Location" })).toBeNull();
+  });
+
+  it("won't Save and continue while a field changed in both places waits for a choice", async () => {
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    await rowsGroup();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Name" }), {
+      target: { value: "Mine" },
+    });
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}", { ...GHIBLI, title: "Theirs" });
+    v2Recorder.bump("/api/v2/admin/collections/c1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("This collection changed since you opened it.");
+    const menu = await openAddAsRow(user);
+    await user.click(within(menu).getByRole("menuitem", { name: "Home" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Save changes first?" });
+    const saveAndGo = within(dialog).getByRole("button", { name: "Save and continue" });
+    expect(saveAndGo).toBeDisabled();
+    expect(saveAndGo).toHaveAccessibleDescription(SAVE_AFTER_CONFLICTS);
+    expect(v2Recorder.callsOf("PATCH /api/v2/admin/collections/{id}")).toHaveLength(1);
   });
 
   it("asks first about unsaved changes: Save and continue saves, then goes on", async () => {
@@ -590,6 +611,23 @@ describe("deleting a collection rows show", () => {
     const dialog = await screen.findByRole("alertdialog", { name: 'Delete "Original"?' });
     expect(within(dialog).getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Delete" })).toBeDisabled();
+  });
+
+  it("deletes no row when the collection changed since the editor read it", async () => {
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    const dialog = await openDelete(user);
+    v2Recorder.bump("/api/v2/admin/collections/c1");
+    await user.click(within(dialog).getByRole("button", { name: "Delete it and its 2 rows" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(CHANGED_BEFORE_DELETE);
+    expect(v2Recorder.callsOf("DELETE /api/v2/admin/sections/{id}")).toHaveLength(0);
+    expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(0);
+    // The editor read it again, so the next Delete sends the new token.
+    const changed = v2Recorder.etag("/api/v2/admin/collections/c1");
+    await user.click(within(dialog).getByRole("button", { name: "Delete it and its 2 rows" }));
+    await waitFor(() => expect(location()).toMatch(/^\/admin\/collections(\?|$)/));
+    const [remove] = v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}");
+    expect(remove!.headers["If-Match"]).toBe(changed);
   });
 
   it("stops before the collection when a row can't be deleted, and names what's left", async () => {

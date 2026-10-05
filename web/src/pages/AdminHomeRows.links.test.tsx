@@ -265,6 +265,31 @@ describe("?add= on admin Home rows", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("doesn't open on a cached collection when its refresh fails", async () => {
+    const client = newClient();
+    collections = [...collections, serverCollection("doomed", "Hidden since")];
+    // The Home rows options were read while the collection was still visible.
+    await client.fetchQuery({
+      queryKey: adminKeys.collections(undefined),
+      queryFn: () => fetchAdminCollections(undefined),
+    });
+    // It was hidden since, and the refresh after that fails.
+    collections = [
+      ...collections.slice(0, -1),
+      serverCollection("doomed", "Hidden since", "hidden"),
+    ];
+    failing.add("GET /api/v2/admin/collections");
+    await SERVER_SCOPE.invalidate(client);
+
+    setup("/admin/home-rows?add=collection:library:doomed", client);
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "Collections didn't load, so Add row couldn't open.",
+      ),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("says the collections didn't load rather than that this one can't be added", async () => {
     failing.add("GET /api/v2/admin/collections");
     setup("/admin/home-rows?add=collection:library:lib-1");
@@ -305,7 +330,6 @@ describe("?return= on admin Home rows", () => {
     expect(router.state.location.state).toEqual({
       addedRow: {
         id: "new-1",
-        copyIds: [],
         surface: "admin",
         page: { kind: "home" },
         position: 3,
@@ -347,6 +371,26 @@ describe("?return= on admin Home rows", () => {
     await userEvent.click(within(form).getByRole("button", { name: "Back to Studio Ghibli" }));
     await screen.findByRole("heading", { name: "Collection editor" });
     expect(back.state.location.state).toEqual(arrived);
+  });
+
+  it("counts rows another admin added while Add row was open", async () => {
+    const client = newClient();
+    setup(link("/admin/collections/lib-1/edit"), client);
+    const form = await screen.findByRole("dialog", { name: "A collection" });
+    rows = [...rows, stored("c", { position: 6, title: "Someone else's" })];
+    await act(() => client.invalidateQueries());
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+
+    expect(await screen.findByRole("heading", { name: "Collection editor" })).toBeInTheDocument();
+    expect(mocks.success).toHaveBeenCalledWith("Added to Home as row 4 of 4", expect.anything());
+  });
+
+  it("follows a new link while Add row is open", async () => {
+    const router = setup(link("/admin/collections/lib-1/edit"));
+    await screen.findByRole("dialog", { name: "A collection" });
+    await act(() => router.navigate("/admin/home-rows?edit=a"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit row" });
+    expect(within(dialog).getByLabelText("Row name")).toHaveValue("Row a");
   });
 
   it("goes back to the collection without adding from the back link", async () => {

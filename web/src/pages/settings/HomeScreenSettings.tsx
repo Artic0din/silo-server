@@ -24,7 +24,7 @@ import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
-import { useRowLinks, type RowSeed } from "@/components/homeRows/useRowLinks";
+import { useRowDialog, useRowLinks } from "@/components/homeRows/useRowLinks";
 import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer";
 import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
 import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
@@ -37,7 +37,7 @@ import {
 } from "@/hooks/queries/settingValues";
 import { collectionKind, profilePageName, type CollectionSummary } from "@/lib/homeRows/describe";
 import { pageLabel } from "@/lib/homeRows/pages";
-import type { EditSession, HomeRow } from "@/lib/homeRows/types";
+import type { HomeRow } from "@/lib/homeRows/types";
 import { SETTING_KEYS } from "@/lib/settingsContract";
 
 export { buildProfileGallerySection } from "@/lib/homeRows/payloads";
@@ -93,10 +93,7 @@ export default function HomeScreenSettings() {
   const pageName = profilePageName(label);
   const layoutExport = useHomeLayoutExport();
   const [importOpen, setImportOpen] = useState(false);
-  const [rowDialog, setRowDialog] = useState<{
-    session: EditSession | null;
-    seed?: RowSeed;
-  } | null>(null);
+  const [rowDialog, setRowDialog] = useRowDialog();
   const [highlightId, setHighlightId] = useNewRowHighlight();
   // A row added from a link, waiting for its save to land before going back.
   const landing = useRef<{ ids: string[]; onAdded: (newIds: string[]) => void } | null>(null);
@@ -155,15 +152,22 @@ export default function HomeScreenSettings() {
     onEdit: openRow,
   });
 
-  // Saves are queued, so Add row closes before this one lands. Once the save
-  // and the refetch after it are done, the row is on the page only if it saved;
-  // a failed save has already said so, and the page stays for another try.
+  // Saves are queued, so Add row closes before this one lands. It goes back once
+  // the row is on the page, which may take a later read when the one after the
+  // save fails. A failed save has already said so, and the page stays for
+  // another try.
+  const { pending, rows, lastWriteAt } = adapter;
   useEffect(() => {
     const added = landing.current;
-    if (!added || adapter.pending) return;
-    landing.current = null;
-    if (adapter.rows.some((row) => row.id === added.ids[0])) added.onAdded(added.ids);
-  }, [adapter.pending, adapter.rows]);
+    if (!added || pending) return;
+    const [id] = added.ids;
+    if (rows.some((row) => row.id === id)) {
+      landing.current = null;
+      added.onAdded(added.ids);
+    } else if (!id || lastWriteAt(id) === undefined) {
+      landing.current = null;
+    }
+  }, [pending, rows, lastWriteAt]);
 
   function confirmRemove() {
     if (!removing) return;
@@ -364,6 +368,7 @@ export default function HomeScreenSettings() {
       ) : null}
       {rowDialog ? (
         <AddRowDialog
+          key={rowDialog.key}
           adapter={adapter}
           catalog={adapter.catalog}
           catalogFailed={adapter.catalogFailed}
