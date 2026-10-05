@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Info, Lock } from "lucide-react";
+import { Info, Lock, Pencil } from "lucide-react";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 
 import { MDBListBrowser } from "@/components/CollectionTemplateGallery/MDBListBrowser";
@@ -18,6 +18,8 @@ import {
   CHART_RULES_NOTE,
   CHART_SET_WHEN_MADE,
   LINK_CHANGES_AT_NEXT_SYNC,
+  LIST_DECIDES,
+  LIST_DECIDES_ITEMS,
   MDBLIST_LINK,
   MDBLIST_LINK_INVALID,
   PASTE_TMDB_LIST_LINK,
@@ -28,7 +30,9 @@ import {
   TMDB_LIST_HELP,
   TMDB_LIST_LINK,
   TRAKT_SCHEDULE_STOPPED,
+  YOU_DECIDE,
   ineligibleLibrariesLine,
+  youDecideItems,
 } from "@/lib/collections/copy";
 import type {
   CollectionDraft,
@@ -711,6 +715,41 @@ function SavedSource({
   }
 }
 
+/**
+ * What the list controls and what the editor controls, side by side. Discover
+ * and legacy Trakt lists say this in their locked summary instead.
+ */
+function WhoDecides({ scheduleEditable }: { scheduleEditable: boolean }) {
+  const id = useId();
+  const groups = [
+    { key: "list", icon: Lock, title: LIST_DECIDES, items: LIST_DECIDES_ITEMS },
+    { key: "you", icon: Pencil, title: YOU_DECIDE, items: youDecideItems(scheduleEditable) },
+  ];
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2">
+      {groups.map(({ key, icon: Icon, title, items }) => (
+        <div key={key} className="bg-accent/55 rounded-xl px-3.5 py-3">
+          <p
+            id={`${id}-${key}`}
+            className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold"
+          >
+            <Icon aria-hidden className="text-muted-foreground size-3.5" />
+            {title}
+          </p>
+          <ul
+            aria-labelledby={`${id}-${key}`}
+            className="text-muted-foreground grid gap-0.5 text-[12.5px]"
+          >
+            {items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** A saved list's sync state and Sync now, as the editor tracks them. */
 export interface SavedListSync {
   view: CollectionView;
@@ -792,6 +831,9 @@ function SavedListContents({
         sourceUrl={view.raw.source_url ?? ""}
         onChange={updateList}
       />
+      {list.source === "tmdb_discover" || trakt ? null : (
+        <WhoDecides scheduleEditable={!scheduleLocked} />
+      )}
       <ListSettings
         isServer={isServer}
         draft={draft}

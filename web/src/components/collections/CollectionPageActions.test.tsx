@@ -5,7 +5,9 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import getAdminCollectionCapabilitiesOk from "../../../../contracts/api/v2/fixtures/get_admin_collection_capabilities_ok.json";
 import getAdminCollectionOk from "../../../../contracts/api/v2/fixtures/get_admin_collection_ok.json";
+import getCollectionCapabilitiesOk from "../../../../contracts/api/v2/fixtures/get_collection_capabilities_ok.json";
 import getCollectionOk from "../../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import listProfilesOk from "../../../../contracts/api/v2/fixtures/list_profiles_ok.json";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
@@ -45,6 +47,8 @@ beforeEach(() => {
   v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER]));
   v2Recorder.answer("DELETE /api/v2/collections/{id}", undefined);
   v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", undefined);
+  v2Recorder.answer("GET /api/v2/collections/capabilities", getCollectionCapabilitiesOk);
+  v2Recorder.answer("GET /api/v2/admin/collections/capabilities", getAdminCollectionCapabilitiesOk);
 });
 
 function Page({ target }: { target: CollectionPageTarget }) {
@@ -139,6 +143,10 @@ describe("CollectionPageActions", () => {
       message: "",
       items_matched: 12,
     });
+    v2Recorder.answer("GET /api/v2/collections/capabilities", {
+      ...getCollectionCapabilitiesOk,
+      imports: true,
+    });
     renderPage({ scope: "personal", id: "c1" });
 
     const menu = await openMenu();
@@ -150,6 +158,45 @@ describe("CollectionPageActions", () => {
     expect(v2Recorder.callsOf("POST /api/v2/collections/{id}/sync")).toMatchObject([
       { path: "/api/v2/collections/c1/sync" },
     ]);
+  });
+
+  it("offers no Sync now for a synced list when your storage can't import", async () => {
+    personalCollection({
+      collection_type: "mdblist",
+      source_url: "https://mdblist.com/lists/a/b",
+    });
+    v2Recorder.answer("GET /api/v2/collections/capabilities", {
+      ...getCollectionCapabilitiesOk,
+      imports: false,
+    });
+    renderPage({ scope: "personal", id: "c1" });
+
+    const menu = await openMenu();
+    await within(menu).findByRole("menuitem", { name: "Delete…" });
+    await waitFor(() =>
+      expect(v2Recorder.operations()).toContain("GET /api/v2/collections/capabilities"),
+    );
+    expect(within(menu).queryByRole("menuitem", { name: "Sync now" })).not.toBeInTheDocument();
+  });
+
+  it("offers no Sync now for a synced server list when the server can't import", async () => {
+    serverCollection({
+      collection_type: "mdblist",
+      source_url: "https://mdblist.com/lists/a/b",
+    });
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      ...getAdminCollectionCapabilitiesOk,
+      imports: false,
+    });
+    renderPage({ scope: "server", id: "c1", libraryId: 1 });
+
+    const menu = await openMenu();
+    await within(menu).findByRole("menuitem", { name: "Delete…" });
+    await waitFor(() =>
+      expect(v2Recorder.operations()).toContain("GET /api/v2/admin/collections/capabilities"),
+    );
+    expect(within(menu).queryByRole("menuitem", { name: "Sync now" })).not.toBeInTheDocument();
+    expect(v2Recorder.operations()).not.toContain("GET /api/v2/collections/capabilities");
   });
 
   it("offers no Sync now for a manual collection", async () => {

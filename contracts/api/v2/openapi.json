@@ -3465,6 +3465,13 @@
               "unsupported"
             ],
             "type": "string"
+          },
+          "template_summaries": {
+            "description": "listAdminCollectionTemplateBundles returns each bundle's templates",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
           }
         },
         "required": [
@@ -3473,6 +3480,7 @@
           "import_sources",
           "artwork",
           "item_reorder",
+          "template_summaries",
           "mdblist_search",
           "schedule_time_zone",
           "section_references",
@@ -22594,7 +22602,7 @@
             "type": "boolean"
           },
           "create_description": {
-            "description": "createCollection accepts description",
+            "description": "createCollection stores a description for the acting account",
             "examples": [
               true
             ],
@@ -34926,7 +34934,7 @@
             "type": "string"
           },
           "description": {
-            "description": "Empty when omitted. Accepted when getCollectionCapabilities reports create_description",
+            "description": "Empty when omitted. Send only when getCollectionCapabilities reports create_description; otherwise the request fails",
             "examples": [
               "For wet afternoons"
             ],
@@ -130120,6 +130128,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "503": {
             "content": {

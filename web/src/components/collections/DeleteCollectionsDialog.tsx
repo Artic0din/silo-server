@@ -21,6 +21,7 @@ export function DeleteCollectionsDialog({
   where,
   elsewhere,
   kept,
+  blocked,
   onConfirm,
 }: {
   open: boolean;
@@ -35,6 +36,8 @@ export function DeleteCollectionsDialog({
   elsewhere: ReadonlyArray<{ title: string; libraryNames: readonly string[] }>;
   /** Titles of the collections left alone because rows use them. */
   kept: readonly string[];
+  /** Why the delete can't run right now; the confirm stays open and off until it can. */
+  blocked: string | null;
   onConfirm: () => void;
 }) {
   const items = [
@@ -49,6 +52,8 @@ export function DeleteCollectionsDialog({
       description={deleteCollectionsDescription(count)}
       bullets={items.length > 0 ? { label: "Also", items } : undefined}
       irreversible
+      error={blocked}
+      confirmDisabled={blocked !== null}
       confirmLabel={`Delete ${count}`}
       variant="destructive"
       onConfirm={onConfirm}

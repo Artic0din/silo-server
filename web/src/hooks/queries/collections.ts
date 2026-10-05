@@ -43,13 +43,13 @@ export function useCollections() {
 export function useCollectionCapabilities(enabled = true) {
   return useQuery({
     queryKey: PERSONAL_SCOPE.keys.capabilities,
-    enabled,
     queryFn: () =>
       v2("GET /api/v2/collections/capabilities").then((value) => ({
         ...value,
         display_filter_presets:
           value.display_filter_presets as CollectionCapabilitiesResponse["display_filter_presets"],
       })),
+    enabled,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

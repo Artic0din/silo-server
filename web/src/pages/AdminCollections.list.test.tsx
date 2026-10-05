@@ -294,29 +294,17 @@ describe("AdminCollections List", () => {
     expect(location()).toBe("/admin/collections");
   });
 
-  it("offers New collection for a library with no collections, keeping the List view", async () => {
+  it("offers both ways in for a library with no collections", async () => {
     items = items.filter((entry) => !entry.library_ids.includes("3"));
-    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
-      groups: true,
-      imports: true,
-      import_sources: ["mdblist"],
-      artwork: true,
-      item_reorder: true,
-      section_references: true,
-    });
     renderPage("/admin/collections?view=list&libraryId=3");
     const region = screen.getByRole("region", { name: "Collections" });
     expect(await within(region).findByText("No collections in TV Shows yet")).toBeInTheDocument();
-    expect(within(region).getAllByRole("button")).toHaveLength(1);
+    expect(within(region).getByRole("button", { name: "Add a starter pack" })).toBeEnabled();
     await userEvent.click(within(region).getByRole("button", { name: "New collection" }));
     const picker = await screen.findByRole("dialog", { name: "New collection" });
     expect(within(picker).getByRole("link", { name: "Manual" })).toHaveAttribute(
       "href",
       "/admin/collections/new?type=manual&libraryId=3",
-    );
-    expect(await within(picker).findByRole("link", { name: "Add a starter pack" })).toHaveAttribute(
-      "href",
-      "/admin/collections?view=list&libraryId=3&dialog=starter-packs",
     );
   });
 
@@ -471,6 +459,22 @@ describe("AdminCollections List switch", () => {
 });
 
 describe("AdminCollections List row menu", () => {
+  it("offers no Sync now when the server can't import lists", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      groups: true,
+      imports: false,
+      import_sources: [],
+      artwork: true,
+      item_reorder: true,
+      section_references: true,
+    });
+    renderPage();
+    await screen.findByText("Best Picture Winners");
+    const { menu } = await openMenu("Best Picture Winners");
+    expect(within(menu).getByRole("menuitem", { name: "Edit collection" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Sync now" })).not.toBeInTheDocument();
+  });
+
   it("offers Sync now only on synced lists", async () => {
     renderPage();
     await screen.findByText("Studio Ghibli");
@@ -647,6 +651,27 @@ describe("AdminCollections List peeks", () => {
     await act(async () => undefined);
     expect(peekCalls()).toHaveLength(8);
     vi.restoreAllMocks();
+  });
+
+  it("drops a row's titles for its own poster as soon as it is hidden", async () => {
+    items = [stored("Staff Picks", { poster_url: "own.jpg" })];
+    v2Recorder.answer("GET /api/v2/library/{id}/collections/{collection_id}/items", async () => ({
+      items: [{ content_id: "m1", title: "Past Lives", poster_url: "title.jpg" }],
+    }));
+    // The change stays in flight, so the list has not reloaded the collection yet.
+    v2Recorder.answer("PATCH /api/v2/admin/collections/{id}", () => new Promise(() => undefined));
+    renderPage();
+    await screen.findByText("Staff Picks");
+    reveal("Staff Picks");
+    const posters = () =>
+      [...rowOf("Staff Picks").querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    await waitFor(() => expect(posters().join()).toContain("title.jpg"));
+
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Show Staff Picks on the Movies Collections tab" }),
+    );
+    await waitFor(() => expect(posters().join()).toContain("own.jpg"));
+    expect(posters().join()).not.toContain("title.jpg");
   });
 
   it("shows a hidden collection's own poster without asking a Collections tab for it", async () => {

@@ -127,6 +127,9 @@ export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
 /** Rows use every collection a delete was asked for, so nothing goes. */
 export const COLLECTIONS_IN_USE = "Rows still use them. Remove the rows first.";
 
+/** A starter pack being added would race a delete of the collections it makes. */
+export const STARTER_PACK_BLOCKS_DELETE = "A starter pack is being added. Delete once it finishes.";
+
 const KIND_NOUN: Readonly<Record<CollectionKind | "mixed", readonly [string, string]>> = {
   manual: ["manual collection", "manual collections"],
   smart: ["smart collection", "smart collections"],
@@ -167,19 +170,27 @@ const BATCH_WORDS: Readonly<
   hide: { done: "Hid", verb: "hide", noun: "collection", where: " from Collections tabs" },
 };
 
-/** The toast after a select-mode action: all done, some done, or none. */
+/**
+ * The toast after a select-mode action: all done, some done, or none.
+ * `warned` counts the done ones that finished with warnings (a sync's unmatched entries).
+ */
 export function batchResult(
   action: BatchAction,
   done: number,
   total: number,
+  warned = 0,
 ): { tone: "success" | "warning" | "error"; message: string } {
   const words = BATCH_WORDS[action];
+  const warnings = warned > 0 ? `, ${warned} with warnings` : "";
   if (done === total)
-    return { tone: "success", message: `${words.done} ${plural(done, words.noun)}${words.where}.` };
+    return {
+      tone: warned > 0 ? "warning" : "success",
+      message: `${words.done} ${plural(done, words.noun)}${words.where}${warnings}.`,
+    };
   if (done > 0)
     return {
       tone: "warning",
-      message: `${words.done} ${done} of ${plural(total, words.noun)}.`,
+      message: `${words.done} ${done} of ${plural(total, words.noun)}${warnings}.`,
     };
   return { tone: "error", message: `Couldn't ${words.verb} ${plural(total, words.noun)}.` };
 }
@@ -256,6 +267,26 @@ export function removedTitle(title: string): string {
 
 export function createdButNotAdded(count: number): string {
   return `Created, but couldn't add ${plural(count, "title")}`;
+}
+
+// --- Add to collection -----------------------------------------------------
+
+export const ADD_TO_COLLECTION_FOOTNOTE =
+  "Only manual collections take titles by hand. Ticking saves right away.";
+
+/** "Manual · 15 titles": a manual collection's line in a picker. */
+export function manualTitleCount(count: number): string {
+  return `${COLLECTION_KIND_LABEL.manual} · ${plural(count, "title")}`;
+}
+
+/** The Add to collection footer: how many of the profile's collections hold the title. */
+export function inCollections(count: number): string {
+  return count === 0 ? "Not in a collection yet" : `In ${plural(count, "collection")}`;
+}
+
+/** The new collection was kept, but the title it was made for didn't go in. */
+export function madeButNotAdded(collection: string, title: string): string {
+  return `Made ${collection}, but couldn't add ${title}`;
 }
 
 // --- Rules (Smart) ----------------------------------------------------------
@@ -399,6 +430,21 @@ export const TRAKT_STILL_EDITABLE =
 export const TRAKT_SCHEDULE_STOPPED = "A stopped Trakt list can't be scheduled again.";
 export const PERSONAL_SCHEDULE_LOCKED =
   "This server doesn't let profiles change a list's schedule.";
+export const LIST_DECIDES = "The list decides";
+export const LIST_DECIDES_ITEMS = [
+  "Which titles are in it",
+  "Their order, while the sort is “List order”",
+] as const;
+export const YOU_DECIDE = "You decide";
+
+/** What the editor still controls on a list-backed collection. */
+export function youDecideItems(scheduleEditable: boolean): string[] {
+  return [
+    "Name, description and artwork",
+    scheduleEditable ? "Order, max titles and the schedule" : "Order and max titles",
+    "Where it shows",
+  ];
+}
 
 /** "3 hours ago": how long ago a sync ran. */
 export function syncedAgo(iso: string, now = Date.now()): string {
@@ -446,26 +492,6 @@ export function syncFailedLead(lastAt: string | undefined): string {
 
 export function keepsTitles(count: number): string {
   return `The collection keeps its ${plural(count, "title")}.`;
-}
-
-// --- Add to collection -----------------------------------------------------
-
-export const ADD_TO_COLLECTION_FOOTNOTE =
-  "Only manual collections take titles by hand. Ticking saves right away.";
-
-/** "Manual · 15 titles": a manual collection's line in a picker. */
-export function manualTitleCount(count: number): string {
-  return `${COLLECTION_KIND_LABEL.manual} · ${plural(count, "title")}`;
-}
-
-/** The Add to collection footer: how many of the profile's collections hold the title. */
-export function inCollections(count: number): string {
-  return count === 0 ? "Not in a collection yet" : `In ${plural(count, "collection")}`;
-}
-
-/** The new collection was kept, but the title it was made for didn't go in. */
-export function madeButNotAdded(collection: string, title: string): string {
-  return `Made ${collection}, but couldn't add ${title}`;
 }
 
 // --- Save bar ---------------------------------------------------------------

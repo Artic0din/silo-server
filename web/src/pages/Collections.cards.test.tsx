@@ -307,4 +307,27 @@ describe("Server collections", () => {
       within(server).getByRole("link", { name: "See all 12 Movies collections" }),
     ).toHaveAttribute("href", "/library/1?tab=collections");
   });
+
+  it("opens a collection in several libraries across all of them from All", async () => {
+    v2Recorder.answer("GET /api/v2/collections/server", {
+      libraries: [
+        serverLibrary("1", "Movies", [oscarWinners]),
+        serverLibrary("2", "Kids", [oscarWinners]),
+      ],
+    });
+    show();
+    const server = await screen.findByRole("region", { name: "Server collections" });
+    const libraryOf = () =>
+      new URL(
+        within(server).getByRole("link", { name: oscarWinners.title }).getAttribute("href")!,
+        "http://silo.test",
+      ).searchParams.get("library_id");
+
+    await within(server).findByRole("group", { name: "Library" });
+    expect(within(server).getAllByRole("link", { name: oscarWinners.title })).toHaveLength(1);
+    expect(libraryOf()).toBeNull();
+
+    await userEvent.click(within(server).getByRole("button", { name: "Kids" }));
+    expect(libraryOf()).toBe("2");
+  });
 });

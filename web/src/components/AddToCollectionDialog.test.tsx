@@ -118,6 +118,28 @@ describe("AddToCollectionDialog", () => {
     expect(dialog().getByText("In 1 collection")).toBeTruthy();
   });
 
+  it("drops this dialog's ticks when it moves to another title", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const at = (item: string) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AddToCollectionDialog open onOpenChange={vi.fn()} mediaItemId={item} itemTitle="Heat" />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(at(ITEM));
+    fireEvent.click(await dialog().findByRole("checkbox", { name: "Rainy days" }));
+    expect(await dialog().findByText("In 1 collection")).toBeTruthy();
+
+    rerender(at("movie:ronin-1998"));
+    expect(await dialog().findByText("Not in a collection yet")).toBeTruthy();
+    expect(
+      dialog().getByRole("checkbox", { name: "Rainy days" }).getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
   it("puts the tick back and reports it when the add fails", async () => {
     v2Recorder.answer("PUT /api/v2/collections/{id}/items/{item_id}", () => {
       throw new Error("The server is busy");

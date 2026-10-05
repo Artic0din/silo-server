@@ -447,6 +447,28 @@ describe("who can open the editor", () => {
   });
 });
 
+describe("Back", () => {
+  it("server: goes back to the list view the editor was opened from", async () => {
+    showPage({
+      pathname: "/admin/collections/c1/edit",
+      search: "?libraryId=1",
+      state: listReturnState("/admin/collections?view=list&libraryId=1&type=smart"),
+    });
+    expect(await screen.findByRole("link", { name: "Collections" })).toHaveAttribute(
+      "href",
+      "/admin/collections?view=list&libraryId=1&type=smart",
+    );
+  });
+
+  it("server: goes back to the library's List when it wasn't opened from the list", async () => {
+    showPage("/admin/collections/c1/edit?libraryId=1");
+    expect(await screen.findByRole("link", { name: "Collections" })).toHaveAttribute(
+      "href",
+      "/admin/collections?libraryId=1&view=list",
+    );
+  });
+});
+
 describe("layout", () => {
   it.each([
     [1023, "phone", true],
@@ -470,29 +492,5 @@ describe("layout", () => {
           .map((button) => button.textContent),
       ).toEqual(["Rules", "Details", "Where it shows"]);
     }
-  });
-});
-
-describe("going back", () => {
-  it("returns to the List view the editor was opened from", async () => {
-    showPage({
-      pathname: "/admin/collections/c1/edit",
-      search: "?libraryId=1",
-      state: listReturnState("/admin/collections?view=list&libraryId=1&type=smart"),
-    });
-    await sentence();
-    expect(screen.getByRole("link", { name: "Collections" })).toHaveAttribute(
-      "href",
-      "/admin/collections?view=list&libraryId=1&type=smart",
-    );
-  });
-
-  it("returns to the library's List when it wasn't opened from the list", async () => {
-    showPage("/admin/collections/c1/edit?libraryId=1");
-    await sentence();
-    expect(screen.getByRole("link", { name: "Collections" })).toHaveAttribute(
-      "href",
-      "/admin/collections?libraryId=1&view=list",
-    );
   });
 });

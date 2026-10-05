@@ -39,8 +39,6 @@ import {
   CollectionListItem,
 } from "@/components/collections/admin/CollectionListItem";
 import { GroupsBoard } from "@/components/collections/admin/GroupsBoard";
-import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
-import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import { MobileDockBar } from "@/components/homeRows/MobileDockBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +62,8 @@ import {
   SquareCheckBig,
   Trash2,
 } from "lucide-react";
+import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
+import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import {
   collectionLibraryIds,
   countByLibrary,
@@ -78,6 +78,7 @@ import { MAX_SELECTED_COLLECTIONS, runBatch } from "@/lib/collections/batch";
 import {
   COLLECTION_IN_USE,
   COLLECTIONS_IN_USE,
+  STARTER_PACK_BLOCKS_DELETE,
   alreadyShown,
   batchResult,
   serverDeleteDescription,
@@ -85,7 +86,11 @@ import {
   syncSkipNote,
   type BatchAction,
 } from "@/lib/collections/copy";
-import { NEW_COLLECTION_DIALOG, STARTER_PACKS_DIALOG } from "@/lib/collections/dialogs";
+import {
+  NEW_COLLECTION_DIALOG,
+  STARTER_PACKS_DIALOG,
+  withoutDialog,
+} from "@/lib/collections/dialogs";
 import { listReturnState } from "@/lib/collections/listReturn";
 import { serverCollectionPeek } from "@/lib/collections/peek";
 import { collectionsInAdminScope, SERVER_SCOPE } from "@/lib/collections/scope";
@@ -123,8 +128,14 @@ function batchFailure(collection: LibraryCollection, error: unknown): string {
   return `${collection.title}: ${SERVER_SCOPE.errorMessage(error, "Something went wrong")}`;
 }
 
-function showBatchResult(action: BatchAction, done: number, total: number, failures: string[]) {
-  const { tone, message } = batchResult(action, done, total);
+function showBatchResult(
+  action: BatchAction,
+  done: number,
+  total: number,
+  failures: string[],
+  warned: number,
+) {
+  const { tone, message } = batchResult(action, done, total, warned);
   if (failures.length === 0) toast[tone](message);
   else toast[tone](message, { description: failures.join(" ") });
 }
@@ -171,16 +182,11 @@ export default function AdminCollections() {
   const arrangeLibraryId =
     state.view === "arrange" ? (state.libraryId ?? libraryList[0]?.id ?? null) : null;
   const activeLibraryId = state.view === "arrange" ? arrangeLibraryId : state.libraryId;
-  // Where an editor opened from here comes back to: this view, minus any open dialog.
-  const listHref = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    params.delete("dialog");
-    const query = params.toString();
-    return query ? `${location.pathname}?${query}` : location.pathname;
-  }, [location.pathname, location.search]);
+  // Where an editor opened from here comes back to, without the dialog that was open.
+  const listHref = withoutDialog(`${location.pathname}${location.search}`);
 
-  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   const [starterPacksOpen, setStarterPacksOpen] = useDialogSearchParam(STARTER_PACKS_DIALOG);
+  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   // The Delete button closes its dialog as it's pressed; keep it open for the answer.
   const holdDeleteOpen = useRef(false);
@@ -201,6 +207,8 @@ export default function AdminCollections() {
   const [syncingIds, setSyncingIds] = useState<ReadonlySet<string>>(new Set());
 
   const { data: capabilities } = useAdminCollectionCapabilities();
+  // Without imports a synced list's sync can only fail, so Sync isn't offered.
+  const canImport = capabilities?.imports === true;
   const allCollections = useAdminCollections();
   const collections = useMemo(() => allCollections.data ?? [], [allCollections.data]);
   const libraryCounts = useMemo(() => countByLibrary(collections), [collections]);
@@ -434,11 +442,12 @@ export default function AdminCollections() {
     action: BatchAction,
     targets: LibraryCollection[],
     run: (collection: LibraryCollection) => Promise<unknown>,
+    warnedCount: () => number = () => 0,
   ) {
     setBatchRunning(true);
     try {
       const { done, failures } = await runBatch(targets, run, batchFailure);
-      showBatchResult(action, done, targets.length, failures);
+      showBatchResult(action, done, targets.length, failures, warnedCount());
     } finally {
       setBatchRunning(false);
       await SERVER_SCOPE.invalidate(queryClient);
@@ -447,27 +456,67 @@ export default function AdminCollections() {
 
   function syncSelected() {
     setSyncingIds((current) => new Set([...current, ...selectedLists.map((list) => list.id)]));
-    void runSelected("sync", selectedLists, async (list) => {
-      try {
-        const result = await SERVER_SCOPE.sync(list.id);
-        if (result.status === "failed") throw new Error(result.message || "Sync failed");
-      } finally {
-        setSyncingIds((current) => {
-          const next = new Set(current);
-          next.delete(list.id);
-          return next;
-        });
-      }
-    });
+    let warned = 0;
+    void runSelected(
+      "sync",
+      selectedLists,
+      async (list) => {
+        try {
+          const result = await SERVER_SCOPE.sync(list.id);
+          if (result.status === "failed") throw new Error(result.message || "Sync failed");
+          if (result.status === "warning") warned++;
+        } finally {
+          setSyncingIds((current) => {
+            const next = new Set(current);
+            next.delete(list.id);
+            return next;
+          });
+        }
+      },
+      () => warned,
+    );
   }
 
-  function setSelectedVisible(visible: boolean) {
+  /**
+   * `targets` with the row counts the List gives when read again: rows may
+   * have been added or removed since it loaded. Only the List carries row
+   * counts (Arrange's board doesn't). Throws when the read fails rather than
+   * fall back on counts that may be stale.
+   */
+  async function withFreshRowCounts(targets: LibraryCollection[]) {
+    const { data: fresh = collections, error } = await allCollections.refetch();
+    if (error) throw error;
+    const rowCounts = new Map(fresh.map((collection) => [collection.id, collection.row_count]));
+    return targets.map((collection) => ({
+      ...collection,
+      row_count: rowCounts.get(collection.id) ?? collection.row_count,
+    }));
+  }
+
+  async function setSelectedVisible(visible: boolean) {
     const changing = selected.filter((collection) => isVisible(collection) !== visible);
-    if (changing.length === 0) toast.success(alreadyShown(visible));
+    if (changing.length === 0) {
+      toast.success(alreadyShown(visible));
+      return;
+    }
+    if (visible) {
+      void saveSelectedVisible(changing, true);
+      return;
+    }
+    // The bar stays busy while the List is read again.
+    setBatchRunning(true);
+    let hiding: LibraryCollection[];
+    try {
+      hiding = await withFreshRowCounts(changing);
+    } catch (error) {
+      toast.error(adminMutationMessage(error, "Could not check which rows use them"));
+      return;
+    } finally {
+      setBatchRunning(false);
+    }
     // Rows that show them would keep showing them with a See all that can't open.
-    else if (!visible && changing.some((collection) => (collection.row_count ?? 0) > 0))
-      setBulkHiding(changing);
-    else void saveSelectedVisible(changing, visible);
+    if (hiding.some((collection) => (collection.row_count ?? 0) > 0)) setBulkHiding(hiding);
+    else void saveSelectedVisible(hiding, false);
   }
 
   async function saveSelectedVisible(targets: LibraryCollection[], visible: boolean) {
@@ -491,30 +540,24 @@ export default function AdminCollections() {
   }
 
   const [preparingDelete, setPreparingDelete] = useState(false);
-  const listRowCounts = useMemo(
-    () => new Map(collections.map((collection) => [collection.id, collection.row_count ?? 0])),
-    [collections],
-  );
-
   /**
    * Reads each collection that will go for its ETag and opens the confirm.
-   * Collections rows use are kept: the server refuses to delete them. Arrange's
-   * board doesn't carry row counts, so they come from the List.
+   * Collections rows use are kept: the server refuses to delete them.
    */
   async function prepareBulkDelete(targets: LibraryCollection[], wholeView: boolean) {
-    const used = (collection: LibraryCollection) =>
-      (listRowCounts.get(collection.id) ?? collection.row_count ?? 0) > 0;
-    const deletable = targets.filter((collection) => !used(collection));
-    if (deletable.length === 0) {
-      toast.error(COLLECTIONS_IN_USE);
-      return;
-    }
     setPreparingDelete(true);
     try {
+      const counted = await withFreshRowCounts(targets);
+      const used = (collection: LibraryCollection) => (collection.row_count ?? 0) > 0;
+      const deletable = counted.filter((collection) => !used(collection));
+      if (deletable.length === 0) {
+        toast.error(COLLECTIONS_IN_USE);
+        return;
+      }
       const snapshots = await prepareAdminCollectionDeletes(deletable.map((entry) => entry.id));
       setBulkDelete({
         snapshots,
-        kept: targets.filter(used).map((collection) => collection.title),
+        kept: counted.filter(used).map((collection) => collection.title),
         wholeView,
       });
     } catch (error) {
@@ -557,9 +600,9 @@ export default function AdminCollections() {
     {
       key: "starter-packs",
       label: "Starter packs…",
-      help: "Add a set of ready-made synced lists at once.",
+      help: "Add a ready-made set of collections to a library.",
       icon: Layers3,
-      disabled: !capabilities?.imports,
+      disabled: !canImport,
       opensDialog: true,
       onSelect: () => setStarterPacksOpen(true),
     },
@@ -586,6 +629,7 @@ export default function AdminCollections() {
   const more = <PageMoreMenu items={moreItems} compact={narrow} triggerRef={moreTrigger} />;
   const newCollection = (
     <Button
+      type="button"
       size={narrow ? "lg" : "sm"}
       className={cn(narrow && "h-12 rounded-[14px] text-[15px]")}
       onClick={() => setPickerOpen(true)}
@@ -666,6 +710,8 @@ export default function AdminCollections() {
               ) : inLibrary.length === 0 ? (
                 <EmptyLibrary
                   libraryName={activeLibrary?.name ?? null}
+                  canAddStarterPack={canImport}
+                  onAddStarterPack={() => setStarterPacksOpen(true)}
                   newCollection={newCollection}
                 />
               ) : (
@@ -721,12 +767,13 @@ export default function AdminCollections() {
                               showLibraries={state.libraryId === null}
                               peek={
                                 peekLibraryId
-                                  ? serverCollectionPeek(collection, peekLibraryId)
+                                  ? serverCollectionPeek(collection, peekLibraryId, !visible)
                                   : null
                               }
                               visible={visible}
                               syncing={syncing}
-                              switchDisabled={visibilityOverrides.has(collection.id)}
+                              // A sync moves the ETag a visibility change would send.
+                              switchDisabled={visibilityOverrides.has(collection.id) || syncing}
                               onVisibleChange={(next) => changeVisible(collection, next)}
                               onOpen={() => openEditor(collection)}
                               selection={
@@ -761,6 +808,7 @@ export default function AdminCollections() {
                                         : "Hidden from Collections tabs",
                                     }}
                                     sync={
+                                      canImport &&
                                       isListBackedCollectionType(collection.collection_type)
                                         ? {
                                             syncing:
@@ -803,31 +851,45 @@ export default function AdminCollections() {
                 count={selected.length}
                 limit={MAX_SELECTED_COLLECTIONS}
                 noun="collections"
-                busy={batchRunning || deleting}
-                note={syncSkipNote(
-                  selectedSmart,
-                  selected.length - selectedLists.length - selectedSmart,
-                )}
+                // A row's own switch save or sync would move the ETags a bar action reads.
+                busy={
+                  batchRunning ||
+                  deleting ||
+                  visibilityOverrides.size > 0 ||
+                  selected.some((collection) => syncingIds.has(collection.id))
+                }
+                note={
+                  canImport
+                    ? syncSkipNote(
+                        selectedSmart,
+                        selected.length - selectedLists.length - selectedSmart,
+                      )
+                    : null
+                }
                 actions={[
-                  {
-                    key: "sync",
-                    label: syncListsLabel(selectedLists.length),
-                    icon: RefreshCw,
-                    disabled: selectedLists.length === 0,
-                    explainedByNote: true,
-                    onClick: syncSelected,
-                  },
+                  ...(canImport
+                    ? [
+                        {
+                          key: "sync",
+                          label: syncListsLabel(selectedLists.length),
+                          icon: RefreshCw,
+                          disabled: selectedLists.length === 0,
+                          explainedByNote: true,
+                          onClick: syncSelected,
+                        },
+                      ]
+                    : []),
                   {
                     key: "show",
                     label: "Show on tabs",
                     icon: Eye,
-                    onClick: () => setSelectedVisible(true),
+                    onClick: () => void setSelectedVisible(true),
                   },
                   {
                     key: "hide",
                     label: "Hide from tabs",
                     icon: EyeOff,
-                    onClick: () => setSelectedVisible(false),
+                    onClick: () => void setSelectedVisible(false),
                   },
                   {
                     key: "delete",
@@ -847,7 +909,9 @@ export default function AdminCollections() {
             libraryId={arrangeLibraryId}
             libraryName={activeLibrary?.name ?? null}
             board={board}
+            canAddStarterPack={canImport}
             newCollection={newCollection}
+            onAddStarterPack={() => setStarterPacksOpen(true)}
             isVisible={isVisible}
             onEditCollection={(collection) => openEditor(collection, arrangeLibraryId)}
             onVisibleChange={changeVisible}
@@ -861,7 +925,6 @@ export default function AdminCollections() {
         <NewCollectionPicker
           scope="server"
           libraryId={activeLibraryId}
-          linkState={listReturnState(listHref)}
           listHref={listHref}
           onClose={() => setPickerOpen(false)}
         />
@@ -913,9 +976,11 @@ export default function AdminCollections() {
         }}
         count={bulkDelete?.snapshots.length ?? 0}
         kind={bulkDeleteKinds.size === 1 ? [...bulkDeleteKinds][0]! : null}
-        where={activeLibrary?.name ?? (bulkDelete?.wholeView ? "this view" : null)}
+        // A collection goes from every library, so only Delete all names where.
+        where={bulkDelete?.wholeView ? (activeLibrary?.name ?? "this view") : null}
         elsewhere={bulkDeleteElsewhere}
         kept={bulkDelete?.kept ?? []}
+        blocked={activeApplyJob ? STARTER_PACK_BLOCKS_DELETE : null}
         onConfirm={confirmBulkDelete}
       />
     </div>
@@ -1036,12 +1101,16 @@ function ListSkeleton() {
   );
 }
 
-/** A library, or the server, with no collections yet: New collection opens every way to make some. */
+/** A library, or the server, with no collections yet: both ways to make some. */
 function EmptyLibrary({
   libraryName,
+  canAddStarterPack,
+  onAddStarterPack,
   newCollection,
 }: {
   libraryName: string | null;
+  canAddStarterPack: boolean;
+  onAddStarterPack: () => void;
   newCollection: ReactNode;
 }) {
   return (
@@ -1055,7 +1124,17 @@ function EmptyLibrary({
       <p className="text-muted-foreground max-w-sm text-sm">
         Make one yourself, or start from ready-made lists.
       </p>
-      {newCollection}
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canAddStarterPack}
+          onClick={onAddStarterPack}
+        >
+          <Layers3 aria-hidden /> Add a starter pack
+        </Button>
+        {newCollection}
+      </div>
     </div>
   );
 }
@@ -1065,7 +1144,9 @@ function ArrangeView({
   libraryId,
   libraryName,
   board,
+  canAddStarterPack,
   newCollection,
+  onAddStarterPack,
   isVisible,
   onEditCollection,
   onVisibleChange,
@@ -1073,7 +1154,9 @@ function ArrangeView({
   libraryId: number | null;
   libraryName: string | null;
   board: ReturnType<typeof useAdminCollectionsBoard>;
+  canAddStarterPack: boolean;
   newCollection: ReactNode;
+  onAddStarterPack: () => void;
   isVisible: (collection: LibraryCollection) => boolean;
   onEditCollection: (collection: LibraryCollection) => void;
   onVisibleChange: (collection: LibraryCollection, visible: boolean) => void;
@@ -1107,7 +1190,12 @@ function ArrangeView({
   if (count === 0 && !hasShelves)
     return (
       <div className="surface-panel rounded-[26px] p-1.5">
-        <EmptyLibrary libraryName={libraryName} newCollection={newCollection} />
+        <EmptyLibrary
+          libraryName={libraryName}
+          canAddStarterPack={canAddStarterPack}
+          onAddStarterPack={onAddStarterPack}
+          newCollection={newCollection}
+        />
       </div>
     );
   return (

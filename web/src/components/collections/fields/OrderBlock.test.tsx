@@ -76,7 +76,7 @@ describe("OrderBlock, Smart", () => {
     expect(onChange.mock.calls[0]?.[0].rules.limit).toBeUndefined();
   });
 
-  it.each(["0", "-5"])("keeps the limit when %s is entered", (value) => {
+  it.each(["0", "-5", "2.5", "1e2"])("keeps the limit when %s is entered", (value) => {
     const { input, onChange } = renderSmart({ limit: 250 });
     fireEvent.change(input, { target: { value } });
     fireEvent.blur(input);

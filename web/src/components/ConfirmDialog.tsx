@@ -21,6 +21,8 @@ interface ConfirmDialogProps {
   variant?: "default" | "destructive";
   onConfirm: () => void;
   isPending?: boolean;
+  /** Turns the confirm button off without a spinner, e.g. while `error` explains why. */
+  confirmDisabled?: boolean;
   /** What the action does, one line each, under the description. */
   bullets?: { label: string; items: string[] };
   /** Says "This can't be undone." beside the buttons. */
@@ -41,6 +43,7 @@ export function ConfirmDialog({
   variant = "default",
   onConfirm,
   isPending,
+  confirmDisabled,
   bullets,
   irreversible = false,
   onCloseAutoFocus,
@@ -64,7 +67,7 @@ export function ConfirmDialog({
       <AlertDialogAction
         onClick={onConfirm}
         variant={variant === "destructive" ? "destructive" : "default"}
-        disabled={isPending}
+        disabled={isPending || confirmDisabled}
       >
         {isPending ? (
           <>

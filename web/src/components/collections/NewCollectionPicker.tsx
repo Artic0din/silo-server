@@ -20,6 +20,7 @@ import {
   SYNCED_OFF,
 } from "@/lib/collections/copy";
 import { starterPacksHref } from "@/lib/collections/dialogs";
+import { listReturnState, type ListReturnState } from "@/lib/collections/listReturn";
 import { PERSONAL_SCOPE, SERVER_SCOPE, type ScopeKind } from "@/lib/collections/scope";
 import { COLLECTION_KIND_LABEL, type CollectionKind } from "@/lib/collections/types";
 import { cn } from "@/lib/utils";
@@ -201,7 +202,7 @@ function TypeCard({
   kind: CollectionKind;
   scope: ScopeKind;
   to: string;
-  state?: unknown;
+  state?: ListReturnState;
 }) {
   const id = useId();
   return (
@@ -260,21 +261,21 @@ function SyncedOffCard({ scope }: { scope: ScopeKind }) {
 export function NewCollectionPicker({
   scope,
   libraryId = null,
-  linkState,
   listHref,
   onClose,
 }: {
   scope: ScopeKind;
   /** The library pill selected on the list, carried to the editor. */
   libraryId?: number | null;
-  /** History state for the editor a type opens, such as the list view to come back to. */
-  linkState?: unknown;
-  /** The list view the picker is open over, so Add a starter pack keeps it. */
+  /** The list as it is under the picker; the editor's Back and Starter packs return to it. */
   listHref?: string;
   onClose: () => void;
 }) {
   const isServer = scope === "server";
   const paths = (isServer ? SERVER_SCOPE : PERSONAL_SCOPE).paths;
+  const returnTo = listHref ?? paths.list({ libraryId });
+  // Only the server editor reads where it was opened from.
+  const linkState = isServer ? listReturnState(returnTo) : undefined;
   const adminCapabilities = useAdminCollectionCapabilities(isServer);
   const personalCapabilities = useCollectionCapabilities(!isServer);
   const capabilities = isServer ? adminCapabilities : personalCapabilities;
@@ -318,7 +319,7 @@ export function NewCollectionPicker({
     );
   }
 
-  const starterPacks = isServer && syncedOn ? starterPacksHref(libraryId, listHref) : null;
+  const starterPacks = isServer && syncedOn ? starterPacksHref(returnTo) : null;
 
   return (
     <StepDialog

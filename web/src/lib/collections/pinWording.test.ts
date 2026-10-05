@@ -19,6 +19,19 @@ const PAGES = readdirSync(join(SOURCE_ROOT, "pages"))
   .filter((name) => /collection/i.test(name))
   .map((name) => join("pages", name));
 
+/**
+ * Older surfaces that still say "Featured" until the work that replaces them
+ * lands: the smart wizard and the old builder (replaced by the Smart editor)
+ * and the template gallery, whose "Featured Sections" are Home hero rows
+ * (replaced by Starter packs). The list only shrinks: delete an entry with its file.
+ */
+const NOT_YET_REPLACED = new Set([
+  "components/collections/CollectionBuilder.tsx",
+  "components/CollectionTemplateGallery/CollectionTemplateConfigForm.tsx",
+  "components/CollectionTemplateGallery/CollectionTemplateGallery.tsx",
+  "pages/SmartCollectionWizard.tsx",
+]);
+
 function sourceFiles(path: string): string[] {
   if (!existsSync(path)) return [];
   if (!statSync(path).isDirectory()) return /\.tsx?$/.test(path) ? [path] : [];
@@ -34,7 +47,7 @@ describe("collections wording", () => {
     const offenders = [...ROOTS, ...PAGES]
       .flatMap((root) => sourceFiles(join(SOURCE_ROOT, root)))
       .map((path) => relative(SOURCE_ROOT, path))
-      .filter((path) => !/\.test\.tsx?$/.test(path))
+      .filter((path) => !/\.test\.tsx?$/.test(path) && !NOT_YET_REPLACED.has(path))
       .filter((path) =>
         /\bFeatured\b/.test(withoutComments(readFileSync(join(SOURCE_ROOT, path), "utf8"))),
       );

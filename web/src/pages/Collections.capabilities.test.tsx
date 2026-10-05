@@ -29,16 +29,21 @@ function Where() {
 
 function show(path = "/collections") {
   render(
+    // The picker also asks for the admin capabilities, disabled for a profile.
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/collections" element={<Collections />} />
-          <Route path="/collections/new" element={<Where />} />
+          <Route path="*" element={null} />
         </Routes>
         <Where />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+function location() {
+  return screen.getByTestId("location");
 }
 
 beforeEach(() => {
@@ -52,13 +57,13 @@ afterEach(cleanup);
 describe("New collection on the Collections page", () => {
   it("has one New collection button and no Browse Templates", () => {
     show();
-    const header = screen.getByRole("heading", { level: 1, name: "Collections" }).parentElement!
-      .parentElement!;
-    expect(within(header).getAllByRole("button")).toHaveLength(1);
-    expect(within(header).getByRole("button", { name: "New collection" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Browse Templates/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Start from a template/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Create from scratch/ })).toBeNull();
+    const header = screen.getByRole("heading", { level: 1, name: "Collections" }).closest("header");
+    expect(header).not.toBeNull();
+    expect(within(header!).getAllByRole("button")).toHaveLength(1);
+    expect(within(header!).getByRole("button", { name: "New collection" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: /Browse Templates/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Browse Templates/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /New collection/ })).toBeNull();
   });
 
   it("gives the empty Your collections one New collection button", () => {
@@ -70,29 +75,28 @@ describe("New collection on the Collections page", () => {
 
   it("opens the type picker from the header and from the empty state", async () => {
     show();
+    const user = userEvent.setup();
     const [header, empty] = screen.getAllByRole("button", { name: "New collection" });
-    await userEvent.click(header!);
+    await user.click(header!);
     const dialog = await screen.findByRole("dialog", { name: "New collection" });
-    expect(screen.getAllByTestId("location").at(-1)).toHaveTextContent("/collections?dialog=new");
+    expect(location()).toHaveTextContent("/collections?dialog=new");
     expect(within(dialog).getByRole("link", { name: "Manual" })).toHaveAttribute(
       "href",
       "/collections/new?type=manual",
     );
-    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getAllByTestId("location").at(-1)).toHaveTextContent(/^\/collections$/);
+    expect(location()).toHaveTextContent(/^\/collections$/);
 
-    await userEvent.click(empty!);
+    await user.click(empty!);
     expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();
   });
 
-  it("opens the type picker from a link", async () => {
+  it("opens the type picker from a link, and a card goes to its editor", async () => {
     show("/collections?dialog=new");
     const dialog = await screen.findByRole("dialog", { name: "New collection" });
     await userEvent.click(within(dialog).getByRole("link", { name: "Smart" }));
-    expect(screen.getAllByTestId("location").at(-1)).toHaveTextContent(
-      "/collections/new?type=smart",
-    );
+    expect(location()).toHaveTextContent("/collections/new?type=smart");
   });
 
   it("keeps Manual and Smart when the server has no import sources", async () => {

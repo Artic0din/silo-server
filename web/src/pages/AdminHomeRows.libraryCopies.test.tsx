@@ -316,8 +316,10 @@ describe("Add to these library pages", () => {
     mocks.libraries = manyLibraries(100);
     const form = await pickTrending();
     const group = pagesGroup(form);
+    // getByLabelText instead of getByRole: role queries over 100+ checkboxes
+    // compute every accessible name each time and push this test past CI's timeout.
     for (let id = 100; id < 199; id++)
-      fireEvent.click(within(group).getByRole("checkbox", { name: `Library ${id}` }));
+      fireEvent.click(within(group).getByLabelText(`Library ${id}`));
     expect(within(group).getByRole("checkbox", { name: "Library 199" })).toBeDisabled();
     expect(within(form).getByText(LIMIT_NOTE)).toBeInTheDocument();
     // Dropping one page frees a place again.
@@ -467,7 +469,7 @@ describe("Add to other libraries…", () => {
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Add to other libraries…" }));
     const dialog = await screen.findByRole("dialog");
     for (let id = 100; id < 200; id++)
-      fireEvent.click(within(dialog).getByRole("checkbox", { name: `Library ${id}` }));
+      fireEvent.click(within(dialog).getByLabelText(`Library ${id}`));
     expect(within(dialog).getByRole("checkbox", { name: "Library 200" })).toBeDisabled();
     expect(within(dialog).getByText(LIMIT_NOTE)).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Add to 100 pages" }));

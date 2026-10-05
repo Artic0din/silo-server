@@ -39,8 +39,8 @@ import type { Collection, LibraryTabCollection } from "@/api/types";
 import { CalmPage } from "@/components/calm/CalmPage";
 import { PillSwitcher } from "@/components/calm/PillSwitcher";
 import { CollectionActionsMenu } from "@/components/collections/CollectionActionsMenu";
-import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
 import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
+import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
 import {
   CollectionMetaLine,
   type SyncAttention,
@@ -92,11 +92,16 @@ export default function Collections() {
     .map((entry) => entry.name);
   // A one-profile account has nobody to share with: no sharing switch, no Shared with me.
   const multiProfile = otherProfileNames.length > 0;
-  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   const narrow = useMediaQuery(NARROW_QUERY);
+  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
 
   const newCollection = (
-    <Button size="sm" className={cn(narrow && "h-11 w-full")} onClick={() => setPickerOpen(true)}>
+    <Button
+      type="button"
+      size="sm"
+      className={cn(narrow && "h-11 w-full")}
+      onClick={() => setPickerOpen(true)}
+    >
       <Plus aria-hidden /> New collection
     </Button>
   );
@@ -114,9 +119,6 @@ export default function Collections() {
         actions={narrow ? null : newCollection}
         padBottom={narrow}
       >
-        {pickerOpen ? (
-          <NewCollectionPicker scope="personal" onClose={() => setPickerOpen(false)} />
-        ) : null}
         {isLoading ? (
           <PosterGridSkeleton />
         ) : (
@@ -125,7 +127,6 @@ export default function Collections() {
             canReorder={capabilities?.item_reorder === true}
             canSync={capabilities?.imports === true}
             otherProfileNames={otherProfileNames}
-            onNew={() => setPickerOpen(true)}
           />
         )}
         {multiProfile && shared.length > 0 ? (
@@ -173,6 +174,9 @@ export default function Collections() {
         >
           {newCollection}
         </div>
+      ) : null}
+      {pickerOpen ? (
+        <NewCollectionPicker scope="personal" onClose={() => setPickerOpen(false)} />
       ) : null}
     </div>
   );
@@ -277,14 +281,11 @@ function YourCollections({
   canReorder,
   canSync,
   otherProfileNames,
-  onNew,
 }: {
   collections: Collection[];
   canReorder: boolean;
   canSync: boolean;
   otherProfileNames: string[];
-  /** Opens the New collection picker. */
-  onNew: () => void;
 }) {
   const navigate = useNavigate();
   const remove = useDeleteCollection();
@@ -374,7 +375,7 @@ function YourCollections({
       {collections.length === 0 ? (
         <ul className={POSTER_GRID}>
           <li>
-            <NewCollectionCard onClick={onNew} />
+            <NewCollectionCard />
           </li>
         </ul>
       ) : (
@@ -442,11 +443,12 @@ function YourCollections({
 }
 
 /** The empty Your collections: one dashed card, because nobody sees anything here yet. */
-function NewCollectionCard({ onClick }: { onClick: () => void }) {
+function NewCollectionCard() {
+  const [, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => setPickerOpen(true)}
       className="border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 focus-visible:ring-ring/50 flex aspect-[2/3] flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-center text-[13px] font-medium transition-colors outline-none focus-visible:ring-[3px]"
     >
       <Plus aria-hidden className="size-5" />
@@ -578,9 +580,12 @@ function SortableCollectionCard({
       onPointerDown={
         canReorder
           ? (event) => {
-              // The ⋯ menu renders in a portal, but React still bubbles its
-              // presses here: only a press on the card itself starts a drag.
-              if (!event.currentTarget.contains(event.target as Node)) return;
+              // Only a press on the card itself starts a drag: not one in the
+              // ⋯ menu, which renders in a portal but still bubbles here
+              // through React, and not one on the ⋯ button.
+              const target = event.target as Element;
+              if (!event.currentTarget.contains(target)) return;
+              if (target.closest("button:not([data-drag-handle])")) return;
               listeners?.onPointerDown?.(event);
             }
           : undefined
@@ -610,6 +615,7 @@ function SortableCollectionCard({
               ref={setActivatorNodeRef}
               type="button"
               aria-label={`Drag ${collection.name}`}
+              data-drag-handle
               className="flex size-8 cursor-grab touch-none items-center justify-center rounded-[10px] bg-black/55 text-white opacity-0 backdrop-blur-sm transition group-focus-within/card:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
               {...attributes}
               onKeyDown={listeners?.onKeyDown as KeyboardEventHandler}
@@ -646,13 +652,22 @@ function ServerCollectionsSection() {
     libraries.length === 1
       ? libraries[0]
       : libraries.find((entry) => String(entry.library_id) === selected);
-  // All libraries: every library's cards in library order, each collection once.
+  // All libraries: every library's cards in library order, each collection
+  // once. A collection in several libraries opens across all of them, so its
+  // card carries no library (and so no sidebar pin, which needs one).
+  const libraryCount = new Map<string, number>();
+  for (const entry of libraries) {
+    for (const collection of entry.collections) {
+      libraryCount.set(collection.id, (libraryCount.get(collection.id) ?? 0) + 1);
+    }
+  }
   const seen = new Set<string>();
   const cards = (library ? [library] : libraries).flatMap((entry) =>
     entry.collections.flatMap((collection) => {
       if (seen.has(collection.id)) return [];
       seen.add(collection.id);
-      return [{ collection, libraryId: entry.library_id }];
+      const inSeveral = !library && (libraryCount.get(collection.id) ?? 0) > 1;
+      return [{ collection, libraryId: inSeveral ? undefined : entry.library_id }];
     }),
   );
   return (
