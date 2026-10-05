@@ -236,11 +236,10 @@ describe("Your collections cards", () => {
     v2Recorder.answer("GET /api/v2/collections", { items: [familyNight] });
     show();
     const own = await screen.findByRole("region", { name: "Your collections" });
-    expect(await within(own).findByRole("link", { name: "New collection" })).toHaveAttribute(
-      "href",
-      "/collections/new",
-    );
-    expect(within(own).queryAllByRole("button")).toEqual([]);
+    const card = await within(own).findByRole("button", { name: "New collection" });
+    expect(within(own).getAllByRole("button")).toEqual([card]);
+    await userEvent.click(card);
+    expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();
   });
 });
 

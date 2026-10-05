@@ -6,7 +6,7 @@ import {
 } from "@/api/adminCollections";
 import type { AdminCollectionDeleteSnapshot } from "@/api/adminCollections";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { AdminJob, LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
@@ -23,6 +23,7 @@ import {
 import { useScopeSync } from "@/hooks/queries/collectionScope";
 import { invalidateAdminCollectionQueries } from "@/hooks/queries/collectionSurfaceRefresh";
 import { sectionKeys } from "@/hooks/queries/keys";
+import { useDialogSearchParam } from "@/hooks/useDialogSearchParam";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useEventChannel } from "@/components/realtimeEventsContext";
@@ -58,10 +59,10 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Sparkles,
   SquareCheckBig,
   Trash2,
 } from "lucide-react";
+import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
 import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import {
   collectionLibraryIds,
@@ -85,6 +86,11 @@ import {
   syncSkipNote,
   type BatchAction,
 } from "@/lib/collections/copy";
+import {
+  NEW_COLLECTION_DIALOG,
+  STARTER_PACKS_DIALOG,
+  withoutDialog,
+} from "@/lib/collections/dialogs";
 import { listReturnState } from "@/lib/collections/listReturn";
 import { serverCollectionPeek } from "@/lib/collections/peek";
 import { collectionsInAdminScope, SERVER_SCOPE } from "@/lib/collections/scope";
@@ -110,8 +116,6 @@ import { buildLibraryCollectionCatalogHref } from "./catalogSearchParams";
 /** Under this width More and New collection move to a bar docked at the bottom. */
 const NARROW_QUERY = "(max-width: 1023px)";
 const ALL_LIBRARIES = "all";
-/** `?dialog=starter-packs` opens Starter packs, so a link can open it. */
-const STARTER_PACKS_DIALOG = "starter-packs";
 
 const KIND_OPTIONS: ReadonlyArray<{ value: KindFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -188,20 +192,11 @@ export default function AdminCollections() {
   const arrangeLibraryId =
     state.view === "arrange" ? (state.libraryId ?? libraryList[0]?.id ?? null) : null;
   const activeLibraryId = state.view === "arrange" ? arrangeLibraryId : state.libraryId;
-  const listHref = `${location.pathname}${location.search}`;
+  // Where an editor opened from here comes back to, without the dialog that was open.
+  const listHref = withoutDialog(`${location.pathname}${location.search}`);
 
-  const starterPacksOpen = searchParams.get("dialog") === STARTER_PACKS_DIALOG;
-  // Replace, not push: Back should leave the page, not reopen a closed dialog.
-  const setStarterPacksOpen = (open: boolean) =>
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (open) next.set("dialog", STARTER_PACKS_DIALOG);
-        else next.delete("dialog");
-        return next;
-      },
-      { replace: true },
-    );
+  const [starterPacksOpen, setStarterPacksOpen] = useDialogSearchParam(STARTER_PACKS_DIALOG);
+  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   // The Delete button closes its dialog as it's pressed; keep it open for the answer.
   const holdDeleteOpen = useRef(false);
@@ -622,19 +617,6 @@ export default function AdminCollections() {
       onSelect: () => setStarterPacksOpen(true),
     },
     {
-      key: "templates",
-      label: "Browse templates",
-      help: "Start a synced list from a ready-made pick.",
-      icon: Sparkles,
-      disabled: !canImport,
-      returnFocus: false,
-      // Templates are ready-made picks in the editor's Synced list step.
-      onSelect: () =>
-        navigate(SERVER_SCOPE.paths.create({ type: "synced", libraryId: activeLibraryId }), {
-          state: listReturnState(listHref),
-        }),
-    },
-    {
       key: "select",
       label: "Select collections",
       help: "Sync, show, hide or delete several at once.",
@@ -657,16 +639,12 @@ export default function AdminCollections() {
   const more = <PageMoreMenu items={moreItems} compact={narrow} triggerRef={moreTrigger} />;
   const newCollection = (
     <Button
-      asChild
+      type="button"
       size={narrow ? "lg" : "sm"}
       className={cn(narrow && "h-12 rounded-[14px] text-[15px]")}
+      onClick={() => setPickerOpen(true)}
     >
-      <Link
-        to={SERVER_SCOPE.paths.create({ libraryId: activeLibraryId })}
-        state={listReturnState(listHref)}
-      >
-        <Plus aria-hidden /> New collection
-      </Link>
+      <Plus aria-hidden /> New collection
     </Button>
   );
 
@@ -952,6 +930,15 @@ export default function AdminCollections() {
       </CalmPage>
 
       {narrow && !selecting ? <MobileDockBar more={more} addRow={newCollection} /> : null}
+
+      {pickerOpen ? (
+        <NewCollectionPicker
+          scope="server"
+          libraryId={activeLibraryId}
+          listHref={listHref}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
 
       {starterPacksOpen ? (
         <StarterPacksDialog

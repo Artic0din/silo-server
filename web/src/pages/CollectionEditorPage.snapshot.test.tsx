@@ -1,17 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import type { EditorSnapshot } from "@/lib/collections/scope";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
-import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
 import CollectionEditorPage from "./CollectionEditorPage";
-
-beforeAll(preloadLegacyCollectionEditors);
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 const state = vi.hoisted(() => ({ props: undefined as unknown }));

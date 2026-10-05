@@ -196,11 +196,10 @@ describe("AdminCollections More", () => {
       true,
       true,
       true,
-      true,
     ]);
+    // Templates are suggestions inside New collection's Synced list step.
     expect(entries.map((entry) => entry.textContent)).toEqual([
       "Starter packs…Add a ready-made set of collections to a library.",
-      "Browse templatesStart a synced list from a ready-made pick.",
       "Select collectionsSync, show, hide or delete several at once.",
       "Delete all in this view…Every collection the current filters show.",
     ]);

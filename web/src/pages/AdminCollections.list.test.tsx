@@ -300,9 +300,11 @@ describe("AdminCollections List", () => {
     const region = screen.getByRole("region", { name: "Collections" });
     expect(await within(region).findByText("No collections in TV Shows yet")).toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Add a starter pack" })).toBeEnabled();
-    expect(within(region).getByRole("link", { name: "New collection" })).toHaveAttribute(
+    await userEvent.click(within(region).getByRole("button", { name: "New collection" }));
+    const picker = await screen.findByRole("dialog", { name: "New collection" });
+    expect(within(picker).getByRole("link", { name: "Manual" })).toHaveAttribute(
       "href",
-      "/admin/collections/new?libraryId=3",
+      "/admin/collections/new?type=manual&libraryId=3",
     );
   });
 

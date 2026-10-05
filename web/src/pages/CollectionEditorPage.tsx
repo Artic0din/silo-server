@@ -1,9 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { useState } from "react";
 import { Navigate, useLocation, useParams, useSearchParams } from "react-router";
-import { ListPlus, ListFilter, RefreshCw } from "lucide-react";
 
 import { isNotFoundProblem } from "@/api/v2/request";
-import PageBack from "@/components/PageBack";
 import PageUnavailable from "@/components/PageUnavailable";
 import ViewTransitionLink from "@/components/ViewTransitionLink";
 import { CollectionEditorShell } from "@/components/collections/editor/CollectionEditorShell";
@@ -11,10 +9,9 @@ import { CollectionEditor } from "@/components/collections/editor/CollectionEdit
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useScopeEditor } from "@/hooks/queries/collectionScope";
-import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { SYNCED_OFF } from "@/lib/collections/copy";
+import { newCollectionPickerHref } from "@/lib/collections/dialogs";
 import {
   PERSONAL_SCOPE,
   SERVER_SCOPE,
@@ -24,9 +21,6 @@ import {
 } from "@/lib/collections/scope";
 import { useListReturnPath } from "@/lib/collections/listReturn";
 import type { SyncedTab } from "@/lib/collections/synced";
-
-// The server create chooser loads on its own, so a profile never downloads it.
-const AdminCollectionEditor = lazy(() => import("./AdminCollectionEditor"));
 
 const CREATE_KINDS: readonly CreateKind[] = ["manual", "smart", "synced"];
 const SYNCED_TABS: readonly SyncedTab[] = ["mdblist", "tmdb_chart", "tmdb_list"];
@@ -77,8 +71,9 @@ function EditorSkeleton() {
  * Every collection editor URL, both scopes: `/new?type=…[&source=…]` and
  * `/:id/edit`. Mounted once per family by a pathless route, so it stays the
  * same page from `/new` to `/:id/edit` after Create. Every type opens the
- * same editor, create and edit. Someone who can't change the collection is
- * sent to its page instead of a form.
+ * same editor, create and edit. `/new` with no type opens the collection
+ * list with the New collection picker over it, so old links still work.
+ * Someone who can't change the collection is sent to its page instead of a form.
  */
 export default function CollectionEditorPage({ scope: scopeKind }: { scope: ScopeKind }) {
   const scope = (scopeKind === "server" ? SERVER_SCOPE : PERSONAL_SCOPE) as CollectionScope;
@@ -120,13 +115,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
       />
     );
   }
-  if (!id) {
-    return (
-      <Suspense fallback={<EditorSkeleton />}>
-        <LegacyCreate scope={scopeKind} libraryId={libraryId} />
-      </Suspense>
-    );
-  }
+  if (!id) return <Navigate replace to={newCollectionPickerHref(scopeKind, libraryId)} />;
 
   const { snapshot } = editor;
   if (!snapshot) {
@@ -170,76 +159,5 @@ function CollectionNotFound({ scope, listPath }: { scope: ScopeKind; listPath: s
         </ViewTransitionLink>
       </Button>
     </PageUnavailable>
-  );
-}
-
-/** Create without a type: today's choosers, whose Manual and Smart choices open the editor page. */
-function LegacyCreate({ scope, libraryId }: { scope: ScopeKind; libraryId: number | null }) {
-  if (scope === "server") return <AdminCollectionEditor initialLibraryId={libraryId} />;
-  return <PersonalTypeChooser />;
-}
-
-const PERSONAL_TYPES = [
-  { type: "manual", icon: ListPlus, label: "Manual", description: "Pick the titles yourself." },
-  { type: "smart", icon: ListFilter, label: "Smart", description: "Match titles with rules." },
-  {
-    type: "synced",
-    icon: RefreshCw,
-    label: "Synced list",
-    description: "Follow a list from MDBList or TMDB.",
-  },
-] as const;
-
-const CARD =
-  "border-border flex h-full flex-col items-start gap-3 rounded-2xl border p-5 text-left transition-colors outline-none";
-
-/** A new personal collection: Manual, Smart or Synced list, each opening the editor page. */
-function PersonalTypeChooser() {
-  useDocumentTitle("New collection");
-  const listPath = PERSONAL_SCOPE.paths.list();
-  const { data: capabilities } = useCollectionCapabilities();
-  const syncedOff = capabilities !== undefined && capabilities.import_sources.length === 0;
-  return (
-    <div className="page-shell relative space-y-6 py-4 sm:py-6">
-      <PageBack to={listPath} up />
-      <div className="mt-10 sm:mt-12">
-        <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">New collection</h1>
-        <p className="page-subtitle mt-1 text-sm sm:text-base">
-          Next: name it and fill it in, on its own page.
-        </p>
-      </div>
-      <ul className="grid gap-3 sm:grid-cols-3">
-        {PERSONAL_TYPES.map(({ type, icon: Icon, label, description }) => {
-          const off = type === "synced" && syncedOff;
-          const body = (
-            <>
-              <Icon aria-hidden className="text-muted-foreground size-7" />
-              <span id={`new-${type}-label`} className="text-sm font-medium">
-                {label}
-              </span>
-              <span id={`new-${type}-help`} className="text-muted-foreground -mt-2 text-xs">
-                {off ? SYNCED_OFF : description}
-              </span>
-            </>
-          );
-          return (
-            <li key={type}>
-              {off ? (
-                <div className={`${CARD} opacity-60`}>{body}</div>
-              ) : (
-                <ViewTransitionLink
-                  to={PERSONAL_SCOPE.paths.create({ type })}
-                  aria-labelledby={`new-${type}-label`}
-                  aria-describedby={`new-${type}-help`}
-                  className={`${CARD} hover:border-primary hover:bg-accent focus-visible:ring-ring/50 focus-visible:ring-[3px]`}
-                >
-                  {body}
-                </ViewTransitionLink>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
   );
 }

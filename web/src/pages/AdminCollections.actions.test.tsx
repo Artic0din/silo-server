@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminJob, Library, LibraryCollection } from "@/api/types";
 import { PIN_LABEL, pinHelp } from "@/lib/collections/copy";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 import { coreApplied, starterPackBundles } from "@/test/fixtures/starterPacks";
 
 import AdminCollections from "./AdminCollections";
@@ -52,7 +53,9 @@ vi.mock("@/hooks/queries/admin/collectionGroups", () => ({
   useReorderCollectionsInGroup: idle,
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
-  useAdminCollectionCapabilities: () => ({ data: { groups: false, imports: true } }),
+  useAdminCollectionCapabilities: () => ({
+    data: { groups: false, imports: true, import_sources: ["mdblist", "tmdb", "tmdb_list"] },
+  }),
   useAdminCollections: () => ({
     data: state.collections,
     isLoading: false,
@@ -113,11 +116,25 @@ async function openStarterPacksFromMore() {
   return screen.findByRole("dialog", { name: "Starter packs" });
 }
 
+function Where() {
+  const location = useLocation();
+  return <p data-testid="location">{location.pathname + location.search}</p>;
+}
+
+/** Stands in for the editor: where its Back would go. */
+function EditorBack() {
+  return <p data-testid="editor-back">{useListReturnPath("/fallback")}</p>;
+}
+
 function renderPage(path: string) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
-        <AdminCollections />
+        <Routes>
+          <Route path="/admin/collections" element={<AdminCollections />} />
+          <Route path="/admin/collections/new" element={<EditorBack />} />
+        </Routes>
+        <Where />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -339,5 +356,83 @@ describe("AdminCollections Arrange actions", () => {
     expect(keys).toContainEqual(["admin", "collections"]);
     expect(keys).toContainEqual(["sections"]);
     invalidate.mockRestore();
+  });
+});
+
+describe("AdminCollections New collection", () => {
+  it("has one New collection button and no Browse templates", async () => {
+    state.collections = [collection("Staff Picks", "manual")];
+    renderPage("/admin/collections");
+    expect(screen.getAllByRole("button", { name: "New collection" })).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: /New collection/ })).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(await screen.findByRole("menuitem", { name: /Starter packs/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Browse templates/i })).toBeNull();
+  });
+
+  it("opens the type picker on the selected library, and Escape closes it", async () => {
+    state.collections = [collection("Staff Picks", "manual")];
+    renderPage("/admin/collections?libraryId=1");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "New collection" }));
+    const dialog = await screen.findByRole("dialog", { name: "New collection" });
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/admin/collections?libraryId=1&dialog=new",
+    );
+    expect(within(dialog).getByRole("link", { name: "Manual" })).toHaveAttribute(
+      "href",
+      "/admin/collections/new?type=manual&libraryId=1",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/admin\/collections\?libraryId=1$/);
+  });
+
+  it("opens the type picker from a link", async () => {
+    state.collections = [];
+    renderPage("/admin/collections?dialog=new");
+    expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();
+  });
+
+  it("sends the editor back to the list as it was, without the picker", async () => {
+    state.collections = [collection("Staff Picks", "smart")];
+    renderPage("/admin/collections?type=smart&dialog=new");
+    const dialog = await screen.findByRole("dialog", { name: "New collection" });
+    await userEvent.click(within(dialog).getByRole("link", { name: "Smart" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/admin/collections/new?type=smart");
+    expect(screen.getByTestId("editor-back")).toHaveTextContent(
+      /^\/admin\/collections\?type=smart$/,
+    );
+  });
+
+  it("swaps the picker for Starter packs on the same view", async () => {
+    state.collections = [collection("Staff Picks", "smart")];
+    renderPage("/admin/collections?libraryId=2&type=smart&dialog=new");
+    const dialog = await screen.findByRole("dialog", { name: "New collection" });
+    await userEvent.click(await within(dialog).findByRole("link", { name: "Add a starter pack" }));
+    expect(await screen.findByRole("dialog", { name: "Starter packs" })).toHaveTextContent(
+      "Opened on 2",
+    );
+    expect(screen.queryByRole("dialog", { name: "New collection" })).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/admin/collections?libraryId=2&type=smart&dialog=starter-packs",
+    );
+  });
+
+  it.each([
+    ["every library", "/admin/collections"],
+    ["one library", "/admin/collections?libraryId=1"],
+  ])("gives the empty list for %s one New collection button", async (_, path) => {
+    state.collections = [];
+    renderPage(path);
+    const buttons = screen.getAllByRole("button", { name: "New collection" });
+    // The header's and the empty card's.
+    expect(buttons).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Start from a template/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Create from scratch/ })).toBeNull();
+    await userEvent.click(buttons[1]!);
+    expect(await screen.findByRole("dialog", { name: "New collection" })).toBeInTheDocument();
   });
 });

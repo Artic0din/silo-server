@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate } from "react-router";
-import { GripVertical, Plus, Sparkles, Users } from "lucide-react";
+import { GripVertical, Plus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -39,6 +39,7 @@ import type { Collection, LibraryTabCollection } from "@/api/types";
 import { CalmPage } from "@/components/calm/CalmPage";
 import { PillSwitcher } from "@/components/calm/PillSwitcher";
 import { CollectionActionsMenu } from "@/components/collections/CollectionActionsMenu";
+import { NewCollectionPicker } from "@/components/collections/NewCollectionPicker";
 import { CollectionPosterCard } from "@/components/collections/CollectionPosterCard";
 import {
   CollectionMetaLine,
@@ -58,9 +59,11 @@ import {
 import { useProfiles } from "@/hooks/queries/profiles";
 import { useSyncUserCollection } from "@/hooks/queries/userCollectionImports";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
+import { useDialogSearchParam } from "@/hooks/useDialogSearchParam";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { personalDeleteDescription, unshareConsequence } from "@/lib/collections/copy";
+import { NEW_COLLECTION_DIALOG } from "@/lib/collections/dialogs";
 import { partitionPersonalCollections } from "@/lib/collections/personalOwnership";
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { COLLECTION_KIND_LABEL, collectionKindOf } from "@/lib/collections/types";
@@ -90,22 +93,18 @@ export default function Collections() {
   // A one-profile account has nobody to share with: no sharing switch, no Shared with me.
   const multiProfile = otherProfileNames.length > 0;
   const narrow = useMediaQuery(NARROW_QUERY);
+  const [pickerOpen, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
 
   const newCollection = (
-    <Button asChild size="sm" className={cn(narrow && "h-11 w-full")}>
-      <Link to={PERSONAL_SCOPE.paths.create()}>
-        <Plus aria-hidden /> New collection
-      </Link>
+    <Button
+      type="button"
+      size="sm"
+      className={cn(narrow && "h-11 w-full")}
+      onClick={() => setPickerOpen(true)}
+    >
+      <Plus aria-hidden /> New collection
     </Button>
   );
-  // Templates are ready-made picks in the editor's Synced list step.
-  const browseTemplates = capabilities?.imports ? (
-    <Button asChild size="sm" variant="outline">
-      <Link to={PERSONAL_SCOPE.paths.create({ type: "synced" })}>
-        <Sparkles aria-hidden /> Browse Templates
-      </Link>
-    </Button>
-  ) : null;
 
   return (
     <div className="page-shell py-4 sm:py-6">
@@ -117,12 +116,7 @@ export default function Collections() {
             ? "Yours, the ones other profiles share with you, and the server's."
             : "Yours and the server's."
         }
-        actions={
-          <>
-            {browseTemplates}
-            {narrow ? null : newCollection}
-          </>
-        }
+        actions={narrow ? null : newCollection}
         padBottom={narrow}
       >
         {isLoading ? (
@@ -180,6 +174,9 @@ export default function Collections() {
         >
           {newCollection}
         </div>
+      ) : null}
+      {pickerOpen ? (
+        <NewCollectionPicker scope="personal" onClose={() => setPickerOpen(false)} />
       ) : null}
     </div>
   );
@@ -457,14 +454,16 @@ function YourCollections({
 
 /** The empty Your collections: one dashed card, because nobody sees anything here yet. */
 function NewCollectionCard() {
+  const [, setPickerOpen] = useDialogSearchParam(NEW_COLLECTION_DIALOG);
   return (
-    <Link
-      to={PERSONAL_SCOPE.paths.create()}
+    <button
+      type="button"
+      onClick={() => setPickerOpen(true)}
       className="border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 focus-visible:ring-ring/50 flex aspect-[2/3] flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-center text-[13px] font-medium transition-colors outline-none focus-visible:ring-[3px]"
     >
       <Plus aria-hidden className="size-5" />
       New collection
-    </Link>
+    </button>
   );
 }
 

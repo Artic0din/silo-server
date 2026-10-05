@@ -1,14 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import type { LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import type { CollectionScope, EditorSnapshot } from "@/lib/collections/scope";
-import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
 import CollectionEditorPage from "./CollectionEditorPage";
-
-beforeAll(preloadLegacyCollectionEditors);
 
 const mocks = vi.hoisted(() => ({
   collection: null as LibraryCollection | null,
@@ -78,11 +75,11 @@ beforeEach(() => {
   mocks.editSnapshotError = null;
   mocks.adminSnapshotError = null;
 });
-function show(admin = false, edit = false) {
+function show(admin = false) {
   const base = admin ? "/admin/collections" : "/collections";
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={[edit ? `${base}/collection-1/edit` : `${base}/new`]}>
+      <MemoryRouter initialEntries={[`${base}/collection-1/edit`]}>
         <Routes>
           <Route element={<CollectionEditorPage scope={admin ? "server" : "personal"} />}>
             <Route path={`${base}/new`} />
@@ -95,87 +92,54 @@ function show(admin = false, edit = false) {
   );
 }
 it.each([
-  ["Manual", "manual"],
-  ["Smart", "smart"],
-  ["Synced list", "synced"],
-])("opens the editor page when %s is chosen for a new personal collection", (label, kind) => {
-  show();
-  fireEvent.click(screen.getByRole("link", { name: label }));
-  expect(screen.getByTestId("location")).toHaveTextContent(`/collections/new?type=${kind}`);
-  const editor = screen.getByTestId("editor");
-  expect(editor).toHaveAttribute("data-source", "user");
-  expect(editor).toHaveAttribute("data-kind", kind);
-});
+  [
+    "server",
+    "/admin/collections/new?libraryId=7",
+    "/admin/collections?libraryId=7&view=list&dialog=new",
+  ],
+  ["personal", "/collections/new", "/collections?dialog=new"],
+] as const)(
+  "opens the %s collection list with the type picker for a create link with no type",
+  (scope, from, to) => {
+    const base = scope === "server" ? "/admin/collections" : "/collections";
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[from]}>
+          <Routes>
+            <Route path={base} element={<p>Collection list</p>} />
+            <Route element={<CollectionEditorPage scope={scope} />}>
+              <Route path={`${base}/new`} />
+            </Route>
+          </Routes>
+          <Location />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Collection list")).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(to);
+    expect(screen.queryByTestId("editor")).toBeNull();
+  },
+);
 
-it("opens the editor page from the admin Manual card, keeping the library", async () => {
+it.each([
+  ["manual", "", ""],
+  ["smart", "", ""],
+  ["synced", "&source=tmdb_chart", "tmdb_chart"],
+] as const)("skips the type picker for a %s create link", (kind, source, tab) => {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
+      <MemoryRouter initialEntries={[`/admin/collections/new?type=${kind}${source}&libraryId=7`]}>
         <Routes>
           <Route element={<CollectionEditorPage scope="server" />}>
             <Route path="/admin/collections/new" />
           </Route>
         </Routes>
-        <Location />
       </MemoryRouter>
     </QueryClientProvider>,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: /Manual Curate items by hand/ }));
-  expect(screen.getByTestId("location")).toHaveTextContent(
-    "/admin/collections/new?type=manual&libraryId=7",
   );
   const editor = screen.getByTestId("editor");
   expect(editor).toHaveAttribute("data-source", "library");
-  expect(editor).toHaveAttribute("data-library", "7");
-});
-
-it("opens the Smart editor from the admin Smart card, keeping the library", async () => {
-  render(
-    <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
-        <Routes>
-          <Route element={<CollectionEditorPage scope="server" />}>
-            <Route path="/admin/collections/new" />
-          </Route>
-        </Routes>
-        <Location />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: /Smart Match titles with rules/ }));
-  expect(screen.getByTestId("location")).toHaveTextContent(
-    "/admin/collections/new?type=smart&libraryId=7",
-  );
-  const editor = screen.getByTestId("editor");
-  expect(editor).toHaveAttribute("data-kind", "smart");
-  expect(editor).toHaveAttribute("data-library", "7");
-});
-
-it.each([
-  [/Browse Templates/, "/admin/collections/new?type=synced&libraryId=7", ""],
-  [/MDBList Sync from/, "/admin/collections/new?type=synced&source=mdblist&libraryId=7", "mdblist"],
-  [
-    /TMDB Auto-populate/,
-    "/admin/collections/new?type=synced&source=tmdb_chart&libraryId=7",
-    "tmdb_chart",
-  ],
-])("opens the Synced list step from the admin card %s", async (card, url, tab) => {
-  render(
-    <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
-        <Routes>
-          <Route element={<CollectionEditorPage scope="server" />}>
-            <Route path="/admin/collections/new" />
-          </Route>
-        </Routes>
-        <Location />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: card }));
-  expect(screen.getByTestId("location")).toHaveTextContent(url);
-  const editor = screen.getByTestId("editor");
-  expect(editor).toHaveAttribute("data-kind", "synced");
+  expect(editor).toHaveAttribute("data-kind", kind);
   expect(editor).toHaveAttribute("data-tab", tab);
   expect(editor).toHaveAttribute("data-library", "7");
 });
@@ -187,7 +151,7 @@ it.each(["manual", "smart"] as const)("opens a saved %s collection in the editor
     collection_type: type,
     library_ids: [1],
   } as LibraryCollection;
-  show(true, true);
+  show(true);
   const editor = screen.getByTestId("editor");
   expect(editor).toHaveAttribute("data-source", "library");
   expect(editor).toHaveAttribute("data-kind", type);
@@ -195,7 +159,7 @@ it.each(["manual", "smart"] as const)("opens a saved %s collection in the editor
 });
 
 function showPersonalEdit() {
-  show(false, true);
+  show(false);
 }
 
 function collectionProblem(status: number) {
@@ -231,7 +195,7 @@ it("offers a retry when a personal collection fails to load", () => {
 
 it("points a missing admin collection back to the collection board", () => {
   mocks.adminSnapshotError = collectionProblem(404);
-  show(true, true);
+  show(true);
   expect(
     screen.getByRole("heading", { level: 1, name: "Collection not found" }),
   ).toBeInTheDocument();
@@ -244,7 +208,7 @@ it("points a missing admin collection back to the collection board", () => {
 
 it("offers a retry when an admin collection fails to load", () => {
   mocks.adminSnapshotError = collectionProblem(500);
-  show(true, true);
+  show(true);
   expect(
     screen.getByRole("heading", { level: 1, name: "Couldn't load this collection" }),
   ).toBeInTheDocument();
