@@ -229,7 +229,6 @@ describe("rows that show a server collection", () => {
     const state: AddedRowState = {
       addedRow: {
         id: "s-kids",
-        copyIds: [],
         surface: "admin",
         page: { kind: "library", libraryId: 2 },
         position: 3,

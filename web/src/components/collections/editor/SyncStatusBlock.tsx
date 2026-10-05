@@ -9,6 +9,7 @@ import {
   NOT_IN_YOUR_LIBRARIES,
   NOT_SCHEDULED,
   NOT_SYNCED_YET,
+  SAVE_BEFORE_SYNC,
   SYNC_NOW,
   SYNCING_NOW,
   WHY_SKIPPED,
@@ -133,11 +134,14 @@ export function SyncFailedCallout({
   sync,
   itemCount,
   syncing,
+  saveFirst = false,
   onSyncNow,
 }: {
   sync: SyncState;
   itemCount: number;
   syncing: boolean;
+  /** Unsaved changes to what the sync reads: Sync now waits for Save. */
+  saveFirst?: boolean;
   onSyncNow?: () => void;
 }) {
   const retry = sync.nextAt ? ` It tries again ${when(sync.nextAt)}.` : "";
@@ -153,10 +157,19 @@ export function SyncFailedCallout({
         {retry}
       </p>
       {onSyncNow ? (
-        <Button type="button" size="sm" variant="outline" disabled={syncing} onClick={onSyncNow}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={syncing || saveFirst}
+          onClick={onSyncNow}
+        >
           {syncing ? <Loader2 aria-hidden className="animate-spin" /> : null}
           {SYNC_NOW}
         </Button>
+      ) : null}
+      {onSyncNow && saveFirst ? (
+        <p className="text-muted-foreground w-full text-[12.5px]">{SAVE_BEFORE_SYNC}</p>
       ) : null}
     </div>
   );

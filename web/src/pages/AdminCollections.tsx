@@ -111,6 +111,16 @@ import {
   collectionKindOf,
   isListBackedCollectionType,
 } from "@/lib/collections/types";
+import {
+  useCollectionTemplateBundles,
+  type ApplyCollectionTemplateBundleResponse,
+} from "@/lib/collectionTemplates";
+import {
+  packAdded,
+  packResultHeading,
+  packResultSummary,
+  starterPacksOf,
+} from "@/lib/collections/starterPacks";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 import { cn } from "@/lib/utils";
 import { buildLibraryCollectionCatalogHref } from "./catalogSearchParams";
@@ -1302,6 +1312,13 @@ function ArrangeView({
 }
 
 function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
+  const result = job?.status === "completed" ? templateResultOf(job) : null;
+  // Read the packs only for a finished job, to name it and count what it shows.
+  const bundles = useCollectionTemplateBundles(result !== null);
+  const pack = result
+    ? starterPacksOf(bundles.data?.bundles ?? []).find((entry) => entry.id === result.bundle_id)
+    : undefined;
+
   if (!job || job.job_type !== "template_bundle_apply") {
     return null;
   }
@@ -1327,13 +1344,30 @@ function CollectionApplyJobBanner({ job }: { job: AdminJob | null }) {
   }
 
   if (job.status === "completed") {
+    // Before the packs load, fall back to the raw result: it can't name the pack.
+    let added = true;
+    if (result && pack) {
+      added = packAdded(result, pack);
+    } else if (result) {
+      added =
+        result.created.length > 0 ||
+        (result.failed.length === 0 && result.featured_failed.length === 0);
+    }
+    const Icon = added ? CheckCircle2 : AlertCircle;
     return (
       <div className="border-border bg-muted/30 rounded-lg border px-4 py-3">
         <div className="flex items-start gap-3">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+          <Icon
+            aria-hidden
+            className={cn("mt-0.5 h-4 w-4 shrink-0", added ? "text-emerald-500" : "text-amber-500")}
+          />
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">Starter pack added</p>
-            <p className="text-muted-foreground text-xs">{templateBundleApplySummary(job)}</p>
+            <p className="text-sm font-medium">
+              {packResultHeading(pack?.title ?? "Starter pack", true, added)}
+            </p>
+            {result && pack ? (
+              <p className="text-muted-foreground text-xs">{packResultSummary(result, pack)}</p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -1371,24 +1405,9 @@ function isRecentTemplateBundleApplyJob(job: AdminJob) {
   return Date.now() - parsed < 10 * 60_000;
 }
 
-function templateBundleApplySummary(job: AdminJob) {
-  const payload = job.result_payload as Record<string, unknown> | undefined;
-  const created = resultArrayLength(payload, "created");
-  const skipped = resultArrayLength(payload, "skipped");
-  const failed = resultArrayLength(payload, "failed");
-  const syncQueued = resultArrayLength(payload, "sync_queued");
-  const featured = resultArrayLength(payload, "featured");
-  const parts = [
-    `Created ${created}`,
-    `skipped ${skipped}`,
-    failed > 0 ? `failed ${failed}` : "",
-    syncQueued > 0 ? `queued ${syncQueued} initial syncs` : "",
-    featured > 0 ? `featured ${featured}` : "",
-  ].filter(Boolean);
-  return parts.join("; ");
-}
-
-function resultArrayLength(payload: Record<string, unknown> | undefined, key: string) {
-  const value = payload?.[key];
-  return Array.isArray(value) ? value.length : 0;
+/** A finished starter pack job's result, when it carries one. */
+function templateResultOf(job: AdminJob): ApplyCollectionTemplateBundleResponse | null {
+  const payload = job.result_payload as Partial<ApplyCollectionTemplateBundleResponse> | undefined;
+  const lists = [payload?.created, payload?.failed, payload?.featured, payload?.featured_failed];
+  return lists.every(Array.isArray) ? (payload as ApplyCollectionTemplateBundleResponse) : null;
 }

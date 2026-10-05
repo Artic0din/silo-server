@@ -81,7 +81,8 @@ export const SHOW_TO_OTHER_PROFILES_HELP =
 /** What turning sharing off costs: "Maya and Leo lose it, including Home rows they made from it." */
 export function unshareConsequence(profileNames: readonly string[]): string {
   const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
-  return `${who} lose it, including Home rows they made from it.`;
+  const verb = profileNames.length === 1 ? "loses" : "lose";
+  return `${who} ${verb} it, including Home rows they made from it.`;
 }
 
 /** Shown when sharing is turned off on a saved collection. */
@@ -469,6 +470,8 @@ export function firstSyncMessage(sync?: { status: string; message: string; items
 
 export const SYNC_NOW = "Sync now";
 export const SYNCING_NOW = "Syncing now…";
+/** Why Sync now waits: it runs the saved list, not unsaved changes to it. */
+export const SAVE_BEFORE_SYNC = "Save your changes first; a sync runs the saved list.";
 export const LAST_SYNC = "Last sync";
 export const NEXT_SYNC = "Next sync";
 export const NOT_IN_YOUR_LIBRARIES = "Not in your libraries";

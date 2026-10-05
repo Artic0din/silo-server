@@ -58,6 +58,8 @@ export interface ProfileHomeRowsAdapter extends HomeRowsAdapter {
   reset(): void;
   /** Gives a renamed server row its server name back, and lets it follow later renames. */
   restoreOriginalName(id: string): void;
+  /** When a save holding this row last went through, if one has. */
+  lastWriteAt(rowId: string): number | undefined;
   /** The saved changes failed to load, so editing stays off. */
   overridesFailed: boolean;
   /** The rows are on screen but the saved changes are still loading, so editing waits. */
@@ -337,6 +339,7 @@ export function useProfileHomeRowsAdapter(): ProfileHomeRowsAdapter {
     remove: homeRows.remove,
     reset: homeRows.reset,
     restoreOriginalName,
+    lastWriteAt,
     overridesFailed: homeRows.overridesFailed,
     overridesLoading: status === "ready" && !homeRows.ready && !homeRows.overridesFailed,
     canReset: homeRows.canEdit,
