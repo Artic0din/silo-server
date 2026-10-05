@@ -290,6 +290,9 @@ describe("Starter packs", () => {
     expect(screen.getByRole("combobox", { name: "Hero banner on Home" })).toBeDisabled();
     expect(screen.getByRole("tab", { name: /Popular Genres/ })).toBeDisabled();
     expect(screen.getByRole("tab", { name: /Core Defaults/ })).toBeEnabled();
+    // The active tab stays focusable but can't reset the choices being applied.
+    await user.click(screen.getByRole("tab", { name: /Core Defaults/ }));
+    expect(screen.getByRole("switch", { name: "Also use the pack's hero banners" })).toBeChecked();
   });
 
   it("leaves its check alone when the page refreshes the admin collections", async () => {

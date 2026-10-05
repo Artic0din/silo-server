@@ -419,7 +419,10 @@ function PackRail({
             aria-selected={index === activeIndex}
             tabIndex={index === activeIndex ? 0 : -1}
             disabled={locked && index !== activeIndex}
-            onClick={() => onSelect(pack.id)}
+            // The active tab stays enabled while locked, so guard its click too.
+            onClick={() => {
+              if (!locked) onSelect(pack.id);
+            }}
             className="text-muted-foreground hover:text-foreground aria-selected:bg-accent aria-selected:text-foreground aria-selected:ring-border focus-visible:ring-ring/50 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded-[10px] px-3 py-[9px] text-left text-sm outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60 aria-selected:ring-1 aria-selected:ring-inset"
           >
             <span className="truncate">{pack.title}</span>
