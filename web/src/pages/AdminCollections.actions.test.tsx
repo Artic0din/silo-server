@@ -193,6 +193,8 @@ describe("AdminCollections Starter packs", () => {
   async function openFromMore() {
     await userEvent.click(screen.getByRole("button", { name: "More" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: /^Starter packs…/ }));
+    // The menu runs it once it has closed.
+    return screen.findByRole("dialog", { name: "Starter packs" });
   }
 
   it("opens Starter packs from More and closes it again", async () => {
@@ -200,8 +202,7 @@ describe("AdminCollections Starter packs", () => {
     renderPage("/admin/collections?libraryId=2");
 
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
-    await openFromMore();
-    expect(screen.getByRole("dialog", { name: "Starter packs" })).toHaveTextContent("Opened on 2");
+    expect(await openFromMore()).toHaveTextContent("Opened on 2");
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Starter packs" })).toBeNull();
