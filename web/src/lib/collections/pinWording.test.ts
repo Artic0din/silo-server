@@ -21,17 +21,15 @@ const PAGES = readdirSync(join(SOURCE_ROOT, "pages"))
 
 /**
  * Older surfaces that still say "Featured" until the work that replaces them
- * lands: the smart wizard and the old builder (replaced by the Smart editor),
- * the old synced list forms (replaced by the Synced list editor) and the
- * template gallery, whose "Featured Sections" are Home hero rows (replaced by
- * Starter packs). The list only shrinks: delete an entry with its file.
+ * lands: the smart wizard and the old builder (replaced by the Smart editor)
+ * and the template gallery, whose "Featured Sections" are Home hero rows
+ * (replaced by Starter packs). The list only shrinks: delete an entry with its file.
  */
 const NOT_YET_REPLACED = new Set([
   "components/collections/CollectionBuilder.tsx",
   "components/CollectionTemplateGallery/CollectionTemplateConfigForm.tsx",
   "components/CollectionTemplateGallery/CollectionTemplateGallery.tsx",
   "pages/SmartCollectionWizard.tsx",
-  "pages/adminCollectionsShared.tsx",
 ]);
 
 function sourceFiles(path: string): string[] {
