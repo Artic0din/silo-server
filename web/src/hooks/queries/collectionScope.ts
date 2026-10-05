@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { normalizeQueryDefinition, type QueryDefinition } from "@/api/types";
 import { isNotFoundProblem, v2, V2ProblemError } from "@/api/v2/request";
+import { useDebounce } from "@/hooks/useDebounce";
 import { ARTWORK_SLOT_LABEL, DRAFT_FIELD_LABEL, SAVE_FAILED } from "@/lib/collections/copy";
 import { changedFields, mergeDraft, takeFields, type DraftField } from "@/lib/collections/draft";
 import type {
@@ -13,6 +15,7 @@ import type {
   CollectionScope,
   CollectionView,
   EditorSnapshot,
+  PreviewItem,
   SavableDraft,
   WireCollection,
 } from "@/lib/collections/scope";
@@ -90,6 +93,58 @@ export function useScopeSnapshot<Raw extends WireCollection>(
     enabled: enabled && Boolean(id),
     refetchOnMount,
   });
+}
+
+/** How many titles a Smart editor's live preview shows. */
+export const PREVIEW_LIMIT = 24;
+const PREVIEW_DEBOUNCE_MS = 300;
+
+export type ScopePreview =
+  | { status: "off" }
+  | { status: "loading" }
+  | { status: "error" }
+  | {
+      status: "ready";
+      items: PreviewItem[];
+      total: number;
+      /** The titles are for earlier rules; the current ones' are on the way. */
+      refreshing: boolean;
+    };
+
+/**
+ * A live preview of smart rules across every library they name, from the
+ * scope's preview route. The rules are debounced so editing doesn't send a
+ * request per keystroke, and the last result stays on screen while the next
+ * one loads.
+ */
+export function useScopePreview<Raw extends WireCollection>(
+  scope: CollectionScope<Raw>,
+  rules: QueryDefinition,
+  enabled: boolean,
+): ScopePreview {
+  // A string, so a re-render with equal rules does not restart the wait.
+  const current = JSON.stringify(normalizeQueryDefinition(rules));
+  const settled = useDebounce(current, PREVIEW_DEBOUNCE_MS);
+  const query = useQuery({
+    queryKey: scope.keys.preview(`${PREVIEW_LIMIT}:${settled}`),
+    queryFn: () => scope.preview(JSON.parse(settled) as QueryDefinition, PREVIEW_LIMIT),
+    // Only once the rules have stopped changing; the last result stays meanwhile.
+    enabled: enabled && settled === current,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false,
+  });
+  if (!enabled) return { status: "off" };
+  if (query.data) {
+    return {
+      status: "ready",
+      items: query.data.items,
+      total: query.data.total,
+      refreshing: settled !== current || query.isFetching,
+    };
+  }
+  if (query.isError) return { status: "error" };
+  return { status: "loading" };
 }
 
 /** Sync now for a synced list: the mutation takes the collection id. */

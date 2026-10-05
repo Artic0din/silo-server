@@ -16,7 +16,7 @@ import {
   personalSyncedCollection,
 } from "@/test/fixtures/collectionAnswers";
 import { goldens } from "@/test/fixtures/collectionBodies";
-import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
+import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import {
   PERSONAL_SCOPE,
   SERVER_SCOPE,
@@ -278,25 +278,6 @@ describe("isReadOnly", () => {
   });
 });
 
-/**
- * The smart page still saves through its own form until it moves onto the
- * scope, so its goldens keep today's body. Through the scope a personal body
- * also carries `description`, and an admin PATCH leaves out `featured`.
- */
-function throughScope(golden: readonly RecordedCall[]) {
-  return golden.map((call) => {
-    if (!call.body || typeof call.body !== "object") return call;
-    const { featured: _featured, ...body } = call.body as Record<string, unknown>;
-    if (call.operation === "PATCH /api/v2/admin/collections/{id}") return { ...call, body };
-    if (
-      call.operation.startsWith("PATCH /api/v2/collections/") ||
-      call.operation === "POST /api/v2/collections"
-    )
-      return { ...call, body: { ...body, description: "" } };
-    return call;
-  });
-}
-
 describe("create and update send the editor's bodies", () => {
   it("creates a server manual collection, then its poster and backdrop", async () => {
     const draft = savable(SERVER_SCOPE.toDraft(null, { kind: "manual", libraryId: 1 }));
@@ -338,7 +319,7 @@ describe("create and update send the editor's bodies", () => {
     );
     const { draft, etag } = await loaded(SERVER_SCOPE);
     await SERVER_SCOPE.update({ id: "c1", etag }, draft);
-    expect(writes()).toEqual(throughScope(goldens.adminSmartUnchanged[label]));
+    expect(writes()).toEqual(goldens.adminSmartUnchanged[label]);
   });
 
   it.each([
@@ -354,7 +335,7 @@ describe("create and update send the editor's bodies", () => {
       );
       const { draft, etag } = await loaded(PERSONAL_SCOPE);
       await PERSONAL_SCOPE.update({ id: "c1", etag }, draft);
-      expect(writes()).toEqual(throughScope(goldens.personalSmartUnchanged[label]));
+      expect(writes()).toEqual(goldens.personalSmartUnchanged[label]);
     },
   );
 
@@ -366,7 +347,7 @@ describe("create and update send the editor's bodies", () => {
       artwork: { poster: { file: png("poster.png") } },
     });
     expect(result).toEqual({ id: "c1", warnings: [], failedArtwork: [] });
-    expect(writes()).toEqual(throughScope(goldens.personalSmartCreate));
+    expect(writes()).toEqual(goldens.personalSmartCreate);
   });
 
   it("creates a personal manual collection with a pasted poster URL in the POST body", async () => {
@@ -377,6 +358,33 @@ describe("create and update send the editor's bodies", () => {
       artwork: { poster: { sourceUrl: "https://images.example/poster.png" } },
     });
     expect(writes()).toEqual(goldens.personalManualCreate);
+  });
+
+  it("sends a personal manual collection's Show only filter, and never one for smart", async () => {
+    const showOnly = {
+      match: "all" as const,
+      groups: [
+        {
+          match: "all" as const,
+          rules: [
+            { field: "watched", op: "is", value: false },
+            { field: "type", op: "is", value: "movie" },
+          ],
+        },
+      ],
+    };
+    const manual = savable(PERSONAL_SCOPE.toDraft(null, { kind: "manual" }));
+    const smart = savable(PERSONAL_SCOPE.toDraft(null, { kind: "smart" }));
+    await PERSONAL_SCOPE.create({ ...manual, name: "Unwatched movies", showOnly });
+    await PERSONAL_SCOPE.create({ ...manual, name: "Everything" });
+    await PERSONAL_SCOPE.create({ ...smart, name: "Comfort", showOnly });
+    const [filtered, unfiltered, rules] = writes().map(
+      (call) => call.body as Record<string, unknown>,
+    );
+    expect(filtered!.display_query_definition).toEqual(showOnly);
+    expect(filtered).not.toHaveProperty("watch_filter");
+    expect(unfiltered).not.toHaveProperty("display_query_definition");
+    expect(rules).not.toHaveProperty("display_query_definition");
   });
 
   it("updates a personal manual collection", async () => {

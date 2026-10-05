@@ -14,33 +14,29 @@ import { isListBackedCollectionType } from "@/lib/collections/types";
 
 import {
   CollectionEditForm,
-  CollectionForm,
   MDBListImportForm,
   SourceTypeSelector,
   TMDBPresetForm,
   type CollectionSourceType,
 } from "./adminCollectionsShared";
-import SmartCollectionWizard from "./SmartCollectionWizard";
-
-type CreateChoice = Exclude<CollectionSourceType, "manual" | "trakt"> | "smart";
+type CreateChoice = Exclude<CollectionSourceType, "manual" | "trakt">;
 
 const CREATE_TITLES: Record<CreateChoice, string> = {
-  smart: "New Smart Collection",
   mdblist: "Import MDBList Collection",
   tmdb: "Import TMDB Collection",
 };
 
 /**
  * The server editors that haven't moved onto the collection editor page yet,
- * rendered inside it: the create chooser (its Manual card opens the editor
- * page) and the Smart and Synced list editors for a saved collection. The page
+ * rendered inside it: the create chooser (its Manual and Smart cards open the
+ * editor page) and the Synced list editor for a saved collection. The page
  * loads the collection and handles loading, missing and read-only states.
  */
 export default function AdminCollectionEditor({
   snapshot,
   initialLibraryId = null,
 }: {
-  /** A saved Smart collection or Synced list; none for the create chooser. */
+  /** A saved Synced list; none for the create chooser. */
   snapshot?: EditorSnapshot<LibraryCollection>;
   initialLibraryId?: number | null;
 }) {
@@ -61,21 +57,6 @@ export default function AdminCollectionEditor({
       : "Build the collection in a full-page editor instead of a cramped dialog.";
 
   useDocumentTitle(title);
-
-  // The wizard owns its own page chrome (back button, title, step indicator).
-  if (collection?.collection_type === "smart") {
-    return (
-      <SmartCollectionWizard
-        mode="admin"
-        etag={snapshot?.etag}
-        collection={collection}
-        libraries={libraries}
-        initialLibraryId={initialLibraryId}
-        backTo={returnPath}
-        onClose={() => navigate(returnPath)}
-      />
-    );
-  }
 
   return (
     <div className="page-shell space-y-6 py-4 sm:py-6">
@@ -105,8 +86,8 @@ export default function AdminCollectionEditor({
           <CardHeader>
             <CardTitle>Choose a Collection Type</CardTitle>
             <CardDescription>
-              Manual collections open the collection editor. Smart collections open the query
-              builder. Imports keep their source-specific setup.
+              Manual and Smart collections open the collection editor. Imports keep their
+              source-specific setup.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -115,10 +96,8 @@ export default function AdminCollectionEditor({
               onSelect={(type) => {
                 if (type === "templates") {
                   setGalleryOpen(true);
-                } else if (type === "manual") {
-                  navigate(
-                    SERVER_SCOPE.paths.create({ type: "manual", libraryId: initialLibraryId }),
-                  );
+                } else if (type === "manual" || type === "smart") {
+                  navigate(SERVER_SCOPE.paths.create({ type, libraryId: initialLibraryId }));
                 } else if (type !== "trakt") {
                   setChoice(type);
                 }
@@ -143,15 +122,6 @@ export default function AdminCollectionEditor({
           libraries={libraries}
           collection={collection}
           etag={snapshot?.etag}
-          initialLibraryId={initialLibraryId}
-          onClose={() => navigate(returnPath)}
-        />
-      ) : null}
-
-      {!collection && choice === "smart" ? (
-        <CollectionForm
-          libraries={libraries}
-          collection={null}
           initialLibraryId={initialLibraryId}
           onClose={() => navigate(returnPath)}
         />

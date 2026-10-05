@@ -1,10 +1,9 @@
-import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
 import { v2Problem } from "@/api/v2/problems.test-support";
-import { CollectionForm, CollectionEditForm } from "./adminCollectionsShared";
+import { CollectionEditForm } from "./adminCollectionsShared";
 
 vi.mock("@/hooks/queries/ratingsCapability", () => ({
   useShownRatingSources: () => new Set(["imdb", "tmdb"]),
@@ -38,37 +37,6 @@ vi.mock("@/components/ImageUploadField", () => ({
         Remove {label}
       </button>
     </div>
-  ),
-}));
-vi.mock("@/components/collections/CollectionBuilder", async () => ({
-  ...(await vi.importActual<typeof import("@/components/collections/CollectionBuilder")>(
-    "@/components/collections/CollectionBuilder",
-  )),
-  default: ({
-    value,
-    onChange,
-    onSubmit,
-    children,
-  }: {
-    value: { title: string };
-    onChange: (value: unknown) => void;
-    onSubmit: () => void;
-    children: ReactNode;
-  }) => (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
-      <input
-        aria-label="Title"
-        value={value.title}
-        onChange={(event) => onChange({ ...value, title: event.target.value })}
-      />
-      {children}
-      <button>Save Collection</button>
-    </form>
   ),
 }));
 const collection = {
@@ -143,15 +111,14 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function editor(kind: "manual" | "mdblist") {
+function editor(kind: "mdblist") {
   const onClose = vi.fn();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const Form = kind === "manual" ? CollectionForm : CollectionEditForm;
   render(
     <QueryClientProvider client={client}>
-      <Form
+      <CollectionEditForm
         etag={'"rev-1"'}
         collection={{ ...collection, collection_type: kind }}
         libraries={[{ id: 7, name: "Movies", type: "movies" } as Library]}
@@ -162,7 +129,8 @@ function editor(kind: "manual" | "mdblist") {
   );
   return onClose;
 }
-describe.each(["manual", "mdblist"] as const)("%s artwork removal", (kind) => {
+// Manual and Smart artwork saves through the editor page (CollectionForms.goldens.test.tsx).
+describe.each(["mdblist"] as const)("%s artwork removal", (kind) => {
   it.each(["Poster", "Backdrop"])(
     "removes %s with Save without invalidating its own captured version",
     async (label) => {
