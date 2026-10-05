@@ -1,31 +1,17 @@
 import { toast } from "sonner";
 import {
   fetchAdminCollectionSnapshot,
-  fetchAdminGroupSnapshot,
   prepareAdminCollectionDeletes,
   adminMutationMessage,
 } from "@/api/adminCollections";
 import type { AdminCollectionDeleteSnapshot } from "@/api/adminCollections";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type ReactNode,
-  type SetStateAction,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { AdminJob, LibraryCollection, LibraryCollectionGroup } from "@/api/types";
+import type { AdminJob, LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
-import {
-  useAdminCollectionsBoard,
-  useCreateCollectionGroup,
-  useUpdateCollectionGroup,
-  useDeleteCollectionGroup,
-} from "@/hooks/queries/admin/collectionGroups";
+import { useAdminCollectionsBoard } from "@/hooks/queries/admin/collectionGroups";
 import {
   useAdminCollectionCapabilities,
   useAdminCollections,
@@ -49,10 +35,8 @@ import {
   CollectionListItem,
 } from "@/components/collections/admin/CollectionListItem";
 import { GroupsBoard } from "@/components/collections/admin/GroupsBoard";
-import { GroupEditDialog } from "@/components/collections/admin/GroupEditDialog";
 import { MobileDockBar } from "@/components/homeRows/MobileDockBar";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -162,17 +146,10 @@ export default function AdminCollections() {
       },
       { replace: true },
     );
-  const [editingGroup, setEditingGroup] = useState<{
-    mode: "create" | "edit";
-    id?: string;
-    snapshot?: Awaited<ReturnType<typeof fetchAdminGroupSnapshot>>;
-  } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   // The Delete button closes its dialog as it's pressed; keep it open for the answer.
   const holdDeleteOpen = useRef(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
-  const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
-  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
   const [hiding, setHiding] = useState<LibraryCollection | null>(null);
   // The switch runs ahead of the list while a change saves.
   const [visibilityOverrides, setVisibilityOverrides] = useState<ReadonlyMap<string, boolean>>(
@@ -202,13 +179,6 @@ export default function AdminCollections() {
         : listed,
     [arrangeLibraryId, board.data, collections, listed, state.view],
   );
-  const selectedCollections = useMemo(
-    () => viewCollections.filter((collection) => selectedCollectionIds.has(collection.id)),
-    [viewCollections, selectedCollectionIds],
-  );
-  const createGroup = useCreateCollectionGroup(arrangeLibraryId ?? 0);
-  const updateGroup = useUpdateCollectionGroup(arrangeLibraryId ?? 0);
-  const deleteGroup = useDeleteCollectionGroup(arrangeLibraryId ?? 0);
   const deleteCollections = useDeleteAdminCollections();
   const setVisibility = useSetAdminCollectionVisibility();
   const sync = useScopeSync(SERVER_SCOPE);
@@ -231,24 +201,7 @@ export default function AdminCollections() {
     void queryClient.invalidateQueries({ queryKey: sectionKeys.all });
   }, [activeApplyJob, latestApplyJob, queryClient]);
 
-  useEffect(() => {
-    const clearSelection = (event: KeyboardEvent) => {
-      if (
-        event.key === "Escape" &&
-        pendingDelete === null &&
-        !confirmDeleteSelected &&
-        !confirmDeleteAll
-      ) {
-        setSelectedCollectionIds(new Set());
-      }
-    };
-    window.addEventListener("keydown", clearSelection);
-    return () => window.removeEventListener("keydown", clearSelection);
-  }, [confirmDeleteAll, pendingDelete, confirmDeleteSelected]);
-
   function update(patch: Partial<AdminListState>, options: { replace?: boolean } = {}) {
-    if (patch.libraryId !== undefined || patch.view !== undefined)
-      setSelectedCollectionIds(new Set());
     setSearchParams(
       (current) => writeAdminListState(current, { ...readAdminListState(current), ...patch }),
       options,
@@ -372,31 +325,20 @@ export default function AdminCollections() {
 
   const [deleteSnapshots, setDeleteSnapshots] = useState<AdminCollectionDeleteSnapshot[]>([]);
   const [preparingDelete, setPreparingDelete] = useState(false);
-  async function prepareBulkDelete(selected: boolean) {
+  async function prepareDeleteAll() {
     setPreparingDelete(true);
     try {
       setDeleteSnapshots(
-        await prepareAdminCollectionDeletes(
-          (selected ? selectedCollections : viewCollections).map((entry) => entry.id),
-        ),
+        await prepareAdminCollectionDeletes(viewCollections.map((entry) => entry.id)),
       );
-      if (selected) setConfirmDeleteSelected(true);
-      else setConfirmDeleteAll(true);
+      setConfirmDeleteAll(true);
     } catch (error) {
       toast.error(adminMutationMessage(error, "Could not prepare deletion"));
     } finally {
       setPreparingDelete(false);
     }
   }
-  async function prepareGroupEdit(id: string) {
-    try {
-      setEditingGroup({ mode: "edit", id, snapshot: await fetchAdminGroupSnapshot(id) });
-    } catch (error) {
-      toast.error(adminMutationMessage(error, "Could not load group"));
-    }
-  }
 
-  const editingTarget: LibraryCollectionGroup | null = editingGroup?.snapshot?.group ?? null;
   const activeLibrary = libraryList.find((library) => library.id === activeLibraryId) ?? null;
   const filtered = state.kind !== "all" || state.q.trim() !== "" || state.failed;
   const collectionDeletionNotice =
@@ -410,22 +352,9 @@ export default function AdminCollections() {
     : filtered
       ? `Delete ${deleteCount} ${deleteNoun} in this view? ${collectionDeletionNotice}`
       : `Delete ${deleteCount} server ${deleteNoun}? ${collectionDeletionNotice}`;
-  // Read library membership from the snapshots the delete will use, not the
-  // board, which can be stale.
-  const selectedIncludesShared = deleteSnapshots.some(
-    (snapshot) => collectionLibraryIds(snapshot.collection).length > 1,
-  );
-  const deleteSelectedScopeNotice = selectedIncludesShared ? ` ${sharedDeletionNotice}` : "";
-  const deleteSelectedDescription = `Delete ${deleteSnapshots.length} selected collection${deleteSnapshots.length === 1 ? "" : "s"}?${deleteSelectedScopeNotice} ${collectionDeletionNotice}`;
   const deleteProgressLabel = `Deleting ${deleteCollections.progress?.completed ?? 0} of ${deleteCollections.progress?.total ?? viewCollections.length} collections`;
   const bulkBusy = preparingDelete || deleteCollections.isPending || activeApplyJob;
 
-  function handleDeleteSelected() {
-    if (!activeApplyJob)
-      deleteCollections.mutate(deleteSnapshots, {
-        onSuccess: () => setConfirmDeleteSelected(false),
-      });
-  }
   function handleDeleteAll() {
     if (!activeApplyJob)
       deleteCollections.mutate(deleteSnapshots, { onSuccess: () => setConfirmDeleteAll(false) });
@@ -451,18 +380,6 @@ export default function AdminCollections() {
       opensDialog: true,
       onSelect: () => setGalleryOpen(true),
     },
-    ...(state.view === "arrange" && activeLibrary && capabilities?.groups
-      ? [
-          {
-            key: "new-shelf",
-            label: "New shelf…",
-            help: `Add a heading to ${activeLibrary.name} › Collections.`,
-            icon: Plus,
-            opensDialog: true,
-            onSelect: () => setEditingGroup({ mode: "create" }),
-          },
-        ]
-      : []),
     {
       key: "delete-all",
       label: deleteCollections.isPending ? `${deleteProgressLabel}…` : "Delete all in this view…",
@@ -470,7 +387,7 @@ export default function AdminCollections() {
       icon: Trash2,
       group: true,
       disabled: viewCollections.length === 0 || bulkBusy,
-      onSelect: () => void prepareBulkDelete(false),
+      onSelect: () => void prepareDeleteAll(),
     },
   ];
   const more = <PageMoreMenu items={moreItems} compact={narrow} />;
@@ -671,18 +588,12 @@ export default function AdminCollections() {
             libraryId={arrangeLibraryId}
             libraryName={activeLibrary?.name ?? null}
             board={board}
-            capabilities={capabilities}
-            selectedIds={selectedCollectionIds}
-            setSelectedIds={setSelectedCollectionIds}
-            syncingCollectionID={[...syncingIds][0] ?? null}
-            busy={bulkBusy}
+            canAddStarterPack={Boolean(capabilities?.imports)}
             newCollection={newCollection}
             onAddStarterPack={() => setStarterPacksOpen(true)}
-            onEditGroup={(id) => void prepareGroupEdit(id)}
+            isVisible={isVisible}
             onEditCollection={(collection) => openEditor(collection, arrangeLibraryId)}
-            onDeleteCollection={(collection) => void prepareDelete(collection)}
-            onSyncCollection={syncNow}
-            onDeleteSelected={() => void prepareBulkDelete(true)}
+            onVisibleChange={changeVisible}
           />
         )}
       </CalmPage>
@@ -732,16 +643,6 @@ export default function AdminCollections() {
       />
 
       <ConfirmDialog
-        open={confirmDeleteSelected}
-        onOpenChange={setConfirmDeleteSelected}
-        title="Delete selected collections"
-        description={deleteSelectedDescription}
-        confirmLabel="Delete selected"
-        variant="destructive"
-        onConfirm={handleDeleteSelected}
-      />
-
-      <ConfirmDialog
         open={confirmDeleteAll}
         onOpenChange={setConfirmDeleteAll}
         title="Delete all collections"
@@ -750,46 +651,6 @@ export default function AdminCollections() {
         variant="destructive"
         onConfirm={handleDeleteAll}
       />
-
-      {editingGroup && (
-        <GroupEditDialog
-          mode={editingGroup.mode}
-          group={editingTarget}
-          onCancel={() => setEditingGroup(null)}
-          onSubmit={async (input) => {
-            try {
-              if (editingGroup.mode === "create") {
-                await createGroup.mutateAsync(input);
-              } else if (editingGroup.id) {
-                await updateGroup.mutateAsync({
-                  id: editingGroup.id,
-                  etag: editingGroup.snapshot!.etag,
-                  ...input,
-                });
-              }
-              setEditingGroup(null);
-            } catch {
-              // toast already shown by mutation onError
-            }
-          }}
-          onDelete={
-            editingGroup.mode === "edit" && editingGroup.id
-              ? async () => {
-                  if (!editingGroup.id) return;
-                  try {
-                    await deleteGroup.mutateAsync({
-                      id: editingGroup.id,
-                      etag: editingGroup.snapshot!.etag,
-                    });
-                    setEditingGroup(null);
-                  } catch {
-                    // toast already shown by mutation onError
-                  }
-                }
-              : undefined
-          }
-        />
-      )}
     </div>
   );
 }
@@ -946,50 +807,50 @@ function EmptyLibrary({
   );
 }
 
-/** Today's shelves board for one library, until Arrange is rebuilt. */
+/** Arrange: one library's shelves, or the ways to make collections when it has none. */
 function ArrangeView({
   libraryId,
   libraryName,
   board,
-  capabilities,
-  selectedIds,
-  setSelectedIds,
-  syncingCollectionID,
-  busy,
+  canAddStarterPack,
   newCollection,
   onAddStarterPack,
-  onEditGroup,
+  isVisible,
   onEditCollection,
-  onDeleteCollection,
-  onSyncCollection,
-  onDeleteSelected,
+  onVisibleChange,
 }: {
   libraryId: number | null;
   libraryName: string | null;
   board: ReturnType<typeof useAdminCollectionsBoard>;
-  capabilities: { imports?: boolean } | undefined;
-  selectedIds: Set<string>;
-  setSelectedIds: Dispatch<SetStateAction<Set<string>>>;
-  syncingCollectionID: string | null;
-  busy: boolean;
+  canAddStarterPack: boolean;
   newCollection: ReactNode;
   onAddStarterPack: () => void;
-  onEditGroup: (id: string) => void;
+  isVisible: (collection: LibraryCollection) => boolean;
   onEditCollection: (collection: LibraryCollection) => void;
-  onDeleteCollection: (collection: LibraryCollection) => void;
-  onSyncCollection: (collection: LibraryCollection) => void;
-  onDeleteSelected: () => void;
+  onVisibleChange: (collection: LibraryCollection, visible: boolean) => void;
 }) {
   if (libraryId === null) return null;
-  if (board.isLoading)
+  if (board.isError)
     return (
-      <div className="space-y-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-32 w-full rounded-lg" />
+      <div
+        role="alert"
+        className="surface-panel grid justify-items-center gap-3 rounded-[26px] px-4 py-10 text-sm"
+      >
+        <p>Couldn&apos;t load shelves</p>
+        <Button variant="outline" size="sm" onClick={() => void board.refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
+  if (board.isLoading || !board.data)
+    return (
+      <div role="status" aria-busy="true" className="grid gap-3">
+        <span className="sr-only">Loading shelves…</span>
+        {Array.from({ length: 3 }, (_, index) => (
+          <Skeleton key={index} className="h-32 w-full rounded-[22px]" />
         ))}
       </div>
     );
-  if (!board.data) return null;
   const count =
     board.data.ungrouped.length +
     board.data.groups.reduce((sum, group) => sum + group.collections.length, 0);
@@ -999,39 +860,23 @@ function ArrangeView({
       <div className="surface-panel rounded-[26px] p-1.5">
         <EmptyLibrary
           libraryName={libraryName}
-          canAddStarterPack={Boolean(capabilities?.imports)}
+          canAddStarterPack={canAddStarterPack}
           onAddStarterPack={onAddStarterPack}
           newCollection={newCollection}
         />
       </div>
     );
   return (
-    <div className="grid gap-3">
-      {selectedIds.size > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{selectedIds.size} selected</Badge>
-          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-            Clear
-          </Button>
-          <Button size="sm" variant="destructive" disabled={busy} onClick={onDeleteSelected}>
-            <Trash2 data-icon="inline-start" /> Delete Selected
-          </Button>
-        </div>
-      ) : null}
-      <GroupsBoard
-        libraryID={libraryId}
-        groups={board.data.groups}
-        ungrouped={board.data.ungrouped}
-        ungroupedSortOrder={board.data.ungroupedSortOrder}
-        onEditGroup={onEditGroup}
-        onEditCollection={onEditCollection}
-        onDeleteCollection={onDeleteCollection}
-        onSyncCollection={onSyncCollection}
-        selectedIds={selectedIds}
-        setSelectedIds={setSelectedIds}
-        syncingCollectionID={syncingCollectionID}
-      />
-    </div>
+    <GroupsBoard
+      libraryID={libraryId}
+      libraryName={libraryName ?? ""}
+      groups={board.data.groups}
+      ungrouped={board.data.ungrouped}
+      ungroupedSortOrder={board.data.ungroupedSortOrder}
+      isVisible={isVisible}
+      onEditCollection={onEditCollection}
+      onVisibleChange={onVisibleChange}
+    />
   );
 }
 

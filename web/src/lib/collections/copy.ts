@@ -192,3 +192,42 @@ export function personalDeleteDescription(shared: boolean): string {
     ? "It's removed for you and every profile you share it with. This can't be undone."
     : "This can't be undone.";
 }
+
+// --- Arrange ----------------------------------------------------------------
+
+export function arrangeHeading(libraryName: string): string {
+  return `Shelves on ${libraryName} › Collections`;
+}
+export const ARRANGE_SUBTITLE =
+  "Shelves are set separately for each library. Top to bottom, the way viewers see them.";
+export const ARRANGE_HINT =
+  "Drag shelves and collections, or focus a handle and press Space, then the arrow keys. ⋯ has Move to shelf. Changes save right away.";
+
+export const NO_HEADING = "No heading";
+export const NO_HEADING_HELP = "Collections not on a shelf, shown without a title";
+export const MY_COLLECTIONS_TAG = "Different for each viewer";
+export const MY_COLLECTIONS_NOTE = `Each viewer's own collections land here when they turn on “${SHOW_ON_TAB_LABEL}”. You can rename or move this shelf.`;
+/** Shown on My collections while a server collection is dragged. */
+export const MY_COLLECTIONS_NO_DROP = "Viewers' own collections only";
+export const HIDDEN_TAG = "Hidden";
+export const MOVE_FAILED = "Couldn't move it";
+/** A move found the order changed by someone else since Arrange read it; nothing was saved. */
+export const ORDER_CHANGED =
+  "Someone else changed this order, so nothing moved. Arrange now shows their order; move it again.";
+
+export const VIEWER_PREVIEW_LABEL = "What viewers see";
+export const VIEWER_PREVIEW_MINE = "Each viewer's own";
+export const VIEWER_PREVIEW_NOTE = "Hidden collections don't appear.";
+
+export function deleteShelfTitle(name: string): string {
+  return `Delete the ${name} shelf?`;
+}
+
+/** Deleting a shelf never deletes its collections, and touches one library only. */
+export function deleteShelfDescription(collectionCount: number, libraryName: string): string {
+  const members =
+    collectionCount === 0
+      ? "It has no collections."
+      : `${collectionCount === 1 ? "Its 1 collection moves" : `Its ${collectionCount} collections move`} to ${NO_HEADING} on ${libraryName} › Collections. ${collectionCount === 1 ? "It isn't" : "They aren't"} deleted.`;
+  return `${members} Only ${libraryName} changes; shelves in other libraries stay as they are. You can make the shelf again later.`;
+}

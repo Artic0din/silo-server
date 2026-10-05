@@ -48,7 +48,7 @@ export function MetaDot() {
   );
 }
 
-function Grip({
+export function Grip({
   title,
   collapsed,
   handleProps,
