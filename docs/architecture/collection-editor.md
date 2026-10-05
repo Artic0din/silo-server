@@ -16,7 +16,8 @@ itself clean until the URL has moved, so the unsaved-changes guard never asks du
 Creating starts from one **New collection** button on each collections list, which opens the type
 picker (`web/src/components/collections/NewCollectionPicker.tsx`) over the list as
 `?dialog=new`. Its Manual, Smart and Synced list cards are links to `/new?type=…`, carrying the
-list's selected library on the server list. The Synced list card waits for the scope's
+list's selected library on the server list. There they also hand the editor the list's URL,
+without the open dialog, so its Back lands on the same view. The Synced list card waits for the scope's
 capabilities and is disabled when `import_sources` is empty. A `/new` URL with no `type` redirects
 to the list with the picker open, so older links keep working.
 
