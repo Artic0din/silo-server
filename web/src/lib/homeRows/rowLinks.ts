@@ -17,8 +17,6 @@ export interface AddedRowState {
   addedRow: {
     /** The new row on `page`. */
     id: string;
-    /** Copies added with it on other library pages. */
-    copyIds: string[];
     surface: Surface;
     page: PageRef;
     /** Its place on `page`: new rows go to the bottom, so also the row count. */

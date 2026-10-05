@@ -198,7 +198,8 @@ address, so a reload doesn't repeat them.
 - `?add=collection:library:<id>` (both pages) or `collection:user:<id>` (Settings > Home Screen
   only) opens Add row at step 2 on that collection. It waits until the page's rows are loaded and
   it is known whether the page can change, then for the page's collection options, and opens only
-  when the id is among them. A hidden, deleted, unknown or unshared collection, or a page that
+  when the id is among them. A refresh that fails gets the options-failed toast even when the old
+  options hold the id, since they may hold a collection hidden or deleted since. A hidden, deleted, unknown or unshared collection, or a page that
   can't change, gets a toast and nothing opens; options that fail to load get their own toast.
   Options read before a collection was made or deleted are
   refreshed first, and a match or a miss waits for that refresh: the collection scopes'
@@ -212,7 +213,7 @@ address, so a reload doesn't repeat them.
   one after the save failed; a failed save keeps the viewer on Home rows with the save's error
   toast. The toast's position counts the page's rows when the add lands, not when the dialog
   opened. A link that arrives while the dialog is open starts a fresh dialog on its target. After Add row the navigation state carries `addedRow` (the
-  `AddedRowState` type: new row id, copies on other library pages, surface, page and position) so
+  `AddedRowState` type: new row id, surface, page and position) so
   the collection's page can show which row is new. The path is honoured only when it starts with
   `/admin/collections/` or `/collections/` and neither it nor its decoded form holds a backslash,
   `//`, a control character or a `.`/`..` segment; anything else is ignored, so the parameter

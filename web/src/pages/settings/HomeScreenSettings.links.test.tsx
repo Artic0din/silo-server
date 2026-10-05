@@ -272,7 +272,6 @@ describe("?add= on Settings > Home Screen", () => {
     expect(router.state.location.state).toEqual({
       addedRow: {
         id: puts[0]!.overrides.find((o) => o.section_type === "collection")!.id,
-        copyIds: [],
         surface: "profile",
         page: { kind: "home" },
         position: 3,

@@ -128,14 +128,14 @@ export function useRowLinks({
           label: `Back to ${option.title}`,
           onClick: () => navigate(returnTo, { replace: true }),
         },
-        onAdded: ([id, ...copyIds]) => {
+        onAdded: ([id]) => {
           if (!id) return navigate(returnTo, { replace: true });
           // New rows go to the bottom; the page may not show this one yet.
           const rows = latestRows.current;
           const at = rows.findIndex((row) => row.id === id);
           const total = at === -1 ? rows.length + 1 : rows.length;
           const position = at === -1 ? total : at + 1;
-          const state: AddedRowState = { addedRow: { id, copyIds, surface, page, position } };
+          const state: AddedRowState = { addedRow: { id, surface, page, position } };
           navigate(returnTo, { replace: true, state });
           toast.success(`Added to ${where} as row ${position} of ${total}`, {
             action: {
@@ -161,6 +161,8 @@ export function useRowLinks({
       if (!catalog) return catalogFailed ? refuse(NO_KINDS) : undefined;
       // Options read before the collection was made, or deleted, are refreshing.
       if (collections?.loading || collections?.fetching) return;
+      // A failed refresh leaves the old options, which may hold a collection since hidden or deleted.
+      if (collections?.failed) return refuse(NO_COLLECTIONS);
       const def = findRecipe(catalog, "collection");
       const option = collections?.options.find(
         (candidate) => candidate.id === add.id && candidate.source === add.source,
@@ -169,7 +171,7 @@ export function useRowLinks({
         const draft = withCollection(draftForPreset(def, def.presets[0]), option);
         return finish(() => onAdd(seedFor(option, draft)));
       }
-      refuse(collections?.failed ? NO_COLLECTIONS : CANT_ADD);
+      refuse(CANT_ADD);
     } else if (edit) {
       const row = adapter.rows.find((candidate) => candidate.id === edit);
       if (!adapter.canEdit) refuse(PAGE_LOCKED);

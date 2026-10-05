@@ -262,6 +262,31 @@ describe("?add= on admin Home rows", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("doesn't open on a cached collection when its refresh fails", async () => {
+    const client = newClient();
+    collections = [...collections, serverCollection("doomed", "Hidden since")];
+    // The Home rows options were read while the collection was still visible.
+    await client.fetchQuery({
+      queryKey: adminKeys.collections(undefined),
+      queryFn: () => fetchAdminCollections(undefined),
+    });
+    // It was hidden since, and the refresh after that fails.
+    collections = [
+      ...collections.slice(0, -1),
+      serverCollection("doomed", "Hidden since", "hidden"),
+    ];
+    failing.add("GET /api/v2/admin/collections");
+    await SERVER_SCOPE.invalidate(client);
+
+    setup("/admin/home-rows?add=collection:library:doomed", client);
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "Collections didn't load, so Add row couldn't open.",
+      ),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("says the collections didn't load rather than that this one can't be added", async () => {
     failing.add("GET /api/v2/admin/collections");
     setup("/admin/home-rows?add=collection:library:lib-1");
@@ -302,7 +327,6 @@ describe("?return= on admin Home rows", () => {
     expect(router.state.location.state).toEqual({
       addedRow: {
         id: "new-1",
-        copyIds: [],
         surface: "admin",
         page: { kind: "home" },
         position: 3,
