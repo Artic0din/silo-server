@@ -4,6 +4,7 @@ import { adminJobFromV2 } from "@/api/v2/libraries";
 import { requiredETag } from "@/api/v2/etag";
 import {
   fetchAdminCollections,
+  fetchAdminCollectionSnapshot,
   fetchAdminGroups,
   adminCreateBody,
   adminUpdateBody,
@@ -14,9 +15,8 @@ import {
   templateResultFromV2,
 } from "@/api/adminCollections";
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiClientError } from "@/api/client";
 import type {
   CreateLibraryCollectionRequest,
   ImportTraktCollectionRequest,
@@ -27,27 +27,11 @@ import type {
   ApplyCollectionTemplateBundleRequest,
 } from "@/lib/collectionTemplates";
 import { SERVER_SCOPE } from "@/lib/collections/scope";
-import { adminKeys, sectionKeys } from "../keys";
+import { adminKeys } from "../keys";
 import { invalidateAdminCollectionQueries } from "../collectionSurfaceRefresh";
 import { runBulkDelete, type BulkDeleteProgress } from "../bulkDelete";
 
 const ADMIN_STALE_TIME = 30_000;
-
-function isLikelyRequestTimeout(error: unknown): boolean {
-  if (error instanceof ApiClientError) {
-    return (
-      error.status === 408 || error.status === 502 || error.status === 503 || error.status === 504
-    );
-  }
-  return error instanceof TypeError;
-}
-
-function applyTemplateBundleErrorMessage(error: unknown): string {
-  if (isLikelyRequestTimeout(error)) {
-    return "The apply request timed out. Silo may still be creating collections; refresh in a minute.";
-  }
-  return error instanceof Error ? error.message : "Failed to apply defaults";
-}
 
 export function useAdminCollectionCapabilities(enabled = true) {
   return useQuery({
@@ -111,48 +95,34 @@ export function useCreateAdminCollection() {
   });
 }
 
-export function useApplyCollectionTemplateBundle() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      bundleId,
-      body,
-    }: {
-      bundleId: string;
-      body: ApplyCollectionTemplateBundleRequest;
-    }) =>
+/**
+ * A starter pack's dry run: what applying the pack to these libraries would
+ * create, keep and leave out. It never deletes existing collections, and
+ * carries `featured` only when the admin asked for hero banners.
+ */
+export function starterPackDryRunQuery(
+  packId: string,
+  body: Pick<ApplyCollectionTemplateBundleRequest, "library_ids" | "featured">,
+) {
+  return queryOptions({
+    queryKey: adminKeys.starterPackDryRun(packId, body),
+    queryFn: () =>
       v2("POST /api/v2/admin/collections/template-bundles/{bundle_id}/apply", {
-        path: { bundle_id: bundleId },
-        body: templateApplyBody(body),
+        path: { bundle_id: packId },
+        body: templateApplyBody({ ...body, dry_run: true, delete_existing: false }),
       }).then(templateResultFromV2),
-    onSuccess: (result) => {
-      if (!result.dry_run) {
-        const created = result.created.length;
-        const deleted = result.deleted?.length ?? 0;
-        const syncQueued = result.sync_queued?.length ?? 0;
-        const failed = result.failed.length;
-        const deleteFailed = result.delete_failed?.length ?? 0;
-        const failureCount = failed + deleteFailed;
-        if (created > 0 || deleted > 0 || syncQueued > 0) {
-          const message = [
-            deleted > 0 ? `Deleted ${deleted}` : "",
-            created > 0 ? `created ${created}` : "",
-            syncQueued > 0 ? `queued ${syncQueued} syncs` : "",
-            failureCount > 0 ? `${failureCount} failed` : "",
-          ]
-            .filter(Boolean)
-            .join("; ");
-          toast.success(message);
-        }
-        void invalidateAdminCollectionQueries(queryClient);
-        void queryClient.invalidateQueries({ queryKey: sectionKeys.all });
-      }
-    },
-    onError: (error) => {
-      toast.error(applyTemplateBundleErrorMessage(error));
-    },
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+/** A collection job, polled every 2 seconds until it ends. */
+export function collectionJobQuery(jobId: string | null) {
+  return queryOptions({
+    queryKey: ["admin", "collection-job", jobId],
+    queryFn: () => v2("GET /api/v2/admin/collection-jobs/{job_id}", { path: { job_id: jobId! } }),
+    enabled: !!jobId,
+    refetchInterval: (query) => (query.state.data?.terminal ? false : 2000),
   });
 }
 
@@ -176,14 +146,13 @@ export function useQueueCollectionTemplateBundleApply() {
       queryClient.setQueryData(["admin", "collection-job", "accepted"], job.id);
       void queryClient.invalidateQueries({ queryKey: adminKeys.jobs("template_bundle_apply") });
       void queryClient.invalidateQueries({ queryKey: adminKeys.jobs("__all") });
-      toast.success("Applying collection defaults in the background");
     },
     onError: (error) => {
       if (error instanceof V2ProblemError && error.status === 409) {
-        toast.error("A collection defaults apply is already running");
+        toast.error("A starter pack is already being added. Try again when it finishes.");
         return;
       }
-      toast.error(error instanceof Error ? error.message : "Failed to queue collection defaults");
+      toast.error(error instanceof Error ? error.message : "Couldn't add the starter pack");
     },
   });
 }
@@ -196,13 +165,7 @@ export function useTemplateBundleApplyJobs() {
     staleTime: Infinity,
   });
   const listed = useAdminTaskJobs("template_bundle_apply", 10);
-  const job = useQuery({
-    queryKey: ["admin", "collection-job", accepted.data],
-    queryFn: () =>
-      v2("GET /api/v2/admin/collection-jobs/{job_id}", { path: { job_id: accepted.data! } }),
-    enabled: !!accepted.data,
-    refetchInterval: (query) => (query.state.data?.terminal ? false : 2000),
-  });
+  const job = useQuery(collectionJobQuery(accepted.data));
   const current = job.data
     ? {
         ...adminJobFromV2(job.data),
@@ -257,21 +220,30 @@ export function useUpdateAdminCollection() {
   });
 }
 
-export function useDeleteAdminCollection() {
+/**
+ * The list's Collections tab switch. It reads the collection fresh for its
+ * ETag and type, then sends only `collection_type` and `visibility`, so
+ * nothing else on the collection can be overwritten by a stale list.
+ */
+export function useSetAdminCollectionVisibility() {
   const queryClient = useQueryClient();
-
   return useMutation({
     retry: false,
-    mutationFn: ({ id, libraryId, etag }: { id: string; libraryId: number; etag: string }) =>
-      SERVER_SCOPE.remove({ id, etag }).then(() => libraryId),
-    onSuccess: (_libraryId) => {
-      toast.success("Collection deleted");
-      void SERVER_SCOPE.invalidate(queryClient);
+    mutationFn: async ({ id, visible }: { id: string; visible: boolean }) => {
+      const { collection, etag } = await fetchAdminCollectionSnapshot(id);
+      await v2("PATCH /api/v2/admin/collections/{id}", {
+        path: { id },
+        headers: { "If-Match": requiredETag(etag) },
+        body: {
+          collection_type: collection.collection_type,
+          visibility: visible ? "visible" : "hidden",
+        },
+      });
     },
     onError: (error) => {
-      toast.error(SERVER_SCOPE.errorMessage(error, "Failed to delete"));
-      void SERVER_SCOPE.invalidate(queryClient);
+      toast.error(SERVER_SCOPE.errorMessage(error, "Couldn't change it"));
     },
+    onSettled: () => SERVER_SCOPE.invalidate(queryClient),
   });
 }
 
@@ -336,25 +308,6 @@ export function useDeleteAdminCollections() {
   });
 
   return { ...mutation, progress };
-}
-
-export function useSyncAdminCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({ id, libraryId }: { id: string; libraryId: number }) =>
-      SERVER_SCOPE.sync(id).then((data) => ({ data, libraryId })),
-    onSuccess: ({ data, libraryId: _libraryId }) => {
-      toast.success(
-        data.status === "warning" ? "Collection synced with warnings" : "Collection synced",
-      );
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Sync failed");
-    },
-  });
 }
 
 export function useImportTraktCollection() {

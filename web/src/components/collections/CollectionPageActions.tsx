@@ -14,7 +14,9 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
 import { useScopeDelete, useScopeSync } from "@/hooks/queries/collectionScope";
+import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { useAvailableUserLibraries } from "@/hooks/queries/libraries";
 import type { CollectionPageAccess } from "@/hooks/useCollectionPageAccess";
 import { personalDeleteDescription, serverDeleteDescription } from "@/lib/collections/copy";
@@ -92,6 +94,10 @@ function ManageActions({
   const sync = useScopeSync(scope);
   const view = snapshot?.view;
   const isServer = scope.kind === "server";
+  // Sync answers 501 when the scope's storage can't import, so it needs the capability.
+  const { data: personalCapabilities } = useCollectionCapabilities(!isServer);
+  const { data: serverCapabilities } = useAdminCollectionCapabilities(isServer);
+  const canImport = (isServer ? serverCapabilities : personalCapabilities)?.imports === true;
   // After a delete, back to where the collection was browsed from.
   const browseLibraryId = libraryId ?? view?.libraryIds[0];
   const afterDeletePath =
@@ -109,7 +115,7 @@ function ManageActions({
       })
     : [];
   const openIn = namedLibraries.length > 1 ? namedLibraries : [];
-  const canSync = view?.kind === "synced";
+  const canSync = canImport && view?.kind === "synced";
   const deleteDescription = isServer
     ? serverDeleteDescription(namedLibraries.map((library) => library.name))
     : personalDeleteDescription(view?.personal?.shared ?? false);

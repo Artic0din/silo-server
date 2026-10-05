@@ -37,11 +37,49 @@ export const SHOW_TO_OTHER_PROFILES_LABEL = "Show to other profiles";
 export const SHOW_TO_OTHER_PROFILES_HELP =
   "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.";
 
+/** What turning sharing off costs: "Maya and Leo lose it, including Home rows they made from it." */
+export function unshareConsequence(profileNames: readonly string[]): string {
+  const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
+  return `${who} lose it, including Home rows they made from it.`;
+}
+
 /** Shown when sharing is turned off on a saved collection. */
 export function unshareWarning(profileNames: readonly string[]): string {
-  const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
-  return `When you save, ${who} lose it, including Home rows they made from it.`;
+  return `When you save, ${unshareConsequence(profileNames)}`;
 }
+
+/** The ⋯ switch's help on a card: the menu has room for one short line. */
+export const SHOW_TO_OTHER_PROFILES_SHORT_HELP = "Every profile on this account sees it";
+
+// --- Server list ------------------------------------------------------------
+
+export const ON_HOME = "On Home";
+export const HIDDEN_FROM_TAB = "Hidden from Collections tab";
+
+/** "Movies › Collections and Kids › Collections". */
+function collectionsTabs(libraryNames: readonly string[]): string {
+  return joinNames(libraryNames.map((name) => `${name} › Collections`));
+}
+
+export function hideCollectionTitle(name: string): string {
+  return `Hide ${name} from Collections tabs?`;
+}
+
+/** Hiding a collection rows show: they keep showing it, but See all can't open it. */
+export function hideCollectionDescription(
+  libraryNames: readonly string[],
+  rowCount: number,
+): string {
+  const leaves = libraryNames.length > 0 ? `It leaves ${collectionsTabs(libraryNames)}. ` : "";
+  const rows =
+    rowCount === 1
+      ? "1 row still shows it, but its See all won't open while it's hidden."
+      : `${rowCount} rows still show it, but their See all won't open while it's hidden.`;
+  return leaves + rows;
+}
+
+/** A delete the server refused because Home or library page rows still show the collection. */
+export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
 
 // --- Titles -----------------------------------------------------------------
 

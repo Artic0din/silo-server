@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 import { SERVER_SCOPE, type EditorSnapshot } from "@/lib/collections/scope";
 import { isListBackedCollectionType } from "@/lib/collections/types";
 
@@ -30,7 +31,7 @@ export default function AdminCollectionEditor({
   initialLibraryId?: number | null;
 }) {
   const navigate = useNavigate();
-  const returnPath = SERVER_SCOPE.paths.list({ libraryId: initialLibraryId });
+  const returnPath = useListReturnPath(SERVER_SCOPE.paths.list({ libraryId: initialLibraryId }));
   const { data: libraries = [] } = useAdminLibraries();
   const collection = snapshot?.view.raw ?? null;
 

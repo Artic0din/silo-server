@@ -9,6 +9,10 @@ export interface PillOption {
   icon?: LucideIcon;
   /** A thin divider is drawn before this pill. */
   separated?: boolean;
+  /** How many things the pill holds, shown quietly after its label. */
+  count?: number;
+  /** This pill alone can't be chosen right now. */
+  disabled?: boolean;
 }
 
 /**
@@ -49,7 +53,7 @@ export function PillSwitcher({
               <button
                 type="button"
                 aria-pressed={pressed}
-                disabled={disabled}
+                disabled={disabled || option.disabled}
                 onClick={() => {
                   if (!pressed) onChange(option.value);
                 }}
@@ -64,6 +68,13 @@ export function PillSwitcher({
                   <option.icon aria-hidden className="size-[15px] opacity-80" />
                 ) : null}
                 {option.label}
+                {option.count !== undefined ? (
+                  // The space keeps "Movies 14" two words for a screen reader; flex hides it.
+                  <>
+                    {" "}
+                    <span className="text-[12.5px] opacity-60">{option.count}</span>
+                  </>
+                ) : null}
               </button>
             </Fragment>
           );
