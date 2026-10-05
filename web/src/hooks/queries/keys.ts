@@ -118,11 +118,12 @@ export const collectionKeys = {
   list: () => ["collections", "list"] as const,
   server: () => ["collections", "server"] as const,
   items: (collectionId: string) => ["collections", "items", collectionId] as const,
+  /** The list, each own manual collection marked with whether it holds the title. */
+  containing: (contentId: string) => ["collections", "containing", contentId] as const,
   preview: (scope: "user" | "admin", fingerprint: string) =>
     ["collections", "preview", scope, fingerprint] as const,
   templates: () => ["collections", "templates"] as const,
   mdblistSearch: (query: string) => ["collections", "mdblist", "search", query] as const,
-  mdblistTop: () => ["collections", "mdblist", "top"] as const,
 };
 
 export const requestKeys = {

@@ -1,17 +1,17 @@
 /**
- * Goldens: the requests today's synced-list forms send, admin and personal:
- * the MDBList and TMDB import forms, both template forms (with an MDBList
- * search pick and a template poster), the admin source editor and the
- * personal synced-list editor. Imports default `featured` on today.
+ * Goldens: the requests the synced-list paths send, admin and personal: the
+ * editor's Synced list step (a pasted MDBList link, a TMDB chart, a TMDB list
+ * link, a template pick with its poster and an MDBList search pick), the
+ * admin source editor and the personal synced-list editor. New synced lists
+ * are imported unpinned.
  */
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Library } from "@/api/types";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import {
   adminCapabilities,
   adminCollection,
@@ -112,118 +112,103 @@ function show(element: ReactElement, url = "/") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const router = createMemoryRouter(
+    [
+      { path: "/", element },
+      { path: "/admin/collections", element: <p>Admin collections page</p> },
+      {
+        element: <CollectionEditorPage scope="server" />,
+        children: [{ path: "/admin/collections/new" }, { path: "/admin/collections/:id/edit" }],
+      },
+      { path: "/collections", element: <p>Collections page</p> },
+      {
+        element: <CollectionEditorPage scope="personal" />,
+        children: [{ path: "/collections/new" }, { path: "/collections/:id/edit" }],
+      },
+    ],
+    { initialEntries: [url] },
+  );
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[url]}>
-        <Routes>
-          <Route path="/" element={element} />
-          <Route path="/admin/collections" element={<p>Admin collections page</p>} />
-          <Route element={<CollectionEditorPage scope="server" />}>
-            <Route path="/admin/collections/new" />
-            <Route path="/admin/collections/:id/edit" />
-          </Route>
-          <Route path="/collections" element={<p>Collections page</p>} />
-          <Route element={<CollectionEditorPage scope="personal" />}>
-            <Route path="/collections/:id/edit" />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return router;
 }
 
-function type(label: string, value: string) {
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+async function type(label: string, value: string) {
+  fireEvent.change(await screen.findByLabelText(label), { target: { value } });
 }
 
-async function pickOption(trigger: HTMLElement, option: string) {
-  fireEvent.click(trigger);
-  fireEvent.click(await screen.findByRole("option", { name: option }));
-}
-
-async function closedTo(page: "Admin collections page" | "Collections page") {
+async function closedTo(page: "Admin collections page") {
   await screen.findByText(page);
 }
 
-describe("admin import forms", () => {
-  it("imports an MDBList list, featured by default", async () => {
-    show(<></>, "/admin/collections/new?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: /^MDBList/ }));
-    type("Collection Title", "Top Watched");
-    type("MDBList JSON URL", "https://mdblist.com/lists/user/top-watched/json");
-    fireEvent.click(screen.getByRole("button", { name: "Import MDBList Collection" }));
-    await closedTo("Admin collections page");
+/** Create collection, then wait until the editor has moved to the new list's edit page. */
+async function createAndLeave() {
+  fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+  await vi.waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Create collection" })).toBeNull(),
+  );
+}
+
+describe("admin Synced list step", () => {
+  it("imports a pasted MDBList link, unpinned", async () => {
+    show(<></>, "/admin/collections/new?type=synced&source=mdblist&libraryId=1");
+    await type("Name", "Top Watched");
+    await type("Or paste any MDBList link", "https://mdblist.com/lists/user/top-watched/json");
+    await createAndLeave();
     expect(v2Recorder.writes()).toEqual(goldens.adminImportMDBList);
   });
 
   it("imports a TMDB chart", async () => {
-    show(<></>, "/admin/collections/new?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: /^TMDB/ }));
-    type("Collection Title", "Trending Today");
-    fireEvent.click(screen.getByRole("button", { name: "Import TMDB Collection" }));
-    await closedTo("Admin collections page");
+    show(<></>, "/admin/collections/new?type=synced&source=tmdb_chart&libraryId=1");
+    fireEvent.click(await screen.findByRole("radio", { name: /^Trending/ }));
+    expect(screen.getByLabelText("Name")).toHaveValue("Trending Today");
+    await createAndLeave();
     expect(v2Recorder.writes()).toEqual(goldens.adminImportTMDBChart);
   });
 
   it("imports a TMDB list", async () => {
-    show(<></>, "/admin/collections/new?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: /^TMDB/ }));
-    type("Collection Title", "Festival Picks");
-    await pickOption(screen.getByLabelText("Source"), "Public list (themoviedb.org URL)");
-    type("TMDB list URL", "https://www.themoviedb.org/list/310-festival-picks");
-    fireEvent.click(screen.getByRole("button", { name: "Import TMDB List" }));
-    await closedTo("Admin collections page");
+    show(<></>, "/admin/collections/new?type=synced&source=tmdb_list&libraryId=1");
+    await type("Name", "Festival Picks");
+    await type("Paste a TMDB list link", "https://www.themoviedb.org/list/310-festival-picks");
+    await createAndLeave();
     expect(v2Recorder.writes()).toEqual(goldens.adminImportTMDBList);
   });
-});
 
-describe("template forms", () => {
-  it("admin: creates from a TMDB template with its server poster", async () => {
-    show(
-      <CollectionTemplateGallery
-        open
-        onOpenChange={vi.fn()}
-        libraries={libraries}
-        initialLibraryId={1}
-      />,
+  it("creates from a TMDB template pick with its server poster", async () => {
+    show(<></>, "/admin/collections/new?type=synced&libraryId=1");
+    fireEvent.click(await screen.findByRole("radio", { name: "Trending Movies This Week" }));
+    expect(screen.getByRole("img", { name: "Poster preview" })).toHaveAttribute(
+      "src",
+      "https://images.example/templates/trending-movies.jpg",
     );
-    fireEvent.click(await screen.findByRole("button", { name: /Trending Movies This Week/ }));
-    expect(await screen.findByRole("radio", { name: "Server default" })).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Create Collection" }));
-    await screen.findByText("Browse Collection Templates");
+    await createAndLeave();
     expect(v2Recorder.writes()).toEqual(goldens.adminTemplateTMDB);
   });
 
-  it("admin: creates from a list picked in MDBList search", async () => {
+  it("creates from a list picked in MDBList search", async () => {
     v2Recorder.answer("GET /api/v2/collections/import/mdblist/search", {
       configured: true,
       items: [mdblistSearchHit],
     });
-    show(
-      <CollectionTemplateGallery
-        open
-        onOpenChange={vi.fn()}
-        libraries={libraries}
-        initialLibraryId={1}
-      />,
-    );
-    fireEvent.click(await screen.findByRole("button", { name: /Custom MDBList/ }));
-    type("Search MDBList", "oscar");
-    fireEvent.click(await screen.findByRole("button", { name: /Oscar Winners/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Create Collection" }));
-    await screen.findByText("Browse Collection Templates");
+    show(<></>, "/admin/collections/new?type=synced&libraryId=1");
+    await type("Search lists", "oscar");
+    fireEvent.click(await screen.findByRole("radio", { name: "Oscar Winners" }));
+    await createAndLeave();
     expect(v2Recorder.callsOf("GET /api/v2/collections/import/mdblist/search")).toEqual([
       expect.objectContaining({ query: { q: "oscar" } }),
     ]);
     expect(v2Recorder.writes()).toEqual(goldens.adminTemplateMDBListPick);
   });
+});
 
-  it("personal: creates from a TMDB template with its server poster", async () => {
-    show(<CollectionTemplateGallery mode="user" open onOpenChange={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Trending Movies This Week/ }));
-    expect(await screen.findByRole("radio", { name: "Server default" })).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Create Collection" }));
-    await screen.findByText("Browse Collection Templates");
+describe("personal Synced list step", () => {
+  it("creates from a TMDB template pick with its server poster", async () => {
+    show(<></>, "/collections/new?type=synced");
+    fireEvent.click(await screen.findByRole("radio", { name: "Trending Movies This Week" }));
+    await createAndLeave();
     expect(v2Recorder.writes()).toEqual(goldens.personalTemplateTMDB);
   });
 });
@@ -345,8 +330,14 @@ describe("personal synced-list editor", () => {
   describe("poster removal", () => {
     beforeEach(() => {
       URL.createObjectURL = () => "blob:poster";
-      v2Recorder.answer("GET /api/v2/collections", {
-        items: [{ id: "c1", poster_url: "https://images.example/poster.png" }],
+      // The list carries the poster until the image DELETE lands.
+      let posterUrl = "https://images.example/poster.png";
+      v2Recorder.answer("GET /api/v2/collections", () => ({
+        items: [{ id: "c1", poster_url: posterUrl }],
+      }));
+      v2Recorder.answer("DELETE /api/v2/collections/{id}/image", () => {
+        posterUrl = "";
+        return undefined;
       });
     });
 
@@ -376,6 +367,24 @@ describe("personal synced-list editor", () => {
       await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(2));
       expect(v2Recorder.writes()).toEqual(goldens.personalSyncedStagedPosterRemoval);
       expect(within(posterField()).queryByRole("img")).toBeNull();
+    });
+
+    it("starts again from the saved collection after Save", async () => {
+      await removePoster();
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      expect(await screen.findByText("0 unsaved changes")).toBeTruthy();
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
+      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(within(posterField()).queryByRole("img")).toBeNull();
+
+      // The second save sends the ETag the first one left, so it is not a 412.
+      const savedETag = v2Recorder.etag("/api/v2/collections/c1");
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(3));
+      expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
     });
   });
 

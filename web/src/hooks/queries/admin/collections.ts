@@ -4,6 +4,7 @@ import { adminJobFromV2 } from "@/api/v2/libraries";
 import { requiredETag } from "@/api/v2/etag";
 import {
   fetchAdminCollections,
+  fetchAdminCollectionSnapshot,
   fetchAdminGroups,
   adminCreateBody,
   adminUpdateBody,
@@ -18,9 +19,6 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import { toast } from "sonner";
 import type {
   CreateLibraryCollectionRequest,
-  ImportMDBListCollectionRequest,
-  ImportTMDBCollectionRequest,
-  ImportTMDBListCollectionRequest,
   ImportTraktCollectionRequest,
   UpdateLibraryCollectionRequest,
 } from "@/api/types";
@@ -222,21 +220,50 @@ export function useUpdateAdminCollection() {
   });
 }
 
-export function useDeleteAdminCollection() {
-  const queryClient = useQueryClient();
+/**
+ * A list's one-field change. It reads the collection fresh for its ETag and
+ * type, then sends only `collection_type` and `field`, so nothing else on the
+ * collection can be overwritten by a stale list.
+ */
+async function patchAdminCollectionField(
+  id: string,
+  field: { visibility: "visible" | "hidden" } | { featured: boolean },
+) {
+  const { collection, etag } = await fetchAdminCollectionSnapshot(id);
+  await v2("PATCH /api/v2/admin/collections/{id}", {
+    path: { id },
+    headers: { "If-Match": requiredETag(etag) },
+    body: { collection_type: collection.collection_type, ...field },
+  });
+}
 
+/** The list's Collections tab switch. */
+export function useSetAdminCollectionVisibility() {
+  const queryClient = useQueryClient();
   return useMutation({
     retry: false,
-    mutationFn: ({ id, libraryId, etag }: { id: string; libraryId: number; etag: string }) =>
-      SERVER_SCOPE.remove({ id, etag }).then(() => libraryId),
-    onSuccess: (_libraryId) => {
-      toast.success("Collection deleted");
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
+    mutationFn: ({ id, visible }: { id: string; visible: boolean }) =>
+      patchAdminCollectionField(id, { visibility: visible ? "visible" : "hidden" }),
     onError: (error) => {
-      toast.error(SERVER_SCOPE.errorMessage(error, "Failed to delete"));
-      void SERVER_SCOPE.invalidate(queryClient);
+      toast.error(SERVER_SCOPE.errorMessage(error, "Couldn't change it"));
     },
+    onSettled: () => SERVER_SCOPE.invalidate(queryClient),
+  });
+}
+
+/** Arrange's Pin to the start of its shelf (`featured`). Settles once the lists are read again. */
+export function useSetAdminCollectionPin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
+      patchAdminCollectionField(id, { featured: pinned }),
+    onError: (error, { pinned }) => {
+      toast.error(
+        SERVER_SCOPE.errorMessage(error, pinned ? "Couldn't pin it" : "Couldn't unpin it"),
+      );
+    },
+    onSettled: () => SERVER_SCOPE.invalidate(queryClient),
   });
 }
 
@@ -301,133 +328,6 @@ export function useDeleteAdminCollections() {
   });
 
   return { ...mutation, progress };
-}
-
-export function useSyncAdminCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({ id, libraryId }: { id: string; libraryId: number }) =>
-      SERVER_SCOPE.sync(id).then((data) => ({ data, libraryId })),
-    onSuccess: ({ data, libraryId: _libraryId }) => {
-      toast.success(
-        data.status === "warning" ? "Collection synced with warnings" : "Collection synced",
-      );
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Sync failed");
-    },
-  });
-}
-
-export function useImportMDBListCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportMDBListCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/mdblist", {
-        body: adminImportBody(body),
-      }).then(async (result) => ({
-        ...result,
-        ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-      }));
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success(
-        result.sync_run?.status === "warning"
-          ? "MDBList imported with warnings"
-          : "MDBList imported",
-      );
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
-}
-
-export function useImportTMDBCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportTMDBCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/tmdb", { body: adminImportBody(body) }).then(
-        async (result) => ({
-          ...result,
-          ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-        }),
-      );
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success(
-        result.sync_run?.status === "warning"
-          ? "TMDB collection imported with warnings"
-          : "TMDB collection imported",
-      );
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
-}
-
-export function useImportTMDBListCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportTMDBListCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/tmdb-list", {
-        body: adminImportBody(body),
-      }).then(async (result) => ({
-        ...result,
-        ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-      }));
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success(
-        result.sync_run?.status === "warning"
-          ? "TMDB list imported with warnings"
-          : "TMDB list imported",
-      );
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
 }
 
 export function useImportTraktCollection() {

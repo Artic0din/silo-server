@@ -336,9 +336,13 @@ func (h *UserCollectionImportHandler) createImportedCollection(
 			ScheduleAtStart:   collection.SyncSchedule,
 			NextSyncAtAtStart: collection.NextSyncAt,
 		})
-		updated = collection
-		updated.LastSyncStatus = "failed"
-		updated.LastSyncMessage = syncErr.Error()
+		// Render what was stored, as a successful sync does; a schedule
+		// edited while the sync ran kept its own next run.
+		if updated, err = store.GetCollection(ctx, collection.ID); err != nil {
+			updated = collection
+			updated.LastSyncStatus = "failed"
+			updated.LastSyncMessage = syncErr.Error()
+		}
 	}
 
 	return UserImportView{

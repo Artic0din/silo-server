@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ListRow, MetaDot } from "./ListRow";
 import { PosterPeek } from "./PosterPeek";
 
-function Row({ onSelect }: { onSelect?: (checked: boolean, extend: boolean) => void }) {
+function Row({
+  onSelect,
+  grip = true,
+}: {
+  onSelect?: (checked: boolean, extend: boolean) => void;
+  grip?: boolean;
+}) {
   const [on, setOn] = useState(true);
   return (
     <ol>
@@ -24,7 +30,7 @@ function Row({ onSelect }: { onSelect?: (checked: boolean, extend: boolean) => v
             23 titles
           </>
         }
-        handleProps={{}}
+        handleProps={grip ? {} : undefined}
         selection={
           onSelect
             ? { selected: false, label: "Select Studio Ghibli", onChange: onSelect }
@@ -71,5 +77,11 @@ describe("ListRow", () => {
     await user.keyboard("{Shift>}");
     await user.click(screen.getByRole("checkbox", { name: "Select Studio Ghibli" }));
     expect(onSelect).toHaveBeenCalledWith(true, true);
+  });
+
+  it("has no grip on a list that isn't ordered by hand", () => {
+    render(<Row grip={false} />);
+    expect(screen.queryByRole("button", { name: "Move Studio Ghibli" })).not.toBeInTheDocument();
+    expect(screen.getByRole("listitem")).toHaveTextContent("Studio GhibliPinnedManual·23 titles");
   });
 });

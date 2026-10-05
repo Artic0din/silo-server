@@ -20,10 +20,9 @@ interface Props {
 
 /**
  * CollectionDefaultSortField picks the order viewers land on when they open a
- * collection. It is the exact-collection counterpart to CollectionOrderingEditor
- * (which owns ordering for smart collections through their query definition),
- * so both kinds of collection expose a default order without duplicating the
- * ordering-mode controls that only make sense for a query.
+ * collection. It is the synced-list counterpart to a Smart collection's Order
+ * block (which orders through the rules' sort), so both kinds of collection
+ * expose a default order without the controls that only make sense for rules.
  */
 export function CollectionDefaultSortField({
   value,

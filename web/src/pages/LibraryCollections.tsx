@@ -51,7 +51,7 @@ export default function LibraryCollections({ libraryId }: LibraryCollectionsProp
             <p className="text-lg font-semibold">No collections yet</p>
             {actingAdmin ? (
               <Link
-                to={`/admin/collections?libraryId=${libraryId}`}
+                to={SERVER_SCOPE.paths.list({ libraryId })}
                 className="text-primary mt-2 inline-block text-sm font-medium hover:underline"
               >
                 Create collections for this library
@@ -78,7 +78,7 @@ export default function LibraryCollections({ libraryId }: LibraryCollectionsProp
         </div>
         {actingAdmin ? (
           <Button asChild variant="outline" size="sm">
-            <Link to={SERVER_SCOPE.paths.list({ libraryId })}>
+            <Link to={SERVER_SCOPE.paths.list({ libraryId, view: "arrange" })}>
               <SquareKanban aria-hidden />
               Arrange shelves
             </Link>

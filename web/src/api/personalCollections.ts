@@ -7,7 +7,6 @@ import type {
   CollectionPreviewResponse,
   MDBListDiscoveryResponse,
   UserImportSharedFields,
-  ImportUserCollectionResponse,
   UserCollectionSyncResult,
   ServerCollectionsResponse,
 } from "@/api/types";
@@ -122,14 +121,6 @@ export function syncFromV2(
   value: components["schemas"]["CollectionSyncResult"],
 ): UserCollectionSyncResult {
   return { ...value, status: value.status as UserCollectionSyncResult["status"] };
-}
-export function importFromV2(
-  value: components["schemas"]["CollectionImportResult"],
-): ImportUserCollectionResponse {
-  return {
-    collection: collectionFromV2(value.collection),
-    sync: value.sync ? syncFromV2(value.sync) : undefined,
-  };
 }
 export function serverCollectionsFromV2(
   value: V2Result<"GET /api/v2/collections/server">,

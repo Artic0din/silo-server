@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { changedFields, mergeDraft, takeFields } from "./draft";
+import { changedFields, clearDefaultSort, mergeDraft, takeFields } from "./draft";
 import type { CollectionDraft } from "./scope";
 
 const base: CollectionDraft = {
@@ -112,5 +112,43 @@ it("takeFields copies only the named fields", () => {
     ...base,
     name: "Theirs",
     description: "Mine too",
+  });
+});
+
+describe("smart rules and their libraries", () => {
+  const smart: CollectionDraft = {
+    ...base,
+    kind: "smart",
+    rules: {
+      library_ids: [1, 2],
+      match: "all",
+      groups: [],
+      sort: { field: "added_at", order: "desc" },
+    },
+  };
+
+  it("counts a library change once, as Libraries, not as Rules too", () => {
+    expect(
+      changedFields(smart, {
+        ...smart,
+        libraryIds: [1],
+        rules: { ...smart.rules!, library_ids: [1] },
+      }),
+    ).toEqual(["libraryIds"]);
+  });
+
+  it("still sees a rule change", () => {
+    expect(changedFields(smart, { ...smart, rules: { ...smart.rules!, limit: 50 } })).toEqual([
+      "rules",
+    ]);
+  });
+});
+
+describe("clearDefaultSort", () => {
+  it("drops the stored sort and keeps every other setting", () => {
+    expect(clearDefaultSort({ field: "title", order: "asc", mode: "manual_pins" })).toEqual({
+      mode: "manual_pins",
+    });
+    expect(clearDefaultSort(undefined)).toEqual({});
   });
 });

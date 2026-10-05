@@ -3,7 +3,9 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { LibraryCollection } from "@/api/types";
 import { V2ProblemError } from "@/api/v2/request";
+import type { EditorSnapshot } from "@/lib/collections/scope";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import { preloadLegacyCollectionEditors } from "@/test/preloadCollectionEditors";
@@ -14,8 +16,9 @@ beforeAll(preloadLegacyCollectionEditors);
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
 const state = vi.hoisted(() => ({ props: undefined as unknown }));
 vi.mock("@/hooks/queries/admin/libraries", () => ({ useAdminLibraries: () => ({ data: [] }) }));
-vi.mock("./SmartCollectionWizard", () => ({
-  default: (props: { etag: string; collection: { title: string; poster_url: string } }) => {
+vi.mock("@/components/collections/editor/CollectionEditor", () => ({
+  CollectionEditor: ({ snapshot }: { snapshot: EditorSnapshot<LibraryCollection> }) => {
+    const props = { etag: snapshot.etag, collection: snapshot.view.raw };
     state.props = props;
     return (
       <div>
@@ -23,9 +26,6 @@ vi.mock("./SmartCollectionWizard", () => ({
       </div>
     );
   },
-}));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
 }));
 
 installV2Recorder();

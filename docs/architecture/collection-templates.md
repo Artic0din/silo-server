@@ -1,11 +1,11 @@
 # Collection templates
 
 Collection templates are curated presets for synced library collections. The server owns the
-catalog; the admin and personal template galleries render whatever it returns, and template
-bundles apply a group of templates in one pass. The admin web shows bundles as Starter packs.
-This page covers what a contributor needs to add or change a template: registration,
-validation, the rules the tests enforce, and the poster artwork. User-facing behavior is
-documented in the manual at https://siloserver.org/docs/manage-collections.
+catalog; the web offers its templates as ready-made picks in the collection editor's Synced list
+step, and template bundles apply a group of templates in one pass. The admin web shows bundles as
+Starter packs. This page covers what a contributor needs to add or change a template:
+registration, validation, the rules the tests enforce, and the poster artwork. User-facing
+behavior is documented in the manual at https://siloserver.org/docs/manage-collections.
 
 ## Catalog and registration
 
@@ -58,16 +58,17 @@ documented in the manual at https://siloserver.org/docs/manage-collections.
    `TestPhase3FranchiseTemplatesUseExpectedBands` hold these rules. The last two also pin the
    template counts (18 popular genres, 18 top-rated genres, 1 kids, 11 franchises including the
    placeholder); update the count when you add one.
-5. Add a `tmdb_discover` or `tmdb_collection` template to a bundle. The gallery can't create
-   those two sources directly, and `TestBundleOnlyTemplatesAreReachableFromBundles` fails on one
+5. Add a `tmdb_discover` or `tmdb_collection` template to a bundle. No import route creates
+   those two sources, so the Synced list step can't create them and the v2 admin and personal
+   template lists leave them out. `TestBundleOnlyTemplatesAreReachableFromBundles` fails on one
    that no bundle references.
 6. Add both poster files (see below).
 
 ## Starter packs
 
 The admin web calls template bundles Starter packs (`web/src/components/collections/StarterPacksDialog.tsx`,
-helpers in `web/src/lib/collections/starterPacks.ts`). The single-template gallery no longer
-lists bundles. The rules the web keeps:
+helpers in `web/src/lib/collections/starterPacks.ts`). The Synced list step offers single
+templates only, never bundles. The rules the web keeps:
 
 - **Template summaries only.** The dialog reads `GET /api/v2/admin/collections/template-bundles`
   and its `templates` summaries, never the admin template catalog, so Discover and Franchise
@@ -116,6 +117,24 @@ lists bundles. The rules the web keeps:
 - `trakt`: the validator still accepts it, but the server rejects new Trakt collections with
   `unsupported_source`. Don't add Trakt templates.
 
+## Templates in the Synced list step
+
+The web has no template gallery. Templates are suggestions inside the editor's Synced list step
+(`web/src/components/collections/editor/SyncedListPanel.tsx`, rules in
+`web/src/lib/collections/synced.ts`):
+
+- **Creatable only.** A template shows when its source is one of the scope's `import_sources`
+  (`mdblist`, `tmdb` or `tmdb_list`) and it needs no profile. The personal template list is
+  already filtered that way on the server; the web applies the same filter to both scopes.
+- **Named lists only.** An `mdblist` or `tmdb_list` template with an empty `url` is a "bring your
+  own list" template; the step has its own link fields, so it isn't shown as a pick.
+- **A pick is a starting point.** It fills the name, description, poster (`PosterPath`, sent as
+  `poster_url`), `DefaultLimit` and `DefaultSyncSchedule` only where the person hasn't typed. A
+  personal list maps the schedule to a named one. A TMDB chart chosen on the chart tab uses the
+  template with the same preset, media type and window when there is one.
+- **Not pinned.** A list made from a pick is created with `featured: false`; the template's
+  `Featured` applies only through bundles.
+
 ## Poster artwork
 
 Every built-in template ships two files named after its ID:
@@ -163,8 +182,9 @@ Commands assume the repository root is the cwd.
 
 ```sh
 go test ./internal/collections/templates/...
-go test ./internal/api/handlers/ -run 'TestBuiltinTemplateTitleSlugsAreUnique|TestCollectionTemplateHandler|TestLibraryCollectionHandlerListsTemplateBundles'
+go test ./internal/api/handlers/ -run 'TestBuiltinTemplateTitleSlugsAreUnique|TestCollectionTemplateHandler|TestLibraryCollectionHandlerListsTemplateBundles|TestV1Template'
+go test ./internal/apiv2/ -run 'AdminTemplate|BuiltinBundleOnly|ImportableCollectionTemplates'
 ```
 
-When you change the gallery or Starter packs, also run
-`pnpm --dir web exec vitest run src/components/CollectionTemplateGallery src/components/collections/StarterPacksDialog.test.tsx src/lib/collections/starterPacks.test.ts src/lib/collectionTemplates.test.ts`.
+When you change how the web offers templates or Starter packs, also run
+`pnpm --dir web exec vitest run src/lib/collections/synced.test.ts src/pages/CollectionEditorPage.synced.test.tsx src/components/collections/StarterPacksDialog.test.tsx src/lib/collections/starterPacks.test.ts src/lib/collectionTemplates.test.ts`.

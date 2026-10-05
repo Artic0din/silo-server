@@ -69,7 +69,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin smart create: `query_definition` keeps numeric library ids; the top-level `library_ids` are strings. */
+  /** Admin smart create from the editor page: `query_definition` keeps numeric library ids; the top-level `library_ids` are strings. */
   adminSmartCreate: [
     {
       operation: "POST /api/v2/admin/collections",
@@ -164,7 +164,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** A loaded admin smart collection saved unchanged. The sentinel saves as no limit; the PATCH carries `featured`. */
+  /** A loaded admin smart collection saved unchanged from the editor page. The sentinel saves as no limit; the PATCH leaves out `featured`, so Pin set in Arrange stays. */
   adminSmartUnchanged: {
     "no limit": [
       {
@@ -178,7 +178,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -216,7 +215,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -254,7 +252,6 @@ export const goldens = {
           description: "",
           collection_type: "smart",
           visibility: "visible",
-          featured: false,
           query_definition: {
             library_ids: [1],
             match: "all",
@@ -282,7 +279,7 @@ export const goldens = {
       },
     ],
   } satisfies ByLimit,
-  /** A loaded personal smart collection saved unchanged; the PATCH carries no `description`. */
+  /** A loaded personal smart collection saved unchanged from the editor page, with `description`. */
   personalSmartUnchanged: {
     "no limit": [
       {
@@ -293,6 +290,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -328,6 +326,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -363,6 +362,7 @@ export const goldens = {
         },
         body: {
           name: "Rainy days",
+          description: "",
           is_shared: false,
           query_definition: {
             library_ids: [1],
@@ -391,7 +391,7 @@ export const goldens = {
       },
     ],
   } satisfies ByLimit,
-  /** Personal create: the new collection form starts as Smart; the poster file uploads after the POST. */
+  /** Personal smart create from the editor page, with `description`; the poster file uploads after the POST. */
   personalSmartCreate: [
     {
       operation: "POST /api/v2/collections",
@@ -399,6 +399,7 @@ export const goldens = {
       headers: {},
       body: {
         name: "Comfort",
+        description: "",
         collection_type: "smart",
         is_shared: false,
         query_definition: {
@@ -500,7 +501,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Personal smart wizard, poster removed: the DELETE follows the PATCH on Save. */
+  /** Personal smart editor page, poster removed: the DELETE follows the PATCH on Save. */
   personalSmartStagedPosterRemoval: [
     {
       operation: "PATCH /api/v2/collections/{id}",
@@ -510,6 +511,7 @@ export const goldens = {
       },
       body: {
         name: "Rainy days",
+        description: "",
         is_shared: false,
         query_definition: {
           library_ids: [1],
@@ -561,7 +563,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin MDBList import: `featured` defaults on. */
+  /** Admin MDBList import from a pasted link: imported unpinned (`featured: false`). */
   adminImportMDBList: [
     {
       operation: "POST /api/v2/admin/collections/import/mdblist",
@@ -571,13 +573,13 @@ export const goldens = {
         title: "Top Watched",
         description: "",
         url: "https://mdblist.com/lists/user/top-watched/json",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Admin TMDB chart import with the form's defaults. */
+  /** Admin TMDB chart import: Trending starts on Both, today, and is named for it. */
   adminImportTMDBChart: [
     {
       operation: "POST /api/v2/admin/collections/import/tmdb",
@@ -589,7 +591,7 @@ export const goldens = {
         preset: "trending",
         time_window: "day",
         media_type: "all",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
@@ -605,13 +607,13 @@ export const goldens = {
         title: "Festival Picks",
         description: "",
         url: "https://www.themoviedb.org/list/310-festival-picks",
-        featured: true,
+        featured: false,
         sort_config: {},
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Admin template import: the template's server poster is sent as `poster_url`, and `featured` defaults on. */
+  /** Admin template pick: the template's server poster is sent as `poster_url`; imported unpinned. */
   adminTemplateTMDB: [
     {
       operation: "POST /api/v2/admin/collections/import/tmdb",
@@ -620,7 +622,7 @@ export const goldens = {
       body: {
         title: "Trending Movies This Week",
         description: "Top trending movies on TMDB.",
-        featured: true,
+        featured: false,
         sync_schedule: "0 4 * * *",
         limit: 50,
         sort_config: {},
@@ -632,7 +634,7 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Admin template import of a list picked in MDBList search: the list's JSON URL and name. */
+  /** Admin pick from MDBList search: the list's JSON URL, name and own description. */
   adminTemplateMDBListPick: [
     {
       operation: "POST /api/v2/admin/collections/import/mdblist",
@@ -640,15 +642,15 @@ export const goldens = {
       headers: {},
       body: {
         title: "Oscar Winners",
-        description: "Any public MDBList list.",
-        featured: true,
+        description: "Best Picture winners.",
+        featured: false,
         sort_config: {},
         url: "https://mdblist.com/lists/cinephile/oscar-winners/json",
         library_ids: ["1"],
       },
     },
   ] satisfies Writes,
-  /** Personal template import: the cron default maps to a named schedule; the server poster is `poster_url`. */
+  /** Personal template pick: the cron default maps to a named schedule; the server poster is `poster_url`. */
   personalTemplateTMDB: [
     {
       operation: "POST /api/v2/collections/import/tmdb",
@@ -870,28 +872,42 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Add to collection as an acting admin, server manual collection: the admin item route. */
-  addToServerCollection: [
+  /**
+   * What Add to collection lists: the profile's own manual collections, for
+   * an acting admin too. Server collections are no longer offered here;
+   * admins add titles to them from the collection's editor.
+   */
+  addToCollectionChoices: ["Rainy days"],
+  /** What Add to collection reads to fill its list: one list, marked for the title. */
+  addToCollectionReads: [
     {
-      operation: "PUT /api/v2/admin/collections/{id}/items/{item_id}",
-      path: "/api/v2/admin/collections/lc1/items/movie:heat-1995",
+      operation: "GET /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      query: { contains_item: "movie:heat-1995" },
+    },
+  ] satisfies RecordedCall[],
+  /** Add to collection's inline create: the personal manual collection, then the title. */
+  addToNewCollection: [
+    {
+      operation: "POST /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      body: {
+        name: "Night in",
+        description: "",
+        is_shared: false,
+        include_in_server_collections: false,
+        collection_type: "manual",
+      },
+    },
+    {
+      operation: "PUT /api/v2/collections/{id}/items/{item_id}",
+      path: "/api/v2/collections/c1/items/movie:heat-1995",
       headers: {},
       body: {
         position: 0,
       },
     },
   ] satisfies Writes,
-  /** What Add to collection lists, by group. */
-  addToCollectionGroups: {
-    profile: [{ group: "My Collections", collections: ["Rainy days"] }],
-    actingAdmin: [
-      { group: "My Collections", collections: ["Rainy days"] },
-      { group: "Movies", collections: ["Oscar Winners · Library"] },
-    ],
-  },
-  /** What Add to collection reads to fill its list. */
-  addToCollectionReads: {
-    profile: ["GET /api/v2/collections"],
-    actingAdmin: ["GET /api/v2/collections", "GET /api/v2/library/{id}/collections"],
-  },
 };
