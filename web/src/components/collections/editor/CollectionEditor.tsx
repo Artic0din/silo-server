@@ -444,6 +444,9 @@ export function CollectionEditor<Raw extends WireCollection>({
     setDeletingRows(null);
     setDeleteError(null);
   }
+  // When the rows don't load but the list counts none, the plain confirm stays
+  // usable: the server still refuses with collection_in_use if one appeared.
+  const deleteRowsState = rowsState?.status === "error" && listedRowCount === 0 ? null : rowsState;
   async function deleteServerCollection() {
     if (!view || !editor.etag) return;
     const rows = deletingRows ?? savedRows ?? [];
@@ -753,7 +756,7 @@ export function CollectionEditor<Raw extends WireCollection>({
           onOpenChange={(open) => (open ? setConfirmDelete(true) : closeDelete())}
           title={`Delete "${view.name}"?`}
           libraryNames={savedLibraries.map((library) => library.name)}
-          rows={deletingRows ? { status: "ready", rows: deletingRows } : rowsState}
+          rows={deletingRows ? { status: "ready", rows: deletingRows } : deleteRowsState}
           rowLibraryNames={libraryNames}
           isPending={deleteRows.isPending || remove.isPending}
           error={deleteError}

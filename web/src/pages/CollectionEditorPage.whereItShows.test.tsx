@@ -45,6 +45,18 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({
 
 installV2Recorder();
 
+function problem(status: number, type: string) {
+  return async () => {
+    const { V2ProblemError } =
+      await vi.importActual<typeof import("@/api/v2/request")>("@/api/v2/request");
+    throw new V2ProblemError("op", {
+      type: `https://siloserver.org/docs/api/v2/problems/${type}`,
+      title: type,
+      status,
+    } as never);
+  };
+}
+
 const GHIBLI = { ...adminCollection, library_ids: ["1", "2"] };
 
 function section(id: string, overrides: Record<string, unknown>) {
@@ -73,6 +85,17 @@ const KIDS_ROW = section("s-kids", {
 });
 
 let rows: Array<ReturnType<typeof section>>;
+
+/** Each page's rows in order: `count` rows, with `rows` at their stored positions. */
+function pageOrder(call: RecordedCall) {
+  const libraryId = call.query?.library_id ?? null;
+  const count = libraryId === null ? 9 : 7;
+  const ids = Array.from({ length: count }, (_, index) => `other-${index}`);
+  for (const row of rows) {
+    if (row.library_id === libraryId) ids[row.position] = row.id;
+  }
+  return { ordered_ids: ids };
+}
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -114,6 +137,7 @@ beforeEach(() => {
     effective_sort: { field: "relevance", order: "desc" },
   });
   v2Recorder.answer("GET /api/v2/admin/collections/{id}/sections", () => ({ items: rows }));
+  v2Recorder.answer("GET /api/v2/admin/sections/order", pageOrder);
   v2Recorder.answer("GET /api/v2/admin/sections/{id}", (call: RecordedCall) =>
     rows.find((row) => call.path.endsWith(`/${row.id}`)),
   );
@@ -178,6 +202,22 @@ describe("rows that show a server collection", () => {
     ).toHaveAttribute("href", "/admin/home-rows?page=2&edit=s-kids");
     expect(group).toHaveTextContent("2 rows");
     expect(group).toHaveTextContent(ROWS_NOT_LISTED);
+  });
+
+  it("numbers each row by its place in the page order, not its stored position", async () => {
+    // Positions skip numbers after a row is deleted: s-home is stored at 7 but is 2nd of 4.
+    rows = [{ ...HOME_ROW, position: 7, page_row_count: 4 }];
+    v2Recorder.answer("GET /api/v2/admin/sections/order", {
+      ordered_ids: ["s-top", "s-home", "s-next", "s-last"],
+    });
+    showPage(EDITOR);
+    const group = await rowsGroup();
+    expect(
+      await within(group).findByRole("link", { name: "Studio Ghibli, Home · row 2 of 4" }),
+    ).toBeInTheDocument();
+    expect(
+      v2Recorder.callsOf("GET /api/v2/admin/sections/order").map((call) => call.query?.scope),
+    ).toEqual(["home"]);
   });
 
   it("says in the header where rows show it", async () => {
@@ -501,6 +541,55 @@ describe("deleting a collection rows show", () => {
       v2Recorder.callsOf("DELETE /api/v2/admin/sections/{id}").map((call) => call.path),
     ).toEqual(["/api/v2/admin/sections/s-home"]);
     expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(1);
+  });
+
+  it("counts a row that's already gone as done, and still deletes the collection", async () => {
+    v2Recorder.answer("GET /api/v2/admin/sections/{id}", async (call: RecordedCall) => {
+      if (call.path.endsWith("/s-home")) await problem(404, "not_found")();
+      return rows.find((row) => call.path.endsWith(`/${row.id}`));
+    });
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    const dialog = await openDelete(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete it and its 2 rows" }));
+    await waitFor(() => expect(location()).toMatch(/^\/admin\/collections(\?|$)/));
+    expect(
+      v2Recorder.callsOf("DELETE /api/v2/admin/sections/{id}").map((call) => call.path),
+    ).toEqual(["/api/v2/admin/sections/s-kids"]);
+    expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(1);
+  });
+
+  it("still deletes when the rows don't load and the list counts none", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}/sections", () => {
+      throw new Error("offline");
+    });
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    await within(await rowsGroup()).findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: 'Delete "Original"?' });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(location()).toMatch(/^\/admin\/collections(\?|$)/));
+    expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(1);
+  });
+
+  it("waits for the rows when they don't load but the list counts some", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}/sections", () => {
+      throw new Error("offline");
+    });
+    v2Recorder.answer(
+      "GET /api/v2/admin/collections",
+      adminCollectionList({ ...GHIBLI, row_count: 2 }),
+    );
+    const user = userEvent.setup();
+    showPage(EDITOR);
+    await within(await rowsGroup()).findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: 'Delete "Original"?' });
+    expect(within(dialog).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toBeDisabled();
   });
 
   it("stops before the collection when a row can't be deleted, and names what's left", async () => {

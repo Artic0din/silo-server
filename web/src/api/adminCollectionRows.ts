@@ -1,36 +1,70 @@
-import { deleteAdminSection, fetchAdminSectionSnapshot } from "@/api/adminSections";
+import {
+  deleteAdminSection,
+  fetchAdminSectionOrderSnapshot,
+  fetchAdminSectionSnapshot,
+} from "@/api/adminSections";
 import type { components } from "@/api/v2/schema";
 import { v2, V2ProblemError } from "@/api/v2/request";
 import type { CollectionRow } from "@/lib/collections/rows";
+import type { PageRef } from "@/lib/homeRows/types";
 
 type AdminCollectionSection = components["schemas"]["AdminCollectionSection"];
 
-export function collectionRowFromV2(value: AdminCollectionSection): CollectionRow {
-  const pageRowCount = Math.max(value.page_row_count, 1);
-  return {
-    id: value.id,
-    page:
-      value.scope === "library" && value.library_id !== null
-        ? { kind: "library", libraryId: Number(value.library_id) }
-        : { kind: "home" },
-    title: value.title,
-    enabled: value.enabled,
-    // Stored positions count from 0 and can skip numbers after a delete.
-    position: Math.min(value.position + 1, pageRowCount),
-    pageRowCount,
-  };
+function rowPage(value: AdminCollectionSection): PageRef {
+  return value.scope === "library" && value.library_id !== null
+    ? { kind: "library", libraryId: Number(value.library_id) }
+    : { kind: "home" };
 }
 
-/** The administrator Home and library page rows that show a server collection. */
+function pageKey(page: PageRef) {
+  return page.kind === "home" ? "home" : String(page.libraryId);
+}
+
+/**
+ * The administrator Home and library page rows that show a server collection.
+ * Stored positions skip numbers once a row is deleted, so each row's place is
+ * its rank in its page's order, read alongside.
+ */
 export async function fetchAdminCollectionRows(
   id: string,
   signal?: AbortSignal,
 ): Promise<CollectionRow[]> {
-  const page = await v2("GET /api/v2/admin/collections/{id}/sections", {
+  const { items } = await v2("GET /api/v2/admin/collections/{id}/sections", {
     path: { id },
     signal,
   });
-  return page.items.map(collectionRowFromV2);
+  const pages = new Map(items.map((item) => [pageKey(rowPage(item)), rowPage(item)]));
+  const orders = new Map(
+    await Promise.all(
+      [...pages].map(async ([key, page]) => {
+        const { ordered_ids } = await fetchAdminSectionOrderSnapshot(
+          page.kind,
+          page.kind === "library" ? page.libraryId : undefined,
+          signal,
+        );
+        return [key, ordered_ids] as const;
+      }),
+    ),
+  );
+  return items.map((item) => {
+    const page = rowPage(item);
+    return {
+      id: item.id,
+      page,
+      title: item.title,
+      enabled: item.enabled,
+      ...rowPlace(item, orders.get(pageKey(page)) ?? []),
+    };
+  });
+}
+
+/** The row's place on its page, counting from 1, and how many rows the page has. */
+function rowPlace(item: AdminCollectionSection, order: readonly string[]) {
+  const rank = order.indexOf(item.id);
+  if (rank >= 0) return { position: rank + 1, pageRowCount: order.length };
+  // Deleted since the list was read: the server's own numbers are all there is.
+  const pageRowCount = Math.max(item.page_row_count, 1);
+  return { position: Math.min(item.position + 1, pageRowCount), pageRowCount };
 }
 
 function isGone(error: unknown) {

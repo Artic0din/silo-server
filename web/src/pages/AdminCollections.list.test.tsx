@@ -622,6 +622,9 @@ describe("AdminCollections List: rows that show a collection", () => {
   beforeEach(() => {
     sections = [homeRow];
     v2Recorder.answer("GET /api/v2/admin/collections/{id}/sections", () => ({ items: sections }));
+    v2Recorder.answer("GET /api/v2/admin/sections/order", {
+      ordered_ids: ["h0", "h1", "h2", "h3", "h4", "s-home", "h6", "h7", "h8"],
+    });
     v2Recorder.answer("GET /api/v2/admin/sections/{id}", () => ({
       ...homeRow,
       config: { library_collection_id: "best-picture-winners" },
