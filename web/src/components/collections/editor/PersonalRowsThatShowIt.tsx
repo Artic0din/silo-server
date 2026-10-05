@@ -60,7 +60,8 @@ function PersonalRows({
   onLineChange,
 }: PersonalRowsProps) {
   const libraries = useUserLibraries();
-  const visible = libraries.data;
+  // Until the display preferences load, the list still holds hidden libraries.
+  const visible = libraries.isLoading ? undefined : libraries.data;
   const pages: PageRef[] | undefined = visible && [
     { kind: "home" },
     ...matchedLibraries(visible, savedLibraryIds).map((library) => ({

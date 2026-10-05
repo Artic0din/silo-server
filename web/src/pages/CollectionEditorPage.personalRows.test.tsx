@@ -34,12 +34,19 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({ useAdminLibraries: () => ({ 
 /** The libraries the profile sees, changeable per test. */
 const viewer = vi.hoisted(() => ({
   libraries: [] as Array<{ id: number; name: string; type: string }>,
+  /** True while the profile's hidden-library preferences are still loading. */
+  loading: false,
 }));
 vi.mock("@/hooks/queries/libraries", async () => ({
   ...(await vi.importActual<typeof import("@/hooks/queries/libraries")>(
     "@/hooks/queries/libraries",
   )),
-  useUserLibraries: () => ({ data: viewer.libraries, isError: false, refetch: vi.fn() }),
+  useUserLibraries: () => ({
+    data: viewer.libraries,
+    isLoading: viewer.loading,
+    isError: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 installV2Recorder();
@@ -111,6 +118,7 @@ beforeEach(() => {
   );
   HTMLElement.prototype.scrollIntoView = () => {};
   HTMLElement.prototype.hasPointerCapture = () => false;
+  viewer.loading = false;
   viewer.libraries = [
     { id: 1, name: "Movies", type: "movies" },
     { id: 2, name: "Kids", type: "movies" },
@@ -218,6 +226,15 @@ describe("rows that show a personal collection", () => {
     await screen.findByRole("textbox", { name: "Name" });
     expect(settingsReads()).toHaveLength(0);
     expect(screen.queryByRole("group", { name: "Rows that show it" })).toBeNull();
+  });
+
+  it("reads no page until it knows which libraries the profile hides", async () => {
+    // Until the preferences load, the library list still holds hidden libraries.
+    viewer.loading = true;
+    showPage(EDITOR);
+    await rowsGroup();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(settingsReads()).toHaveLength(0);
   });
 
   it("lists the rows on your Home and the pages of the libraries it matches", async () => {
