@@ -36,14 +36,17 @@ const LIBRARIES = [
   { id: 1, name: "Movies" },
   { id: 2, name: "4K Movies" },
 ];
+/** True while the profile's hidden-library preferences are still loading. */
+const preferences = vi.hoisted(() => ({ loading: false }));
 vi.mock("@/hooks/queries/libraries", () => ({
   useAvailableUserLibraries: () => ({ data: LIBRARIES }),
-  useUserLibraries: () => ({ data: LIBRARIES }),
+  useUserLibraries: () => ({ data: LIBRARIES, isLoading: preferences.loading }),
 }));
 
 installV2Recorder();
 
 beforeEach(() => {
+  preferences.loading = false;
   v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER]));
   v2Recorder.answer("DELETE /api/v2/collections/{id}", undefined);
   v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", undefined);
@@ -310,6 +313,17 @@ describe("CollectionPageActions", () => {
       ),
     );
     expect(v2Recorder.writes()).toEqual([]);
+  });
+
+  it("offers no library pages until it knows which libraries the profile hides", async () => {
+    // Until the preferences load, the library list still holds hidden libraries.
+    preferences.loading = true;
+    v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER, MAYA]));
+    personalCollection({ creator_profile_id: "p-maya", profile_id: "p-maya", is_shared: true });
+    renderPage({ scope: "personal", id: "c1" });
+
+    expect(await screen.findByRole("link", { name: "Add to my Home" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
   });
 
   it("offers a shared collection only the library pages it matches", async () => {

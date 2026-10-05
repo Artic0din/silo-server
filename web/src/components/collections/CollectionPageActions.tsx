@@ -207,7 +207,9 @@ function AddToMyHomeActions({
   collection: RowLinkCollection;
   libraryIds: readonly number[];
 }) {
-  const { data: libraries = [] } = useUserLibraries();
+  const userLibraries = useUserLibraries();
+  // Until the display preferences load, the list still holds hidden libraries.
+  const libraries = (userLibraries.isLoading ? undefined : userLibraries.data) ?? [];
   let pages: ReadonlyArray<{ id: number; name: string }>;
   if (collection.source === "user") pages = matchedLibraries(libraries, libraryIds);
   else {
