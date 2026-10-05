@@ -347,6 +347,27 @@ describe("server Synced list editor", () => {
     );
   });
 
+  it("says what the list decides and what the admin decides", async () => {
+    serverList("mdblist", MDBLIST);
+    showPage(SERVER_EDIT);
+    const list = await screen.findByRole("list", { name: "The list decides" });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Which titles are in it", "Their order, while the sort is “List order”"]);
+    const you = screen.getByRole("list", { name: "You decide" });
+    expect(
+      within(you)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Name, description and artwork",
+      "Order, max titles and the schedule",
+      "Where it shows",
+    ]);
+  });
+
   it("changes an MDBList link, and sends it without its query or fragment", async () => {
     serverList("mdblist", MDBLIST);
     showPage(SERVER_EDIT);
@@ -577,6 +598,17 @@ describe("server Synced list editor", () => {
     expect(patches(ADMIN_PATCH)[0]).not.toHaveProperty("source_url");
   });
 
+  it("leaves a Discover list's split to its locked summary", async () => {
+    serverList("tmdb", {
+      source_url: "tmdb://discover/movie",
+      source_config: { mode: "tmdb_discover", media_type: "movie", discover: {}, limit: 40 },
+    });
+    showPage(SERVER_EDIT);
+    await screen.findByText("Made by a starter pack. Its rules can't be changed here.");
+    expect(screen.queryByRole("list", { name: "The list decides" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "You decide" })).toBeNull();
+  });
+
   describe("a legacy Trakt list", () => {
     const TRAKT: Source = {
       source_url: "trakt://recommended/movie/p-owner",
@@ -754,6 +786,10 @@ describe("personal Synced list editor", () => {
       await screen.findByText("This server doesn't let profiles change a list's schedule."),
     ).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Sync schedule" })).toBeDisabled();
+    // The profile no longer decides the schedule.
+    const you = screen.getByRole("list", { name: "You decide" });
+    expect(within(you).getByText("Order and max titles")).toBeInTheDocument();
+    expect(within(you).queryByText(/schedule/)).toBeNull();
   });
 
   it("changes its MDBList link", async () => {

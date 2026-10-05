@@ -264,6 +264,21 @@ export const TRAKT_STILL_EDITABLE =
 export const TRAKT_SCHEDULE_STOPPED = "A stopped Trakt list can't be scheduled again.";
 export const PERSONAL_SCHEDULE_LOCKED =
   "This server doesn't let profiles change a list's schedule.";
+export const LIST_DECIDES = "The list decides";
+export const LIST_DECIDES_ITEMS = [
+  "Which titles are in it",
+  "Their order, while the sort is “List order”",
+] as const;
+export const YOU_DECIDE = "You decide";
+
+/** What the editor still controls on a list-backed collection. */
+export function youDecideItems(scheduleEditable: boolean): string[] {
+  return [
+    "Name, description and artwork",
+    scheduleEditable ? "Order, max titles and the schedule" : "Order and max titles",
+    "Where it shows",
+  ];
+}
 
 /** "3 hours ago": how long ago a sync ran. */
 export function syncedAgo(iso: string, now = Date.now()): string {
