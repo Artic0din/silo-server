@@ -6,6 +6,7 @@ import { CollectionRowSummary } from "@/components/collections/CollectionRowSumm
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  NO_MY_ROWS_YET,
   NO_ROWS_YET,
   ROWS_FAILED,
   ROWS_NOT_LISTED,
@@ -21,11 +22,15 @@ function RowsList({
   rows,
   libraryNames,
   highlightId,
+  empty,
+  note,
 }: {
   headingId: string;
   rows: RowsState;
   libraryNames: ReadonlyMap<number, string>;
   highlightId?: string | null;
+  empty: string;
+  note: string | null;
 }) {
   const listed = rows.status === "ready" ? rows.rows : null;
   return (
@@ -55,7 +60,7 @@ function RowsList({
         </div>
       ) : null}
       {listed && listed.length === 0 ? (
-        <p className="text-muted-foreground text-[13px]">{NO_ROWS_YET}</p>
+        <p className="text-muted-foreground text-[13px]">{empty}</p>
       ) : null}
       {listed && listed.length > 0 ? (
         <ul className="border-border/80 divide-border/70 grid divide-y overflow-hidden rounded-xl border">
@@ -81,28 +86,32 @@ function RowsList({
           })}
         </ul>
       ) : null}
-      <p className="text-muted-foreground text-[12.5px]">{ROWS_NOT_LISTED}</p>
+      {note ? <p className="text-muted-foreground text-[12.5px]">{note}</p> : null}
     </>
   );
 }
 
 /**
- * The admin Home and library page rows that show a server collection, styled
- * like Home rows: a house for Home, a library for a library page, each a link
- * that opens the row in Home rows. `rows` is null when the server doesn't
- * report them; the Add as a row menu (`children`) shows either way, and stays
- * mounted while the rows load.
+ * The Home and library page rows that show a collection, styled like Home
+ * rows: a house for Home, a library for a library page, each a link that
+ * opens the row in Home rows. A server collection lists the administrator's
+ * rows; a personal one (`mine`) the viewer's own. `rows` is null when the
+ * server doesn't report them; the Add as a row menu (`children`) shows either
+ * way, and stays mounted while the rows load.
  */
 export function RowsThatShowIt({
   rows,
   libraryNames,
   highlightId,
+  mine = false,
   children,
 }: {
   rows: RowsState | null;
   libraryNames: ReadonlyMap<number, string>;
   /** A row just added from here, highlighted for a moment. */
   highlightId?: string | null;
+  /** The viewer's own rows: no note about rows profiles add. */
+  mine?: boolean;
   children: ReactNode;
 }) {
   const headingId = useId();
@@ -118,6 +127,8 @@ export function RowsThatShowIt({
           rows={rows}
           libraryNames={libraryNames}
           highlightId={highlightId}
+          empty={mine ? NO_MY_ROWS_YET : NO_ROWS_YET}
+          note={mine ? null : ROWS_NOT_LISTED}
         />
       ) : null}
       {children}

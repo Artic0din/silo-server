@@ -976,11 +976,12 @@ describe("Catalog collection page actions", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Rainy days" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+    // A viewer's actions only: the collection's own menu needs the admin read.
+    expect(screen.getByRole("link", { name: "Add to my Home" })).toBeVisible();
     expect(v2Recorder.callsOf("GET /api/v2/admin/collections/{id}")).toEqual([]);
   });
 
-  it("shows no Edit on a server collection to a regular account", async () => {
+  it("offers a regular account Add to my Home on a server collection, not Edit", async () => {
     appUser = { id: 2, username: "sam", role: "user" };
     appProfile = { id: OWNER.id, is_primary: true };
     appInitialEntries = [buildLibraryCollectionCatalogHref("c1", "Original", 1)];
@@ -989,6 +990,10 @@ describe("Catalog collection page actions", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Rainy days" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add to my Home" })).toHaveAttribute(
+      "href",
+      "/settings/home-screen?page=home&add=collection%3Alibrary%3Ac1",
+    );
     expect(v2Recorder.callsOf("GET /api/v2/admin/collections/{id}")).toEqual([]);
   });
 
@@ -1003,7 +1008,7 @@ describe("Catalog collection page actions", () => {
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
-  it("shows a shared-with-me collection read-only, with its owner and no Edit", async () => {
+  it("shows a shared-with-me collection read-only, with its owner, Add to my Home and no Edit", async () => {
     personalCollectionBy(MAYA.id);
     appInitialEntries = [buildUserCollectionCatalogHref("c1", "Rainy days")];
 
@@ -1012,7 +1017,10 @@ describe("Catalog collection page actions", () => {
     expect(await screen.findByText("Read-only")).toBeVisible();
     expect(screen.getByText("Maya")).toBeVisible();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add to my Home" })).toHaveAttribute(
+      "href",
+      "/settings/home-screen?page=home&add=collection%3Auser%3Ac1",
+    );
   });
 
   it("explains the redirect from another profile's editor link and names the owner", async () => {
@@ -1023,7 +1031,7 @@ describe("Catalog collection page actions", () => {
 
     const callout = await screen.findByRole("note");
     expect(callout).toHaveTextContent(
-      "Only Maya can change Rainy days, so you're on its page instead.",
+      "Only Maya can change Rainy days, so you're on its page instead. You can still watch it and add it to your Home.",
     );
   });
 

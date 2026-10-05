@@ -99,8 +99,8 @@ export interface HideConfirm {
 /**
  * Where the collection shows. Server: its libraries, its shelf in each, the
  * Collections tab switch and the rows that show it (`rows`). Personal: sharing
- * with the other profiles on the account (hidden on a single-profile account)
- * and the Collections tab switch.
+ * with the other profiles on the account (hidden on a single-profile account),
+ * the Collections tab switch and the viewer's own rows that show it (`rows`).
  */
 export function WhereItShowsPanel({
   scopeKind,
@@ -123,7 +123,7 @@ export function WhereItShowsPanel({
   otherProfileNames: readonly string[];
   /** Personal: whether the saved collection is shared. */
   savedShared: boolean;
-  /** Server: the rows that show it, and Add as a row. */
+  /** The rows that show it, and Add as a row. */
   rows?: ReactNode;
   /** Server: set when rows show it, so hiding it asks first. */
   hideConfirm?: HideConfirm | null;
@@ -208,6 +208,7 @@ export function WhereItShowsPanel({
               }))
             }
           />
+          {rows ? <div className="border-border/70 border-t pt-5">{rows}</div> : null}
         </>
       ) : null}
     </section>

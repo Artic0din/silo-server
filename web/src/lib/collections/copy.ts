@@ -145,6 +145,13 @@ export const ADD_TO_LIBRARY_PAGE = "Add to a library page…";
 export const ADD_TO_LIBRARY_PAGE_HELP = "A row above a library's grid";
 export const OPEN_ROW = "Open row";
 
+// Personal collections: rows on the viewer's own Home and library pages.
+export const NO_MY_ROWS_YET = "None of your Home or library page rows show it yet.";
+export const ADD_TO_MY_HOME = "Add to my Home";
+export const ADD_TO_MY_HOME_ITEM = "Add to my Home…";
+export const ADD_TO_MY_HOME_HELP = "A row on your Home";
+export const ADD_TO_MY_LIBRARY_PAGE = "Add to my library page";
+
 export function rowCountLabel(count: number): string {
   return plural(count, "row");
 }

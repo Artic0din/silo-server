@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { SaveBar } from "@/components/SaveBar";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 import {
@@ -58,10 +57,11 @@ import { draftRules, type DraftField } from "@/lib/collections/draft";
 import { listReturnState, useListReturnPath } from "@/lib/collections/listReturn";
 import {
   addRowPath,
+  addToMyHomePath,
   onRowsLine,
   rowPages,
   rowLabels,
-  rowPlace,
+  rowPlaceInSentence,
   rowPlaces,
   type CollectionRow,
   type RowsState,
@@ -90,10 +90,12 @@ import { DetailsPanel } from "./DetailsPanel";
 import { EditorHeader, type OpenTarget } from "./EditorHeader";
 import { CollectionPreviewPane } from "./CollectionPreviewPane";
 import { ManualContentsPanel } from "./ManualContentsPanel";
+import { PersonalRowsThatShowIt } from "./PersonalRowsThatShowIt";
 import { RowsThatShowIt } from "./RowsThatShowIt";
 import { SaveFirstDialog } from "./SaveFirstDialog";
 import { SmartRulesPanel } from "./SmartRulesPanel";
 import { SyncedListPanel, type SyncedListPanelProps } from "./SyncedListPanel";
+import { useAddedRowHighlight } from "./useAddedRowHighlight";
 import { WhereItShowsPanel, type HideConfirm } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
@@ -397,29 +399,25 @@ export function CollectionEditor<Raw extends WireCollection>({
     hideConfirm = { rowCount: listedRowCount, places: null };
   }
 
-  // Back from Add row in Home rows: the new row flashes once it's listed.
+  // Back from Add row in Home rows (a personal collection: Settings > Home
+  // Screen): the new row flashes once it's listed.
   const addedRow = (location.state as Partial<AddedRowState> | null)?.addedRow;
-  const addedRowId = addedRow?.surface === "admin" ? addedRow.id : undefined;
-  const addedListed = Boolean(addedRowId && savedRows?.some((row) => row.id === addedRowId));
-  const [highlightId, setHighlightId] = useNewRowHighlight();
-  const highlighted = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!addedListed || highlighted.current === addedRowId) return;
-    highlighted.current = addedRowId;
-    setHighlightId(addedRowId ?? null);
-  }, [addedListed, addedRowId, setHighlightId]);
+  const addedRowId =
+    addedRow?.surface === (isServer ? "admin" : "profile") ? addedRow.id : undefined;
+  const highlightId = useAddedRowHighlight(isServer ? addedRowId : undefined, savedRows);
+  // A personal collection's rows are read in Where it shows; it hands the header its line.
+  const [personalOnRows, setPersonalOnRows] = useState<string | null>(null);
 
   // Add as a row: Home rows on that page, coming back here. Unsaved changes are asked about first.
-  const [savingFirst, setSavingFirst] = useState<{ page: PageRef; path: string } | null>(null);
-  function addAsRow(page: PageRef) {
+  const [savingFirst, setSavingFirst] = useState<{ where: string; path: string } | null>(null);
+  function addAsRow(page: PageRef, where = rowPlaceInSentence(page, libraryNames)) {
     if (!editor.id) return;
     const editLibraryId = Number(new URLSearchParams(location.search).get("libraryId")) || null;
-    const path = addRowPath(
-      editor.id,
-      page,
-      scope.paths.edit(editor.id, { libraryId: libraryId ?? editLibraryId }),
-    );
-    if (editor.isDirty) setSavingFirst({ page, path });
+    const returnTo = scope.paths.edit(editor.id, { libraryId: libraryId ?? editLibraryId });
+    const path = isServer
+      ? addRowPath(editor.id, page, returnTo)
+      : addToMyHomePath({ source: "user", id: editor.id }, page, returnTo);
+    if (editor.isDirty) setSavingFirst({ where, path });
     else setDetour(path);
   }
   async function saveAndContinue() {
@@ -428,6 +426,8 @@ export function CollectionEditor<Raw extends WireCollection>({
     setSavingFirst(null);
     if (saved) setAfterSave(savingFirst.path);
   }
+  // Only a hidden server collection waits to be shown: a personal row's See all
+  // opens however its Collections tab switch is set.
   let addRowBlocked: string | null = null;
   if (!created) addRowBlocked = CREATE_IT_FIRST;
   else if (draft.server?.visibility === "hidden") addRowBlocked = SHOW_IT_FIRST;
@@ -680,13 +680,10 @@ export function CollectionEditor<Raw extends WireCollection>({
                     isServer ? savedLibraries.map((library) => library.name) : undefined
                   }
                   itemCount={view.itemCount}
-                  extra={
-                    isServer && savedRows
-                      ? [metaExtra, onRowsLine(savedRows, libraryNames)].filter(
-                          (part): part is string => Boolean(part),
-                        )
-                      : metaExtra
-                  }
+                  extra={[
+                    metaExtra,
+                    isServer && savedRows ? onRowsLine(savedRows, libraryNames) : personalOnRows,
+                  ].filter((part): part is string => Boolean(part))}
                 />
               ) : null
             }
@@ -743,7 +740,17 @@ export function CollectionEditor<Raw extends WireCollection>({
                     onPick={addAsRow}
                   />
                 </RowsThatShowIt>
-              ) : undefined
+              ) : (
+                <PersonalRowsThatShowIt
+                  collectionId={created ? editor.id : undefined}
+                  savedLibraryIds={view?.libraryIds ?? []}
+                  draftLibraryIds={draft.libraryIds}
+                  addedRowId={addedRowId}
+                  disabledReason={addRowBlocked}
+                  onAdd={addAsRow}
+                  onLineChange={setPersonalOnRows}
+                />
+              )
             }
             hideConfirm={hideConfirm}
           />
@@ -781,9 +788,7 @@ export function CollectionEditor<Raw extends WireCollection>({
           savingFirst
             ? saveFirstDescription(
                 view?.name ?? draft.name,
-                savingFirst.page.kind === "home"
-                  ? "Home"
-                  : `the ${rowPlace(savingFirst.page, libraryNames)}`,
+                savingFirst.where,
                 pending,
                 kind === "manual",
               )

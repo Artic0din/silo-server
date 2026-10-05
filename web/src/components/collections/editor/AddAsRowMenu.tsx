@@ -20,28 +20,32 @@ interface NamedLibrary {
 
 /**
  * "Add as a row ▾": Home, then the library pages of the collection's own
- * libraries, then the other libraries. Disabled with its reason in visible
- * text when the collection can't be added yet.
+ * libraries, then the other libraries. `mine` names the viewer's own pages
+ * ("My Home", "My Kids page"). Disabled with its reason in visible text when
+ * the collection can't be added yet.
  */
 export function AddAsRowMenu({
   bound,
   others,
+  mine = false,
   disabledReason,
   onPick,
 }: {
   bound: readonly NamedLibrary[];
   others: readonly NamedLibrary[];
+  mine?: boolean;
   disabledReason?: string | null;
   onPick: (page: PageRef) => void;
 }) {
   const reasonId = useId();
+  const own = (place: string) => (mine ? `My ${place}` : place);
   const libraryItem = (library: NamedLibrary) => (
     <DropdownMenuItem
       key={library.id}
       onSelect={() => onPick({ kind: "library", libraryId: library.id })}
     >
       <LibraryIcon aria-hidden />
-      {libraryPageLabel(library.name)}
+      {own(libraryPageLabel(library.name))}
     </DropdownMenuItem>
   );
   return (
@@ -61,7 +65,7 @@ export function AddAsRowMenu({
         <DropdownMenuContent align="start" className="min-w-[220px]">
           <DropdownMenuItem onSelect={() => onPick({ kind: "home" })}>
             <House aria-hidden />
-            Home
+            {own("Home")}
           </DropdownMenuItem>
           {bound.length > 0 ? <DropdownMenuSeparator /> : null}
           {bound.map(libraryItem)}

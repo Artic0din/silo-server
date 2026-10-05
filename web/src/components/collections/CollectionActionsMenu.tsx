@@ -7,6 +7,8 @@ import {
   ADD_TO_HOME_HELP,
   ADD_TO_LIBRARY_PAGE,
   ADD_TO_LIBRARY_PAGE_HELP,
+  ADD_TO_MY_HOME_HELP,
+  ADD_TO_MY_HOME_ITEM,
   SHOW_TO_OTHER_PROFILES_LABEL,
   SHOW_TO_OTHER_PROFILES_SHORT_HELP,
 } from "@/lib/collections/copy";
@@ -44,23 +46,29 @@ function openInItem({ libraries, onOpen, disabledReason }: OpenInLibraries): Act
   };
 }
 
-/** Adding a server collection as a Home row or a library page row. */
+/**
+ * Adding a collection as a Home row or a library page row: a server
+ * collection on everyone's pages, or (`mine`) one on the viewer's own Home.
+ */
 export interface AddAsRow {
   /** The library pages offered, the collection's own libraries first. */
   libraries: ReadonlyArray<{ id: number; name: string }>;
   onAdd: (page: PageRef) => void;
   /** Why it can't be added now, shown under each item. */
   disabledReason?: string;
+  /** The viewer's own Home ("Add to my Home…"). */
+  mine?: boolean;
 }
 
-function addAsRowItems({ libraries, onAdd, disabledReason }: AddAsRow): ActionMenuItem[] {
+function addAsRowItems({ libraries, onAdd, disabledReason, mine }: AddAsRow): ActionMenuItem[] {
   const disabled = Boolean(disabledReason);
   const home: ActionMenuItem = {
     key: "add-home",
-    label: ADD_TO_HOME,
-    help: disabledReason ?? ADD_TO_HOME_HELP,
+    label: mine ? ADD_TO_MY_HOME_ITEM : ADD_TO_HOME,
+    help: disabledReason ?? (mine ? ADD_TO_MY_HOME_HELP : ADD_TO_HOME_HELP),
     icon: House,
-    group: true,
+    // Your own card's menu runs on from Edit and Sync now (spec §5.3).
+    group: !mine,
     disabled,
     onSelect: () => onAdd({ kind: "home" }),
   };
@@ -92,9 +100,10 @@ function addAsRowItems({ libraries, onAdd, disabledReason }: AddAsRow): ActionMe
 /**
  * The ⋯ on a collection the viewer may change: Edit collection, Open in for a
  * server collection, Sync now for a synced list, Add to Home and Add to a
- * library page for a server collection, the sharing switch on a
- * multi-profile account, and Delete…. Leave out a handler and its item is
- * left out. `placement="poster"` draws the trigger over a card's artwork.
+ * library page for a server collection (Add to my Home… for your own), the
+ * sharing switch on a multi-profile account, and Delete…. Leave out a handler
+ * and its item is left out. `placement="poster"` draws the trigger over a
+ * card's artwork.
  */
 export function CollectionActionsMenu({
   name,

@@ -241,15 +241,28 @@ function sectionScopeQuery(scope: ProfileSectionScope, libraryId?: string | numb
   return { scope, library_id: libraryId ? String(libraryId) : undefined };
 }
 
+/** The cache key of one page's rows as this profile sees them, in order. */
+export function profileSectionSettingsKey(scope: ProfileSectionScope, libraryId?: number) {
+  return sectionKeys.profileOverrides(scope, libraryId ? String(libraryId) : undefined);
+}
+
+/** One page's rows as this profile sees them, in order, hidden ones included. */
+export async function fetchProfileSectionSettings(
+  scope: ProfileSectionScope,
+  libraryId?: number,
+  signal?: AbortSignal,
+): Promise<{ sections: SettingsSectionEntry[] }> {
+  const settings = await v2("GET /api/v2/profile/sections/settings", {
+    query: sectionScopeQuery(scope, libraryId),
+    signal,
+  });
+  return { sections: settings.items };
+}
+
 export function useProfileSectionSettings(scope: ProfileSectionScope, libraryId?: number) {
   return useQuery({
-    queryKey: sectionKeys.profileOverrides(scope, libraryId ? String(libraryId) : undefined),
-    queryFn: async (): Promise<{ sections: SettingsSectionEntry[] }> => {
-      const settings = await v2("GET /api/v2/profile/sections/settings", {
-        query: sectionScopeQuery(scope, libraryId),
-      });
-      return { sections: settings.items };
-    },
+    queryKey: profileSectionSettingsKey(scope, libraryId),
+    queryFn: () => fetchProfileSectionSettings(scope, libraryId),
   });
 }
 

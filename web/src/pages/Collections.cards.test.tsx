@@ -104,9 +104,24 @@ describe("Your collections card menu", () => {
     expect(share).toHaveAttribute("aria-checked", "false");
     expect([...menu.querySelectorAll('[role^="menuitem"]')]).toEqual([
       within(menu).getByRole("menuitem", { name: "Edit collection" }),
+      within(menu).getByRole("menuitem", { name: "Add to my Home…" }),
       share,
       within(menu).getByRole("menuitem", { name: "Delete…" }),
     ]);
+  });
+
+  it("opens Add row on your Home from Add to my Home…, changing nothing yet", async () => {
+    show();
+    const menu = await openMenu("Rainy days");
+    const add = within(menu).getByRole("menuitem", {
+      name: "Add to my Home…",
+      description: "A row on your Home",
+    });
+    await userEvent.click(add);
+    expect(await screen.findByTestId("where")).toHaveTextContent(
+      "/settings/home-screen?page=home&add=collection%3Auser%3Ac1",
+    );
+    expect(v2Recorder.writes()).toEqual([]);
   });
 
   it("offers Sync now only on a synced list", async () => {
