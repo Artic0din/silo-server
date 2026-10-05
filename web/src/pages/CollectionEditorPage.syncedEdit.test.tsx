@@ -284,6 +284,33 @@ describe("server Synced list editor", () => {
     expect(patch.body).toMatchObject({ title: "Netflix Originals" });
   });
 
+  it("reads the list again after a failed Sync now, for its reason and token", async () => {
+    const saved = serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {
+      // The server records the failed run on the collection, then answers an error.
+      v2Recorder.bump("/api/v2/admin/collections/c1");
+      v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
+        ...saved,
+        last_sync_status: "failed",
+        last_sync_message: "MDBList didn't answer.",
+        last_sync_at: new Date().toISOString(),
+      });
+      throw new Error("MDBList didn't answer.");
+    });
+    showPage(SERVER_EDIT);
+    await rename("Netflix Originals");
+
+    const menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("MDBList didn't answer.");
+
+    const afterSync = v2Recorder.etag("/api/v2/admin/collections/c1");
+    await save(ADMIN_PATCH);
+    const [patch] = v2Recorder.callsOf(ADMIN_PATCH) as [RecordedCall];
+    expect(v2Recorder.callsOf(ADMIN_PATCH)).toHaveLength(1);
+    expect(patch.headers["If-Match"]).toBe(afterSync);
+  });
+
   it("reads the list again until a sync started elsewhere ends", async () => {
     const running = serverList("mdblist", MDBLIST, { last_sync_status: "running" });
     vi.useFakeTimers({ shouldAdvanceTime: true });

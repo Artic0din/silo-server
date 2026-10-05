@@ -265,11 +265,10 @@ export function CollectionEditor<Raw extends WireCollection>({
   function syncNow() {
     if (!editor.id || syncing) return;
     syncList.mutate(editor.id, {
-      onSuccess: (run) => {
-        setSkipped(run.itemsUnmatched);
-        // The sync moved the collection's revision: read it so Save sends the new token.
-        reread();
-      },
+      onSuccess: (run) => setSkipped(run.itemsUnmatched),
+      // A sync records its run on the collection, even one that fails: read
+      // it for the status and so Save sends the new token.
+      onSettled: reread,
     });
   }
 
