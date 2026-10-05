@@ -84,7 +84,11 @@ function serverList(
   return collection;
 }
 
-function personalList(type: "mdblist" | "tmdb", source: Source, extra: Record<string, unknown>) {
+function personalList(
+  type: "mdblist" | "tmdb" | "trakt",
+  source: Source,
+  extra: Record<string, unknown>,
+) {
   v2Recorder.answer("GET /api/v2/collections/{id}", {
     ...personalSyncedCollection(type, source),
     ...extra,
@@ -710,6 +714,27 @@ describe("personal Synced list editor", () => {
       include_in_server_collections: false,
       sync_schedule: "weekly",
     });
+  });
+
+  it("sends no libraries for a legacy Trakt list, which the server won't take", async () => {
+    personalList(
+      "trakt",
+      {
+        source_url: "trakt://recommended/movie/p-owner",
+        source_config: { limit: 40, library_ids: [1] },
+      },
+      { sync_schedule: "17 4 * * *", sync_cadence: "daily" },
+    );
+    showPage(PERSONAL_EDIT);
+    const schedule = await screen.findByRole("combobox", { name: "Sync schedule" });
+    await vi.waitFor(() => expect(schedule).toBeEnabled());
+    choose(schedule, "Weekly");
+    await save(PERSONAL_PATCH);
+    const body = patches(PERSONAL_PATCH)[0]!;
+    expect(body).toMatchObject({ sync_schedule: "weekly" });
+    expect(body).not.toHaveProperty("library_ids");
+    expect(body).not.toHaveProperty("source_url");
+    expect(body).not.toHaveProperty("max_items");
   });
 
   it("keeps a schedule it can't name until another is picked", async () => {

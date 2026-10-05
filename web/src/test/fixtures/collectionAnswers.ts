@@ -73,7 +73,7 @@ export function adminSyncedCollection(
 
 /** The personal collection fixture as a synced collection of `type` with `source`. */
 export function personalSyncedCollection(
-  type: "mdblist" | "tmdb",
+  type: "mdblist" | "tmdb" | "trakt",
   source: { source_url: string; source_config: Record<string, unknown> },
 ) {
   return { ...getCollectionOk, collection_type: type, ...source };
