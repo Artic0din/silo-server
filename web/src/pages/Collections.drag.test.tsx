@@ -64,7 +64,7 @@ function show() {
   );
 }
 
-const pointer = { isPrimary: true, button: 0, pointerId: 1 };
+const pointer = { isPrimary: true, button: 0, pointerId: 1, pointerType: "mouse" };
 
 /**
  * Presses on target, moves well past the drag threshold, and releases. Each
@@ -130,6 +130,39 @@ describe("Dragging a Your collections card", () => {
     pointerDrag(trigger);
     expect(v2Recorder.operations()).not.toContain("GET /api/v2/collections/order");
     expect(cardOf("Rainy days")).toHaveStyle({ opacity: "1" });
+  });
+
+  it("does not drag the card when a touch starts on the card itself", async () => {
+    show();
+    await screen.findByRole("button", { name: "More for Rainy days" });
+    const link = within(cardOf("Rainy days")).getAllByRole("link")[0]!;
+    const touch = { ...pointer, pointerType: "touch" };
+
+    // A finger that starts a scroll on the card moves a few pixels before the
+    // browser takes over; that must not start a drag. Touch drags use the handle.
+    act(() => void fireEvent.pointerDown(link, { ...touch, clientX: 10, clientY: 10 }));
+    act(() => void fireEvent.pointerMove(document, { ...touch, clientX: 10, clientY: 60 }));
+    expect(cardOf("Rainy days")).toHaveStyle({ opacity: "1" });
+    act(() => void fireEvent.pointerCancel(document, { ...touch, clientX: 10, clientY: 60 }));
+    expect(v2Recorder.operations()).not.toContain("GET /api/v2/collections/order");
+  });
+
+  it("still drags the card from its handle on touch", async () => {
+    show();
+    await screen.findByRole("button", { name: "More for Rainy days" });
+    const touch = { ...pointer, pointerType: "touch" };
+
+    act(() => {
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Drag Rainy days" }), {
+        ...touch,
+        clientX: 10,
+        clientY: 10,
+      });
+    });
+    act(() => void fireEvent.pointerMove(document, { ...touch, clientX: 60, clientY: 10 }));
+    expect(cardOf("Rainy days")).toHaveStyle({ opacity: "0.4" });
+    act(() => void fireEvent.pointerUp(document, { ...touch, clientX: 60, clientY: 10 }));
+    await vi.waitFor(() => expect(fireEvent.click(document.body)).toBe(true));
   });
 
   it("still drags the card from its handle", async () => {

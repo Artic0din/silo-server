@@ -586,10 +586,13 @@ function SortableCollectionCard({
           ? (event) => {
               // Only a press on the card itself starts a drag: not one in the
               // ⋯ menu, which renders in a portal but still bubbles here
-              // through React, and not one on the ⋯ button.
+              // through React, and not one on the ⋯ button. A finger or pen
+              // drags only from the handle: elsewhere on the card it may be
+              // the start of a scroll.
               const target = event.target as Element;
               if (!event.currentTarget.contains(target)) return;
               if (target.closest("button:not([data-drag-handle])")) return;
+              if (event.pointerType !== "mouse" && !target.closest("[data-drag-handle]")) return;
               listeners?.onPointerDown?.(event);
             }
           : undefined
