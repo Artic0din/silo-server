@@ -96,9 +96,9 @@ function Where() {
   return <output aria-label="Location">{`${location.pathname}${location.search}`}</output>;
 }
 
-function renderPage(path = "/admin/collections") {
+function renderPage(path = "/admin/collections", client = new QueryClient()) {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route
@@ -409,6 +409,23 @@ describe("AdminCollections Select collections", () => {
     expect(v2Recorder.writes()).toEqual([]);
   });
 
+  it("hides nothing and says so when the rows that use them can't be read", async () => {
+    vi.mocked(toast.error).mockClear();
+    renderPage(
+      "/admin/collections",
+      new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    );
+    const user = await enterSelectMode();
+    v2Recorder.answer("GET /api/v2/admin/collections", () => {
+      throw new Error("Server unavailable");
+    });
+    await pick(user, "Studio Ghibli", "Christmas Classics");
+    await user.click(within(bar()).getByRole("button", { name: "Hide from tabs" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
   it("uses the one collection's own wording when only one would hide", async () => {
     renderPage();
     const user = await enterSelectMode();
@@ -603,6 +620,34 @@ describe("AdminCollections Delete all while select mode works", () => {
     expect(toggle).toBeDisabled();
     await act(async () => finish());
     await waitFor(() => expect(toggle).toBeEnabled());
+  });
+
+  it("waits for a picked list's own sync from its row", async () => {
+    let finish!: () => void;
+    v2Recorder.answer(
+      "POST /api/v2/admin/collections/{id}/sync",
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ status: "success", message: "", items_matched: 3 });
+        }),
+    );
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText("Netflix Originals");
+    await user.click(screen.getByRole("button", { name: "More for Netflix Originals" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Sync now" }));
+    await waitFor(() =>
+      expect(v2Recorder.callsOf("POST /api/v2/admin/collections/{id}/sync")).toHaveLength(1),
+    );
+    await enterSelectMode(user);
+    await pick(user, "Netflix Originals");
+    // A bar action now would read the ETag the sync is about to move.
+    expect(within(bar()).getByRole("button", { name: "Hide from tabs" })).toBeDisabled();
+    expect(within(bar()).getByRole("button", { name: "Sync 1 list" })).toBeDisabled();
+    await act(async () => finish());
+    await waitFor(() =>
+      expect(within(bar()).getByRole("button", { name: "Hide from tabs" })).toBeEnabled(),
+    );
   });
 
   it("waits for a Show or Hide to finish", async () => {

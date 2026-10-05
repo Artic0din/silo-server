@@ -484,10 +484,12 @@ export default function AdminCollections() {
   /**
    * `targets` with the row counts the List gives when read again: rows may
    * have been added or removed since it loaded. Only the List carries row
-   * counts (Arrange's board doesn't).
+   * counts (Arrange's board doesn't). Throws when the read fails rather than
+   * fall back on counts that may be stale.
    */
   async function withFreshRowCounts(targets: LibraryCollection[]) {
-    const { data: fresh = collections } = await allCollections.refetch();
+    const { data: fresh = collections, error } = await allCollections.refetch();
+    if (error) throw error;
     const rowCounts = new Map(fresh.map((collection) => [collection.id, collection.row_count]));
     return targets.map((collection) => ({
       ...collection,
@@ -510,6 +512,9 @@ export default function AdminCollections() {
     let hiding: LibraryCollection[];
     try {
       hiding = await withFreshRowCounts(changing);
+    } catch (error) {
+      toast.error(adminMutationMessage(error, "Could not check which rows use them"));
+      return;
     } finally {
       setBatchRunning(false);
     }
@@ -866,8 +871,13 @@ export default function AdminCollections() {
                 count={selected.length}
                 limit={MAX_SELECTED_COLLECTIONS}
                 noun="collections"
-                // A row's own switch save would move the ETags a bar action reads.
-                busy={batchRunning || deleting || visibilityOverrides.size > 0}
+                // A row's own switch save or sync would move the ETags a bar action reads.
+                busy={
+                  batchRunning ||
+                  deleting ||
+                  visibilityOverrides.size > 0 ||
+                  selected.some((collection) => syncingIds.has(collection.id))
+                }
                 note={syncSkipNote(
                   selectedSmart,
                   selected.length - selectedLists.length - selectedSmart,
