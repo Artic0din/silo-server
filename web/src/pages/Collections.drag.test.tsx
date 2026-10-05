@@ -64,7 +64,7 @@ function show() {
   );
 }
 
-const pointer = { isPrimary: true, button: 0, pointerId: 1 };
+const pointer = { isPrimary: true, button: 0, pointerId: 1, pointerType: "mouse" };
 
 /**
  * Presses on target, moves well past the drag threshold, and releases. Each
@@ -132,6 +132,39 @@ describe("Dragging a Your collections card", () => {
     expect(cardOf("Rainy days")).toHaveStyle({ opacity: "1" });
   });
 
+  it("does not drag the card when a touch starts on the card itself", async () => {
+    show();
+    await screen.findByRole("button", { name: "More for Rainy days" });
+    const link = within(cardOf("Rainy days")).getAllByRole("link")[0]!;
+    const touch = { ...pointer, pointerType: "touch" };
+
+    // A finger that starts a scroll on the card moves a few pixels before the
+    // browser takes over; that must not start a drag. Touch drags use the handle.
+    act(() => void fireEvent.pointerDown(link, { ...touch, clientX: 10, clientY: 10 }));
+    act(() => void fireEvent.pointerMove(document, { ...touch, clientX: 10, clientY: 60 }));
+    expect(cardOf("Rainy days")).toHaveStyle({ opacity: "1" });
+    act(() => void fireEvent.pointerCancel(document, { ...touch, clientX: 10, clientY: 60 }));
+    expect(v2Recorder.operations()).not.toContain("GET /api/v2/collections/order");
+  });
+
+  it("still drags the card from its handle on touch", async () => {
+    show();
+    await screen.findByRole("button", { name: "More for Rainy days" });
+    const touch = { ...pointer, pointerType: "touch" };
+
+    act(() => {
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Drag Rainy days" }), {
+        ...touch,
+        clientX: 10,
+        clientY: 10,
+      });
+    });
+    act(() => void fireEvent.pointerMove(document, { ...touch, clientX: 60, clientY: 10 }));
+    expect(cardOf("Rainy days")).toHaveStyle({ opacity: "0.4" });
+    act(() => void fireEvent.pointerUp(document, { ...touch, clientX: 60, clientY: 10 }));
+    await vi.waitFor(() => expect(fireEvent.click(document.body)).toBe(true));
+  });
+
   it("still drags the card from its handle", async () => {
     show();
     await screen.findByRole("button", { name: "More for Rainy days" });
@@ -163,6 +196,38 @@ describe("Your collections confirm dialogs", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     await vi.waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("keep the collection's name in their titles while they close", async () => {
+    show();
+    // Every text the dialogs ever rendered, including frames that a closing
+    // dialog shows only until it unmounts.
+    const titles: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData") titles.push(record.target.nodeValue ?? "");
+        for (const node of record.addedNodes) titles.push(node.textContent ?? "");
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+
+    for (const item of ["Delete…", "Show to other profiles"]) {
+      await userEvent.click(await screen.findByRole("button", { name: "More for Rainy days" }));
+      const menu = await screen.findByRole("menu");
+      await userEvent.click(
+        within(menu).getByRole(item === "Delete…" ? "menuitem" : "menuitemcheckbox", {
+          name: item,
+        }),
+      );
+      const dialog = await screen.findByRole("alertdialog");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await vi.waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    }
+    observer.disconnect();
+
+    expect(titles.some((text) => text.includes('Delete "Rainy days"?'))).toBe(true);
+    expect(titles.some((text) => text.includes("Stop sharing Rainy days?"))).toBe(true);
+    expect(titles.filter((text) => text.includes("undefined"))).toEqual([]);
   });
 
   it("return focus to the card's ⋯ when stopping sharing is cancelled", async () => {
