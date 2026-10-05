@@ -355,6 +355,108 @@ export function firstSyncMessage(sync?: { status: string; message: string; items
   return { tone: "success" as const, text: `Created. The first sync found ${titles}.` };
 }
 
+// --- A saved Synced list ----------------------------------------------------
+
+export const SYNC_NOW = "Sync now";
+export const SYNCING_NOW = "Syncing now…";
+/** Why Sync now waits: it runs the saved list, not unsaved changes to it. */
+export const SAVE_BEFORE_SYNC = "Save your changes first; a sync runs the saved list.";
+export const LAST_SYNC = "Last sync";
+export const NEXT_SYNC = "Next sync";
+export const NOT_IN_YOUR_LIBRARIES = "Not in your libraries";
+export const NOT_SYNCED_YET = "Not yet";
+export const NOT_SCHEDULED = "Not scheduled";
+export const NOT_COUNTED_YET = "Not counted yet";
+export const WHY_SKIPPED = "Why titles are skipped";
+export const CHANGE_LINK = "Change link";
+export const MDBLIST_LINK = "MDBList link";
+export const TMDB_LIST_LINK = "TMDB list link";
+export const LINK_CHANGES_AT_NEXT_SYNC = "Public lists only. Titles change at the next sync.";
+export const TMDB_LIST_INVALID =
+  "Paste the link to a public list on themoviedb.org, like https://www.themoviedb.org/list/310.";
+export const PICK_A_CHART = "Pick a chart.";
+export const CHART_SET_WHEN_MADE = "set when it was made";
+export const FRANCHISE_ID_LABEL = "TMDB collection ID";
+export const FIND_FRANCHISE_ID = "Find the ID on themoviedb.org";
+export const FRANCHISE_ID_HELP =
+  "The number in the collection's link, for example themoviedb.org/collection/119. Titles change at the next sync.";
+export const FRANCHISE_ID_MISSING =
+  "This list doesn't follow a TMDB collection yet. Add its ID so it can sync.";
+export const FRANCHISE_ID_INVALID = "Use the number from the collection's link, like 119.";
+export const DISCOVER_LOCKED = "Made by a starter pack. Its rules can't be changed here.";
+export const DISCOVER_STILL_EDITABLE =
+  "You can still change its name, artwork, max titles, schedule and where it shows.";
+export const TRAKT_LOCKED =
+  "New Trakt lists aren't supported. This one keeps its source and libraries.";
+export const TRAKT_STILL_EDITABLE =
+  "You can still change its name, artwork, order, schedule and where it shows.";
+export const TRAKT_SCHEDULE_STOPPED = "A stopped Trakt list can't be scheduled again.";
+export const PERSONAL_SCHEDULE_LOCKED =
+  "This server doesn't let profiles change a list's schedule.";
+export const LIST_DECIDES = "The list decides";
+export const LIST_DECIDES_ITEMS = [
+  "Which titles are in it",
+  "Their order, while the sort is “List order”",
+] as const;
+export const YOU_DECIDE = "You decide";
+
+/** What the editor still controls on a list-backed collection. */
+export function youDecideItems(scheduleEditable: boolean): string[] {
+  return [
+    "Name, description and artwork",
+    scheduleEditable ? "Order, max titles and the schedule" : "Order and max titles",
+    "Where it shows",
+  ];
+}
+
+/** "3 hours ago": how long ago a sync ran. */
+export function syncedAgo(iso: string, now = Date.now()): string {
+  const seconds = Math.round((now - Date.parse(iso)) / 1000);
+  if (Number.isNaN(seconds)) return "recently";
+  if (seconds < 60) return "just now";
+  const steps: Array<[number, string]> = [
+    [60, "minute"],
+    [24, "hour"],
+    [30, "day"],
+    [12, "month"],
+  ];
+  let value = Math.round(seconds / 60);
+  for (const [size, unit] of steps) {
+    if (value < size) return `${plural(value, unit)} ago`;
+    value = Math.round(value / size);
+  }
+  return `${plural(value, "year")} ago`;
+}
+
+/** "41 titles skipped". */
+export function titlesSkipped(count: number): string {
+  return `${plural(count, "title")} skipped`;
+}
+
+/** Why a synced list skips titles, and what brings them in. */
+export function skippedExplanation(
+  count: number | undefined,
+  libraryNames: readonly string[],
+  canSync = true,
+) {
+  const where = libraryNames.length > 0 ? joinNames(libraryNames) : "your libraries";
+  if (count === undefined) {
+    const skipped = `Titles on the list that aren't in ${where} are skipped.`;
+    return canSync ? `${skipped} Sync now to count them.` : skipped;
+  }
+  const verb = count === 1 ? "isn't" : "aren't";
+  return `${plural(count, "title")} on the list ${verb} in ${where}, so they're skipped. Add them to one of those libraries and they join at the next sync.`;
+}
+
+/** The red callout at the top of a list whose last sync failed. */
+export function syncFailedLead(lastAt: string | undefined): string {
+  return lastAt ? `The last sync failed ${syncedAgo(lastAt)}.` : "The last sync failed.";
+}
+
+export function keepsTitles(count: number): string {
+  return `The collection keeps its ${plural(count, "title")}.`;
+}
+
 // --- Save bar ---------------------------------------------------------------
 
 /** How the save bar and the conflict banner name a draft field. */
@@ -368,6 +470,9 @@ export const DRAFT_FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   visibility: SHOW_ON_TAB_LABEL,
   shared: SHOW_TO_OTHER_PROFILES_LABEL,
   inLibraryTabs: SHOW_ON_TAB_LABEL,
+  list: "List",
+  limit: "Max titles",
+  schedule: "Sync schedule",
 };
 
 export const ARTWORK_SLOT_LABEL: Readonly<Record<ArtworkSlot, string>> = {

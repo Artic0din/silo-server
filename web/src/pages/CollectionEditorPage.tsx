@@ -1,8 +1,7 @@
 import { lazy, Suspense, useState } from "react";
-import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { Navigate, useLocation, useParams, useSearchParams } from "react-router";
 import { ListPlus, ListFilter, RefreshCw } from "lucide-react";
 
-import type { Collection, LibraryCollection } from "@/api/types";
 import { isNotFoundProblem } from "@/api/v2/request";
 import PageBack from "@/components/PageBack";
 import PageUnavailable from "@/components/PageUnavailable";
@@ -21,19 +20,13 @@ import {
   SERVER_SCOPE,
   type CollectionScope,
   type CreateKind,
-  type EditorSnapshot,
   type ScopeKind,
 } from "@/lib/collections/scope";
 import { useListReturnPath } from "@/lib/collections/listReturn";
 import type { SyncedTab } from "@/lib/collections/synced";
 
-// The earlier editors load on their own, so each scope downloads only its own.
+// The server create chooser loads on its own, so a profile never downloads it.
 const AdminCollectionEditor = lazy(() => import("./AdminCollectionEditor"));
-const ImportedCollectionEditor = lazy(() =>
-  import("./ImportedCollectionEditor").then((module) => ({
-    default: module.ImportedCollectionEditor,
-  })),
-);
 
 const CREATE_KINDS: readonly CreateKind[] = ["manual", "smart", "synced"];
 const SYNCED_TABS: readonly SyncedTab[] = ["mdblist", "tmdb_chart", "tmdb_list"];
@@ -83,10 +76,9 @@ function EditorSkeleton() {
 /**
  * Every collection editor URL, both scopes: `/new?type=…[&source=…]` and
  * `/:id/edit`. Mounted once per family by a pathless route, so it stays the
- * same page from `/new` to `/:id/edit` after Create. Manual and Smart
- * collections open the editor page, and so does creating a Synced list; a
- * saved Synced list keeps its earlier editor inside it for now. Someone who
- * can't change the collection is sent to its page instead of a form.
+ * same page from `/new` to `/:id/edit` after Create. Every type opens the
+ * same editor, create and edit. Someone who can't change the collection is
+ * sent to its page instead of a form.
  */
 export default function CollectionEditorPage({ scope: scopeKind }: { scope: ScopeKind }) {
   const scope = (scopeKind === "server" ? SERVER_SCOPE : PERSONAL_SCOPE) as CollectionScope;
@@ -158,24 +150,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
     return <Navigate replace to={readOnlyHref(scope.paths.browse(snapshot.view))} />;
   }
 
-  if (snapshot.view.kind !== "synced") {
-    return <CollectionEditor key={snapshot.view.id} scope={scope} snapshot={snapshot} />;
-  }
-  return (
-    <Suspense fallback={<EditorSkeleton />}>
-      {scopeKind === "server" ? (
-        <AdminCollectionEditor
-          snapshot={snapshot as EditorSnapshot<LibraryCollection>}
-          initialLibraryId={libraryId}
-        />
-      ) : (
-        <LegacyPersonalEditor
-          snapshot={snapshot as EditorSnapshot<Collection>}
-          onSaved={editor.rebase}
-        />
-      )}
-    </Suspense>
-  );
+  return <CollectionEditor key={snapshot.view.id} scope={scope} snapshot={snapshot} />;
 }
 
 function CollectionNotFound({ scope, listPath }: { scope: ScopeKind; listPath: string }) {
@@ -265,39 +240,6 @@ function PersonalTypeChooser() {
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-/** A personal Synced list, in its earlier editor. */
-function LegacyPersonalEditor({
-  snapshot,
-  onSaved,
-}: {
-  snapshot: EditorSnapshot<Collection>;
-  /** The Synced list's save and refetch finished: adopt the saved collection. */
-  onSaved: () => void;
-}) {
-  const navigate = useNavigate();
-  const collection = snapshot.view.raw;
-  const listPath = PERSONAL_SCOPE.paths.list();
-  return (
-    <div className="page-shell relative space-y-6 py-4 sm:py-6">
-      <PageBack to={listPath} up />
-      <div className="mt-10 sm:mt-12">
-        <h1 className="page-title text-[clamp(2rem,4vw,3rem)]">{collection.name}</h1>
-        <p className="page-subtitle mt-1 text-sm sm:text-base">
-          Edit what's local — name, libraries, sharing. Source-managed details (URL, schedule, item
-          ordering) are locked.
-        </p>
-      </div>
-      <ImportedCollectionEditor
-        key={collection.id}
-        collection={collection}
-        etag={snapshot.etag}
-        onSaved={onSaved}
-        onClose={() => navigate(listPath)}
-      />
     </div>
   );
 }

@@ -43,8 +43,6 @@ function withListedArtwork<Raw extends WireCollection>(fetched: Raw, listed: Raw
  * refetch never replaces what someone is editing. It carries the list's
  * artwork when the list is there; a scope with `editorAwaitsList` waits for
  * the list first. A 404 outranks the kept copy: the collection is gone.
- * An editor that stays open after its own save calls `rebase` once the save's
- * refetch lands, so its next save starts from the saved collection and ETag.
  */
 export function useScopeEditor<Raw extends WireCollection>(
   scope: CollectionScope<Raw>,
@@ -80,7 +78,6 @@ export function useScopeEditor<Raw extends WireCollection>(
     isFetching: fetched.isFetching,
     error: fetched.error,
     refetch: fetched.refetch,
-    rebase: () => setFrozen(undefined),
   };
 }
 
@@ -175,11 +172,12 @@ export function useScopeSync<Raw extends WireCollection>(scope: CollectionScope<
  * Deletes a collection with the ETag its caller read. `onDeleted` runs before
  * the scope's queries refresh, so a page showing the collection can leave
  * before its own read answers 404. A 412 refreshes them, so the next try sends
- * the current version.
+ * the current version; `onStale` lets a caller that keeps its own copy, such
+ * as the editor, read it again too.
  */
 export function useScopeDelete<Raw extends WireCollection>(
   scope: CollectionScope<Raw>,
-  options: { onDeleted?: (id: string) => void } = {},
+  options: { onDeleted?: (id: string) => void; onStale?: () => void } = {},
 ) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -192,8 +190,10 @@ export function useScopeDelete<Raw extends WireCollection>(
     },
     onError: (error) => {
       toast.error(scope.errorMessage(error, "Failed to delete"));
-      if (error instanceof V2ProblemError && error.status === 412)
+      if (isPreconditionFailed(error)) {
         void scope.invalidate(queryClient);
+        options.onStale?.();
+      }
     },
   });
 }
@@ -475,9 +475,9 @@ export function useCollectionDraft<Raw extends WireCollection>(
         if (conflicts.length > 0) return false;
       }
       for (let attempt = 0; ; attempt++) {
-        const { draft, etag } = current.current;
+        const { draft, etag, base } = current.current;
         try {
-          const outcome = await scope.update({ id, etag: etag ?? "" }, draft as SavableDraft);
+          const outcome = await scope.update({ id, etag: etag ?? "" }, draft as SavableDraft, base);
           await rebase(id, draft, outcome.failedArtwork, outcome.warnings);
           return true;
         } catch (error) {

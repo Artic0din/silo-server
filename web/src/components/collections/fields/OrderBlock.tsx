@@ -88,6 +88,8 @@ export type OrderBlockProps =
       onSortChange: (sortConfig: Record<string, unknown>) => void;
       onLimitChange: (limit: number | undefined) => void;
       allowPersonalized: boolean;
+      /** Max titles shown but fixed, as on a legacy Trakt list. */
+      limitLocked?: boolean;
     }
   | {
       mode: "smart";
@@ -217,11 +219,13 @@ function MaxTitlesInput({
   limit,
   placeholder,
   max,
+  disabled,
   onCommit,
 }: {
   limit: number | undefined;
   placeholder: string;
   max?: number;
+  disabled?: boolean;
   onCommit: (input: HTMLInputElement) => void;
 }) {
   return (
@@ -235,6 +239,7 @@ function MaxTitlesInput({
         aria-label="Max titles"
         placeholder={placeholder}
         defaultValue={limit ?? ""}
+        disabled={disabled}
         className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
         onBlur={(event) => onCommit(event.currentTarget)}
         onKeyDown={(event) => {
@@ -254,6 +259,7 @@ function SyncedOrder({
   onSortChange,
   onLimitChange,
   allowPersonalized,
+  limitLocked,
 }: Extract<OrderBlockProps, { mode: "synced" }>) {
   const id = useId();
   const shownRatingSources = useShownRatingSources();
@@ -296,6 +302,7 @@ function SyncedOrder({
           limit={limit}
           placeholder="Whole list"
           max={COLLECTION_MAX_ITEMS}
+          disabled={limitLocked}
           onCommit={commitLimit}
         />
       </div>

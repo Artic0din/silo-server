@@ -4,12 +4,20 @@
  * draft without overwriting what the person typed.
  */
 import type { MDBListListSummary } from "@/api/types";
+import { isValidTMDBListURL } from "@/lib/tmdbList";
 import type {
   CollectionTemplate,
   CollectionTemplateGroup,
   CollectionTemplateSource,
 } from "@/lib/collectionTemplates";
 
+import {
+  FRANCHISE_ID_INVALID,
+  MDBLIST_LINK_INVALID,
+  PICK_A_CHART,
+  TMDB_LIST_INVALID,
+} from "./copy";
+import type { ListDraft } from "./scope";
 import {
   chartMediaKind,
   chartName,
@@ -89,6 +97,14 @@ const MDBLIST_PORTS = new Set(["", "80", "443"]);
 /** The link as sent: no `?query`, `#fragment` or trailing slash; a `/json` ending stays. */
 export function cleanMDBListLink(raw: string): string {
   return raw.trim().replace(/#.*$/, "").replace(/\?.*$/, "").replace(/\/+$/, "");
+}
+
+/** A franchise list's TMDB collection ID as typed: a positive whole number, or null. */
+export function franchiseIdOf(typed: string): number | null {
+  const trimmed = typed.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const id = Number(trimmed);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 /**
@@ -303,4 +319,38 @@ export function eligibleLibraryKinds(mediaKind: ListMediaKind | undefined): stri
   if (mediaKind === "movie") return ["movies"];
   if (mediaKind === "tv") return ["series"];
   return undefined;
+}
+
+// --- A saved list ---------------------------------------------------------------
+
+/** Why a saved list's changed source can't be saved yet; null when it can. */
+export function savedListProblem(list: ListDraft): string | null {
+  switch (list.source) {
+    case "mdblist":
+      return isMDBListLink(cleanMDBListLink(list.link)) ? null : MDBLIST_LINK_INVALID;
+    case "tmdb_list":
+      return isValidTMDBListURL(list.link) ? null : TMDB_LIST_INVALID;
+    case "tmdb_chart":
+      return list.chart ? null : PICK_A_CHART;
+    case "tmdb_franchise":
+      return franchiseIdOf(list.franchiseId) ? null : FRANCHISE_ID_INVALID;
+    default:
+      return null;
+  }
+}
+
+/** The kind of titles a saved list holds, as far as its source says. */
+export function savedListMediaKind(list: ListDraft): ListMediaKind {
+  const media = list.stored.media_type;
+  switch (list.source) {
+    case "tmdb_chart":
+      return list.chart ? chartMediaKind(list.chart) : "mixed";
+    case "tmdb_franchise":
+      return "movie";
+    case "tmdb_discover":
+    case "trakt":
+      return media === "movie" || media === "tv" ? media : "mixed";
+    default:
+      return "mixed";
+  }
 }

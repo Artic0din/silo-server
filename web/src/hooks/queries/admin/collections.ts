@@ -10,18 +10,13 @@ import {
   adminUpdateBody,
   saveAdminArtwork,
   adminMutationMessage,
-  adminImportBody,
   templateApplyBody,
   templateResultFromV2,
 } from "@/api/adminCollections";
 import { useState } from "react";
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type {
-  CreateLibraryCollectionRequest,
-  ImportTraktCollectionRequest,
-  UpdateLibraryCollectionRequest,
-} from "@/api/types";
+import type { CreateLibraryCollectionRequest, UpdateLibraryCollectionRequest } from "@/api/types";
 import type {
   ApplyCollectionTemplateBundleJobRequest,
   ApplyCollectionTemplateBundleRequest,
@@ -328,44 +323,4 @@ export function useDeleteAdminCollections() {
   });
 
   return { ...mutation, progress };
-}
-
-export function useImportTraktCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportTraktCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/trakt", {
-        body: {
-          ...adminImportBody(body),
-          profile_id: body.profile_id === undefined ? undefined : String(body.profile_id),
-        },
-      }).then(async (result) => ({
-        ...result,
-        ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-      }));
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      const statusMessages: Record<string, string> = {
-        warning: "Trakt collection imported with warnings",
-        failed: "Trakt collection imported but sync failed",
-      };
-      const status = result.sync_run?.status ?? "";
-      toast.success(statusMessages[status] ?? "Trakt collection imported");
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
 }

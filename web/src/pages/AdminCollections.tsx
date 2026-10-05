@@ -87,7 +87,7 @@ import {
 } from "@/lib/collections/copy";
 import { listReturnState } from "@/lib/collections/listReturn";
 import { serverCollectionPeek } from "@/lib/collections/peek";
-import { SERVER_SCOPE } from "@/lib/collections/scope";
+import { collectionsInAdminScope, SERVER_SCOPE } from "@/lib/collections/scope";
 import {
   COLLECTION_KIND_LABEL,
   collectionKindOf,
@@ -106,7 +106,6 @@ import {
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
 import { cn } from "@/lib/utils";
 import { buildLibraryCollectionCatalogHref } from "./catalogSearchParams";
-import { collectionsInAdminScope } from "./adminCollectionsShared";
 
 /** Under this width More and New collection move to a bar docked at the bottom. */
 const NARROW_QUERY = "(max-width: 1023px)";

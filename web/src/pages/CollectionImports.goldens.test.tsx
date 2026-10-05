@@ -2,8 +2,8 @@
  * Goldens: the requests the synced-list paths send, admin and personal: the
  * editor's Synced list step (a pasted MDBList link, a TMDB chart, a TMDB list
  * link, a template pick with its poster and an MDBList search pick), the
- * admin source editor and the personal synced-list editor. New synced lists
- * are imported unpinned.
+ * Synced list editor for a saved list, both scopes. New synced lists are
+ * imported unpinned, and a save never sends `featured`.
  */
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -140,8 +140,23 @@ async function type(label: string, value: string) {
   fireEvent.change(await screen.findByLabelText(label), { target: { value } });
 }
 
-async function closedTo(page: "Admin collections page") {
-  await screen.findByText(page);
+function saveBar() {
+  return screen.getByRole("region", { name: "Unsaved changes" });
+}
+
+/** Save from the editor page; it stays on the list. */
+async function saveAndWait(count: number) {
+  fireEvent.click(within(saveBar()).getByRole("button", { name: "Save" }));
+  await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(count));
+  await vi.waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Unsaved changes" })).toBeNull(),
+  );
+}
+
+/** A saved server list, as the editor reads it and as the list shows it. */
+function answerAdmin(collection: object) {
+  v2Recorder.answer("GET /api/v2/admin/collections/{id}", collection);
+  v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList(collection));
 }
 
 /** Create collection, then wait until the editor has moved to the new list's edit page. */
@@ -226,10 +241,9 @@ const mdblistSearchHit = {
   url: "https://mdblist.com/lists/cinephile/oscar-winners",
 };
 
-describe("admin source editor", () => {
+describe("admin Synced list editor", () => {
   it("sends the whole MDBList source_config with a changed limit", async () => {
-    v2Recorder.answer(
-      "GET /api/v2/admin/collections/{id}",
+    answerAdmin(
       adminSyncedCollection("mdblist", {
         source_url: "https://mdblist.com/lists/user/top-watched/json",
         source_config: {
@@ -240,15 +254,15 @@ describe("admin source editor", () => {
       }),
     );
     show(<></>, "/admin/collections/c1/edit?libraryId=1");
-    fireEvent.change(await screen.findByLabelText("Max Items"), { target: { value: "100" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    const limit = await screen.findByRole("spinbutton", { name: "Max titles" });
+    fireEvent.change(limit, { target: { value: "100" } });
+    fireEvent.blur(limit);
+    await saveAndWait(1);
     expect(v2Recorder.writes()).toEqual(goldens.adminEditMDBList);
   });
 
   it("sends the whole TMDB chart source_config on a rename", async () => {
-    v2Recorder.answer(
-      "GET /api/v2/admin/collections/{id}",
+    answerAdmin(
       adminSyncedCollection("tmdb", {
         source_url: "tmdb://trending/movie/week",
         source_config: {
@@ -261,34 +275,26 @@ describe("admin source editor", () => {
       }),
     );
     show(<></>, "/admin/collections/c1/edit?libraryId=1");
-    fireEvent.change(await screen.findByLabelText("Title"), {
-      target: { value: "Trending This Week" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    await type("Name", "Trending This Week");
+    await saveAndWait(1);
     expect(v2Recorder.writes()).toEqual(goldens.adminEditTMDBChart);
   });
 
   it("sends the whole TMDB list source_config on a rename", async () => {
-    v2Recorder.answer(
-      "GET /api/v2/admin/collections/{id}",
+    answerAdmin(
       adminSyncedCollection("tmdb", {
         source_url: "https://www.themoviedb.org/list/310",
         source_config: { mode: "tmdb_list", url: "https://www.themoviedb.org/list/310" },
       }),
     );
     show(<></>, "/admin/collections/c1/edit?libraryId=1");
-    fireEvent.change(await screen.findByLabelText("Title"), {
-      target: { value: "Festival Picks" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    await type("Name", "Festival Picks");
+    await saveAndWait(1);
     expect(v2Recorder.writes()).toEqual(goldens.adminEditTMDBList);
   });
 
-  it("keeps a Trakt source as stored and sends no source_url", async () => {
-    v2Recorder.answer(
-      "GET /api/v2/admin/collections/{id}",
+  it("sends no source for a legacy Trakt list", async () => {
+    answerAdmin(
       adminSyncedCollection("trakt", {
         source_url: "trakt://recommended/movie/p-owner",
         source_config: {
@@ -301,14 +307,13 @@ describe("admin source editor", () => {
       }),
     );
     show(<></>, "/admin/collections/c1/edit?libraryId=1");
-    fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "For you" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Collection" }));
-    await closedTo("Admin collections page");
+    await type("Name", "For you");
+    await saveAndWait(1);
     expect(v2Recorder.writes()).toEqual(goldens.adminEditTrakt);
   });
 });
 
-describe("personal synced-list editor", () => {
+describe("personal Synced list editor", () => {
   beforeEach(() => {
     v2Recorder.answer(
       "GET /api/v2/collections/{id}",
@@ -321,15 +326,13 @@ describe("personal synced-list editor", () => {
 
   it("sends only what changed", async () => {
     show(<></>, "/collections/c1/edit");
-    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Top Watched" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    await type("Name", "Top Watched");
+    await saveAndWait(1);
     expect(v2Recorder.writes()).toEqual(goldens.personalSyncedRename);
   });
 
   describe("poster removal", () => {
     beforeEach(() => {
-      URL.createObjectURL = () => "blob:poster";
       // The list carries the poster until the image DELETE lands.
       let posterUrl = "https://images.example/poster.png";
       v2Recorder.answer("GET /api/v2/collections", () => ({
@@ -341,58 +344,55 @@ describe("personal synced-list editor", () => {
       });
     });
 
-    function posterField() {
-      return screen.getByText("Poster", { selector: "label" }).parentElement!;
+    function posterSlot() {
+      return screen.getByRole("group", { name: "Poster" });
     }
 
     async function removePoster() {
       show(<></>, "/collections/c1/edit");
-      fireEvent.click(await screen.findByTitle("Delete image"));
-      expect(within(posterField()).queryByRole("img")).toBeNull();
-      expect(screen.getByText("1 unsaved change")).toBeTruthy();
+      fireEvent.click(await screen.findByRole("button", { name: "Remove poster" }));
+      expect(within(posterSlot()).queryByRole("img")).toBeNull();
+      expect(within(saveBar()).getByText(/Poster not saved/)).toBeTruthy();
     }
 
     it("sends nothing and shows the poster again on Discard", async () => {
       await removePoster();
       await act(async () => {});
       expect(v2Recorder.writes()).toEqual([]);
-      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-      expect(within(posterField()).getByRole("img", { name: "Poster" })).toBeTruthy();
+      fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+      expect(within(posterSlot()).getByRole("img")).toBeTruthy();
       expect(v2Recorder.writes()).toEqual([]);
     });
 
     it("deletes the poster after the PATCH on Save", async () => {
       await removePoster();
-      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(2));
+      await saveAndWait(2);
       expect(v2Recorder.writes()).toEqual(goldens.personalSyncedStagedPosterRemoval);
-      expect(within(posterField()).queryByRole("img")).toBeNull();
     });
 
     it("starts again from the saved collection after Save", async () => {
       await removePoster();
-      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-      expect(await screen.findByText("0 unsaved changes")).toBeTruthy();
-      expect(within(posterField()).queryByRole("img")).toBeNull();
+      await saveAndWait(2);
+      expect(within(posterSlot()).queryByRole("img")).toBeNull();
 
-      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
-      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-      expect(within(posterField()).queryByRole("img")).toBeNull();
+      await type("Name", "Top Watched");
+      fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+      expect(within(posterSlot()).queryByRole("img")).toBeNull();
 
       // The second save sends the ETag the first one left, so it is not a 412.
       const savedETag = v2Recorder.etag("/api/v2/collections/c1");
-      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(3));
+      await type("Name", "Top Watched");
+      await saveAndWait(3);
       expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
     });
   });
 
-  it("clears Max items with max_items 0", async () => {
+  it("clears Max titles with max_items 0", async () => {
     show(<></>, "/collections/c1/edit");
-    fireEvent.change(await screen.findByLabelText("Max items"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(1));
+    const limit = await screen.findByRole("spinbutton", { name: "Max titles" });
+    fireEvent.change(limit, { target: { value: "" } });
+    fireEvent.blur(limit);
+    await saveAndWait(1);
     expect(v2Recorder.writes()).toEqual(goldens.personalSyncedClearLimit);
   });
 });

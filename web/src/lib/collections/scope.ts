@@ -39,6 +39,7 @@ import type {
   QueryDefinition,
   QueryDefinitionInput,
   UpdateCollectionRequest,
+  UpdateLibraryCollectionRequest,
   UserCollectionSyncSchedule,
 } from "@/api/types";
 import { normalizeQueryDefinition } from "@/api/types";
@@ -55,10 +56,18 @@ import {
   buildUserCollectionCatalogHref,
 } from "@/pages/catalogSearchParams";
 
-import { draftRules } from "./draft";
+import { changedFields, draftRules } from "./draft";
 import { isOwnCollection } from "./personalOwnership";
-import { emptySyncedDraft, type SyncedDraft } from "./synced";
-import type { TMDBChart } from "./tmdbSources";
+import { cleanMDBListLink, emptySyncedDraft, franchiseIdOf, type SyncedDraft } from "./synced";
+import {
+  chartOfSourceConfig,
+  chartSource,
+  franchiseSource,
+  tmdbListSource,
+  withLimit,
+  type StoredSource,
+  type TMDBChart,
+} from "./tmdbSources";
 import { collectionKindOf, syncedSourceOf, type CollectionKind, type SyncedSource } from "./types";
 
 export type ScopeKind = "server" | "personal";
@@ -74,7 +83,27 @@ export interface ArtworkSlotDraft {
 }
 export type ArtworkDraft = Partial<Record<ArtworkSlot, ArtworkSlotDraft>>;
 
-/** What an editor edits for a manual or smart collection, independent of scope. */
+/**
+ * A saved synced list: the list it follows and how it syncs, as the editor
+ * changes them.
+ */
+export interface ListDraft {
+  source: SyncedSource;
+  /** The MDBList or TMDB list link, as typed. */
+  link: string;
+  /** The chart a TMDB chart list follows. */
+  chart?: TMDBChart;
+  /** A franchise list's TMDB collection ID, as typed; "" when it has none yet. */
+  franchiseId: string;
+  /** Blank takes the whole list. */
+  limit?: number;
+  /** Server: a cron expression. Personal: "", a cadence name, or "custom" until another is picked. */
+  schedule: string;
+  /** The stored `source_config`, for sources the editor can't rebuild. */
+  stored: Record<string, unknown>;
+}
+
+/** What an editor edits, independent of scope. */
 export interface CollectionDraft {
   kind: CollectionKind;
   name: string;
@@ -92,6 +121,8 @@ export interface CollectionDraft {
   stagedItems?: string[];
   /** Synced list, before it exists: the list it follows and how it syncs. */
   synced?: SyncedDraft;
+  /** A saved synced list: what it follows and how it syncs. */
+  list?: ListDraft;
   /**
    * Pin (`featured`) is not here: it is set in Arrange, so an editor creates
    * with it off and never sends it on a save.
@@ -100,11 +131,15 @@ export interface CollectionDraft {
   personal?: { shared: boolean; inLibraryTabs: boolean };
 }
 
-/** A draft `create` and `update` can send today. Saved synced lists still save through their edit forms. */
-export type SavableDraft = CollectionDraft & { kind: "manual" | "smart" };
+/** A Manual or Smart draft, which `create` and `update` send the same way. */
+export type ManualOrSmartDraft = CollectionDraft & { kind: "manual" | "smart" };
+/** A saved synced list's draft. */
+export type ListEditDraft = CollectionDraft & { kind: "synced"; list: ListDraft };
+/** A draft `update` can send. */
+export type SavableDraft = ManualOrSmartDraft | ListEditDraft;
 /** A new synced list: created through the scope's import route. */
 export type SyncedCreateDraft = CollectionDraft & { kind: "synced"; synced: SyncedDraft };
-export type CreatableDraft = SavableDraft | SyncedCreateDraft;
+export type CreatableDraft = ManualOrSmartDraft | SyncedCreateDraft;
 /** The kinds an editor can start a new collection as. */
 export type CreateKind = "manual" | "smart" | "synced";
 
@@ -150,6 +185,8 @@ export interface SyncOutcome {
   status: string;
   message: string;
   itemsMatched: number;
+  /** Titles on the list found in none of its libraries, so skipped. */
+  itemsUnmatched: number;
 }
 
 export interface CollectionScope<Raw extends WireCollection = WireCollection> {
@@ -205,7 +242,12 @@ export interface CollectionScope<Raw extends WireCollection = WireCollection> {
    * collection saved. A synced list reports its first sync in `sync`.
    */
   create(draft: CreatableDraft): Promise<{ id: string; sync?: SyncOutcome } & SaveOutcome>;
-  update(ref: { id: string; etag: string }, draft: SavableDraft): Promise<SaveOutcome>;
+  /** `base`: the copy the draft started from, for scopes that send only what changed. */
+  update(
+    ref: { id: string; etag: string },
+    draft: SavableDraft,
+    base?: CollectionDraft,
+  ): Promise<SaveOutcome>;
   remove(ref: { id: string; etag: string }): Promise<void>;
   sync(id: string): Promise<SyncOutcome>;
   preview(rules: QueryDefinition, limit: number): Promise<{ items: PreviewItem[]; total: number }>;
@@ -229,7 +271,7 @@ function rulesFor(kind: CollectionKind, query: QueryDefinitionInput) {
 }
 
 /** Smart rules match the draft's libraries; the draft's list is the one the editor shows. */
-function smartRules(draft: SavableDraft): QueryDefinition | undefined {
+function smartRules(draft: ManualOrSmartDraft): QueryDefinition | undefined {
   return draft.kind === "smart" ? draftRules(draft) : undefined;
 }
 
@@ -313,10 +355,18 @@ function chartFields(chart: TMDBChart) {
   return { preset: chart.preset, media_type: chart.mediaType, time_window: chart.timeWindow };
 }
 
-function syncOutcome(
-  run: { status: string; message: string; items_matched: number } | undefined,
-): SyncOutcome | undefined {
-  return run && { status: run.status, message: run.message, itemsMatched: run.items_matched };
+function syncOutcome(run: {
+  status: string;
+  message: string;
+  items_matched: number;
+  items_unmatched: number;
+}): SyncOutcome {
+  return {
+    status: run.status,
+    message: run.message,
+    itemsMatched: run.items_matched,
+    itemsUnmatched: run.items_unmatched,
+  };
 }
 
 /**
@@ -366,7 +416,7 @@ async function createServerSynced(draft: SyncedCreateDraft) {
   );
   const outcome = serverOutcome(artworkErrors);
   if (hideWarning) outcome.warnings.unshift(hideWarning);
-  return { id, sync: syncOutcome(result.sync_run), ...outcome };
+  return { id, sync: result.sync_run && syncOutcome(result.sync_run), ...outcome };
 }
 
 /** Hides a server collection from Collections tabs; answers a warning when that fails. */
@@ -436,10 +486,138 @@ async function createPersonalSynced(draft: SyncedCreateDraft) {
       );
     }
   }
-  return { id, sync: syncOutcome(result.sync), ...outcome };
+  return { id, sync: result.sync && syncOutcome(result.sync), ...outcome };
 }
 
-function serverRequest(draft: SavableDraft): Omit<CreateLibraryCollectionRequest, "featured"> {
+function positiveLimit(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : undefined;
+}
+
+function textOf(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** A saved synced list's draft: what it follows, read from its stored source. */
+function listDraftOf(view: CollectionView, schedule: string): ListDraft | undefined {
+  if (!view.source) return undefined;
+  const stored = view.raw.source_config ?? {};
+  const sourceUrl = view.raw.source_url ?? "";
+  let link = "";
+  // A chart's source_url is an internal tmdb:// name, never a link.
+  if (view.source === "mdblist") link = sourceUrl || textOf(stored.url);
+  if (view.source === "tmdb_list") link = textOf(stored.url) || sourceUrl;
+  const franchise = positiveLimit(stored.collection_id);
+  return {
+    source: view.source,
+    link,
+    chart: view.source === "tmdb_chart" ? chartOfSourceConfig(stored) : undefined,
+    franchiseId: view.source === "tmdb_franchise" && franchise ? String(franchise) : "",
+    limit: positiveLimit(stored.limit),
+    schedule,
+    stored,
+  };
+}
+
+/** A list's stored config with a changed Max titles; nothing when it didn't change. */
+function storedWithLimit(list: ListDraft): Partial<StoredSource> {
+  if (list.limit === positiveLimit(list.stored.limit)) return {};
+  const { limit: _limit, ...rest } = list.stored;
+  return { source_config: withLimit(rest, list.limit) };
+}
+
+/**
+ * What a saved list's PATCH sends for its source. MDBList, chart, TMDB list
+ * and franchise sources are rebuilt whole; a Discover list, and a franchise
+ * list with no ID yet, send their stored config only when Max titles changed;
+ * a Trakt list never sends its source, which the server keeps as it is.
+ */
+function editedSource(list: ListDraft, linkChanged: boolean): Partial<StoredSource> {
+  switch (list.source) {
+    case "mdblist": {
+      // A stored link is sent back as it is; only a newly typed one is cleaned.
+      const url = linkChanged ? cleanMDBListLink(list.link) : list.link.trim();
+      return {
+        source_url: url,
+        source_config: withLimit({ mode: "mdblist_json", url }, list.limit),
+      };
+    }
+    case "tmdb_chart":
+      return chartSource(list.chart ?? chartOfSourceConfig(list.stored), list.limit);
+    case "tmdb_list":
+      return tmdbListSource(list.link, list.limit);
+    case "tmdb_franchise": {
+      const id = franchiseIdOf(list.franchiseId);
+      return id ? franchiseSource(id, list.limit) : storedWithLimit(list);
+    }
+    case "tmdb_discover":
+      return storedWithLimit(list);
+    case "trakt":
+      return {};
+  }
+}
+
+const COLLECTION_TYPE_OF: Readonly<Record<SyncedSource, "mdblist" | "tmdb" | "trakt">> = {
+  mdblist: "mdblist",
+  tmdb_chart: "tmdb",
+  tmdb_list: "tmdb",
+  tmdb_franchise: "tmdb",
+  tmdb_discover: "tmdb",
+  trakt: "trakt",
+};
+
+/** A saved server list's PATCH: every field, its source rebuilt, never `featured`. */
+function serverListRequest(
+  draft: ListEditDraft,
+  base: CollectionDraft,
+): UpdateLibraryCollectionRequest {
+  return {
+    library_ids: draft.libraryIds,
+    title: draft.name,
+    description: draft.description,
+    collection_type: COLLECTION_TYPE_OF[draft.list.source],
+    visibility: draft.server?.visibility ?? "visible",
+    sort_config: draft.rawSortConfig ?? {},
+    sync_schedule: draft.list.schedule.trim(),
+    ...editedSource(draft.list, changedFields(base, draft).includes("list")),
+    poster_source_url: trimmedSource(draft.artwork.poster),
+    backdrop_source_url: trimmedSource(draft.artwork.backdrop),
+  };
+}
+
+/**
+ * A saved personal list's PATCH. Name, sharing, libraries, the Collections
+ * tab switch and Show only always go; everything else only when it changed
+ * from `base`. A legacy Trakt list never sends libraries: the server refuses
+ * any it's sent. A "custom" schedule is never sent: it stays until another is picked.
+ */
+function personalListRequest(draft: ListEditDraft, base: CollectionDraft): UpdateCollectionRequest {
+  const changed = new Set(changedFields(base, draft));
+  const { list } = draft;
+  const body: UpdateCollectionRequest = {
+    name: draft.name,
+    is_shared: draft.personal?.shared ?? false,
+    include_in_server_collections: draft.personal?.inLibraryTabs ?? false,
+    display_query_definition: draft.showOnly,
+  };
+  if (list.source !== "trakt") body.library_ids = draft.libraryIds;
+  if (changed.has("description")) body.description = draft.description;
+  if (changed.has("rawSortConfig")) body.sort_config = draft.rawSortConfig ?? {};
+  if (changed.has("list") && list.source === "mdblist") {
+    body.source_url = cleanMDBListLink(list.link);
+  }
+  if (changed.has("list") && list.source === "tmdb_list") body.source_url = list.link.trim();
+  if (changed.has("limit")) body.max_items = list.limit ?? 0;
+  if (changed.has("schedule") && list.schedule !== "custom") {
+    body.sync_schedule = list.schedule as UserCollectionSyncSchedule;
+  }
+  return body;
+}
+
+function serverRequest(
+  draft: ManualOrSmartDraft,
+): Omit<CreateLibraryCollectionRequest, "featured"> {
   return {
     library_ids: draft.libraryIds,
     title: draft.name,
@@ -453,7 +631,7 @@ function serverRequest(draft: SavableDraft): Omit<CreateLibraryCollectionRequest
   };
 }
 
-function personalFields(draft: SavableDraft) {
+function personalFields(draft: ManualOrSmartDraft) {
   return {
     name: draft.name,
     description: draft.description,
@@ -475,6 +653,33 @@ function personalMutationMessage(error: unknown, fallback: string) {
 /** The admin preview also answers with paging state; the editor needs only items and total. */
 function previewItems(value: { items: PreviewItem[]; total: number }) {
   return { items: value.items, total: value.total };
+}
+
+/**
+ * A personal list's schedule by name. A server that predates `sync_cadence`
+ * reads as "custom" when it has a schedule, so the editor never shows raw cron.
+ */
+function personalSchedule(collection: Collection): string {
+  return collection.sync_cadence ?? (collection.sync_schedule ? "custom" : "");
+}
+
+/**
+ * The server collections a page-wide action reaches: every collection for
+ * All libraries, or the ones the rendered board shows for one library.
+ */
+export function collectionsInAdminScope(
+  allCollections: LibraryCollection[],
+  board:
+    | { groups: Array<{ collections: LibraryCollection[] }>; ungrouped: LibraryCollection[] }
+    | undefined,
+  selectedLibraryId: number | null,
+): LibraryCollection[] {
+  let collections = allCollections;
+  if (selectedLibraryId !== null) {
+    if (!board) return [];
+    collections = [...board.ungrouped, ...board.groups.flatMap((group) => group.collections)];
+  }
+  return [...new Map(collections.map((collection) => [collection.id, collection])).values()];
 }
 
 export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
@@ -540,6 +745,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
       artwork: {},
       server: { visibility: view?.server?.visibility ?? "visible" },
       ...(!view && kind === "synced" ? { synced: emptySyncedDraft() } : {}),
+      list: view ? listDraftOf(view, view.raw.sync_schedule ?? "") : undefined,
     };
   },
 
@@ -568,8 +774,9 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
     return { id: created.id, ...serverOutcome(artworkErrors) };
   },
 
-  async update(ref, draft) {
-    const request = serverRequest(draft);
+  async update(ref, draft, base) {
+    const request =
+      draft.kind === "synced" ? serverListRequest(draft, base ?? draft) : serverRequest(draft);
     const updated = await v2("PATCH /api/v2/admin/collections/{id}", {
       path: { id: ref.id },
       headers: { "If-Match": requiredETag(ref.etag) },
@@ -594,8 +801,7 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
   },
 
   async sync(id) {
-    const run = await v2("POST /api/v2/admin/collections/{id}/sync", { path: { id } });
-    return { status: run.status, message: run.message, itemsMatched: run.items_matched };
+    return syncOutcome(await v2("POST /api/v2/admin/collections/{id}/sync", { path: { id } }));
   },
 
   preview: (rules, limit) =>
@@ -671,6 +877,7 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
         inLibraryTabs: view?.personal?.inLibraryTabs ?? false,
       },
       ...synced,
+      list: view ? listDraftOf(view, personalSchedule(view.raw)) : undefined,
     };
   },
 
@@ -696,8 +903,9 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
     return { id: created.id, ...personalOutcome(posterError) };
   },
 
-  async update(ref, draft) {
-    const body: UpdateCollectionRequest = personalFields(draft);
+  async update(ref, draft, base) {
+    const body: UpdateCollectionRequest =
+      draft.kind === "synced" ? personalListRequest(draft, base ?? draft) : personalFields(draft);
     const updated = await v2("PATCH /api/v2/collections/{id}", {
       path: { id: ref.id },
       headers: { "If-Match": requiredETag(ref.etag) },
@@ -720,8 +928,9 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
   },
 
   async sync(id) {
-    const result = syncFromV2(await v2("POST /api/v2/collections/{id}/sync", { path: { id } }));
-    return { status: result.status, message: result.message, itemsMatched: result.items_matched };
+    return syncOutcome(
+      syncFromV2(await v2("POST /api/v2/collections/{id}/sync", { path: { id } })),
+    );
   },
 
   preview: (rules, limit) =>
