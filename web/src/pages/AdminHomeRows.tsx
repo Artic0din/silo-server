@@ -47,6 +47,7 @@ import { collectionKind, type CollectionSummary } from "@/lib/homeRows/describe"
 import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
+import { useRowLinks, type RowSeed } from "@/components/homeRows/useRowLinks";
 import { libraryPagesOf, pageLabel, pageParam, samePage } from "@/lib/homeRows/pages";
 import type { EditSession, HomeRow } from "@/lib/homeRows/types";
 import { updateCheckboxSelection } from "@/lib/checkboxSelection";
@@ -142,7 +143,10 @@ export default function AdminHomeRows() {
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
   const [resetProfiles, setResetProfiles] = useState(false);
   // The Add row / Edit row dialog: open with no session to add a row.
-  const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
+  const [rowDialog, setRowDialog] = useState<{
+    session: EditSession | null;
+    seed?: RowSeed;
+  } | null>(null);
   const [highlightId, setHighlightId] = useNewRowHighlight();
   // ⋯ Add to other libraries…: the row being copied.
   const [copyRow, setCopyRow] = useState<HomeRow | null>(null);
@@ -246,6 +250,19 @@ export default function AdminHomeRows() {
     snapshotRequest.current++;
     setRowDialog({ session: null });
   }
+
+  useRowLinks({
+    adapter,
+    catalog: recipeCatalog,
+    catalogFailed: recipeCatalogFailed,
+    // Whether the page can change is known once the capabilities load.
+    settled: adapter.status === "ready" && capabilities !== undefined,
+    onAdd: (seed) => {
+      snapshotRequest.current++;
+      setRowDialog({ session: null, seed });
+    },
+    onEdit: openRow,
+  });
 
   function confirmDeleteRow() {
     if (!confirmDeleteSection || !deleteETag) return;
@@ -569,8 +586,13 @@ export default function AdminHomeRows() {
             catalogFailed={recipeCatalogFailed}
             libraries={librariesList}
             session={rowDialog.session}
+            initialSeed={rowDialog.seed}
             onClose={() => setRowDialog(null)}
-            onSaved={(newIds) => setHighlightId(newIds[0] ?? null)}
+            onSaved={(newIds) =>
+              rowDialog.seed?.onAdded
+                ? rowDialog.seed.onAdded(newIds)
+                : setHighlightId(newIds[0] ?? null)
+            }
             onDelete={(session) => {
               setRowDialog(null);
               const section = sectionFor(session.row);

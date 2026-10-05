@@ -75,6 +75,8 @@ export interface HomeRowsCapabilities {
 export interface RowCollections {
   options: CollectionOption[];
   loading: boolean;
+  /** Read again in the background, for example after a collection was made. */
+  fetching?: boolean;
   failed: boolean;
   /** Where collections are made and changed on this surface. */
   href: string;

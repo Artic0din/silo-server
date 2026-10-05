@@ -48,6 +48,7 @@ export function useAdminRowCollections(): RowCollections {
   return {
     options,
     loading: collections.isLoading,
+    fetching: collections.isFetching,
     failed: collections.isError,
     href: "/admin/collections",
   };
@@ -59,6 +60,12 @@ export function useAdminRowCollections(): RowCollections {
  * poster (#1702 builds personal posters only from titles the viewer can open).
  */
 export function useProfileRowCollections(): RowCollections {
-  const { collections, isLoading, isError } = useAllUserCollections();
-  return { options: collections, loading: isLoading, failed: isError, href: "/collections" };
+  const { collections, isLoading, isFetching, isError } = useAllUserCollections();
+  return {
+    options: collections,
+    loading: isLoading,
+    fetching: isFetching,
+    failed: isError,
+    href: "/collections",
+  };
 }

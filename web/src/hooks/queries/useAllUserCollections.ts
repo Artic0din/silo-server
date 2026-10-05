@@ -92,6 +92,7 @@ export function useAllUserCollections() {
   const {
     data: userCollections,
     isLoading: userCollectionsLoading,
+    isFetching: userCollectionsFetching,
     isError: userCollectionsFailed,
   } = useCollections();
 
@@ -103,6 +104,7 @@ export function useAllUserCollections() {
   });
 
   const isLoading = libraryQueries.some((q) => q.isLoading) || userCollectionsLoading;
+  const isFetching = libraryQueries.some((q) => q.isFetching) || userCollectionsFetching;
   const isError = libraryQueries.some((q) => q.isError) || userCollectionsFailed;
 
   const libraryCollectionsByLibrary = libraryQueries.map((result) =>
@@ -114,5 +116,5 @@ export function useAllUserCollections() {
     libraryCollectionsByLibrary,
   );
 
-  return { collections, isLoading, isError };
+  return { collections, isLoading, isFetching, isError };
 }

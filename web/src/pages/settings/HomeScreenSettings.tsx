@@ -24,6 +24,7 @@ import type { ActionMenuItem } from "@/components/calm/ActionMenu";
 import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
 import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
 import { useRowFocus } from "@/components/homeRows/useRowFocus";
+import { useRowLinks, type RowSeed } from "@/components/homeRows/useRowLinks";
 import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer";
 import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
 import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
@@ -92,7 +93,10 @@ export default function HomeScreenSettings() {
   const pageName = profilePageName(label);
   const layoutExport = useHomeLayoutExport();
   const [importOpen, setImportOpen] = useState(false);
-  const [rowDialog, setRowDialog] = useState<{ session: EditSession | null } | null>(null);
+  const [rowDialog, setRowDialog] = useState<{
+    session: EditSession | null;
+    seed?: RowSeed;
+  } | null>(null);
   const [highlightId, setHighlightId] = useNewRowHighlight();
   const [removing, setRemoving] = useState<HomeRow | null>(null);
   const [deletingRuleRows, setDeletingRuleRows] = useState(false);
@@ -135,6 +139,19 @@ export default function HomeScreenSettings() {
         toast.error(error instanceof Error ? error.message : "Could not open this row"),
       );
   }
+
+  useRowLinks({
+    adapter,
+    catalog: adapter.catalog,
+    catalogFailed: adapter.catalogFailed,
+    // Its saved changes and any rule-row lock decide whether the page can change.
+    settled:
+      adapter.status === "ready" &&
+      !adapter.overridesLoading &&
+      adapter.pageLockCheck !== "loading",
+    onAdd: (seed) => setRowDialog({ session: null, seed }),
+    onEdit: openRow,
+  });
 
   function confirmRemove() {
     if (!removing) return;
@@ -340,8 +357,13 @@ export default function HomeScreenSettings() {
           catalogFailed={adapter.catalogFailed}
           libraries={libraries ?? []}
           session={rowDialog.session}
+          initialSeed={rowDialog.seed}
           onClose={() => setRowDialog(null)}
-          onSaved={(newIds) => setHighlightId(newIds[0] ?? null)}
+          onSaved={(newIds) =>
+            rowDialog.seed?.onAdded
+              ? rowDialog.seed.onAdded(newIds)
+              : setHighlightId(newIds[0] ?? null)
+          }
           deleteLabel={editingRow && !editingRow.own ? `Remove from my ${pageName}…` : undefined}
           onDelete={(session) => {
             setRowDialog(null);
