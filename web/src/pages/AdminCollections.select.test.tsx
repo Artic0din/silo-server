@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "@/api/v2/schema";
 import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
 
+import { STARTER_PACK_BLOCKS_DELETE } from "@/lib/collections/copy";
+
 import AdminCollections from "./AdminCollections";
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
@@ -21,9 +23,30 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({
     ],
   }),
 }));
-vi.mock("@/hooks/queries/admin/taskJobs", () => ({
-  useAdminTaskJobs: () => ({ data: [] }),
-}));
+/** Starter pack jobs the page sees; `set` re-renders it as a job starts. */
+const applyJobs = vi.hoisted(() => {
+  let jobs: unknown[] = [];
+  const listeners = new Set<() => void>();
+  return {
+    get: () => jobs,
+    set(next: unknown[]) {
+      jobs = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+});
+vi.mock("@/hooks/queries/admin/taskJobs", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    useAdminTaskJobs: () => ({
+      data: useSyncExternalStore(applyJobs.subscribe, applyJobs.get),
+    }),
+  };
+});
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
 vi.mock("@/components/collections/StarterPacksDialog", () => ({
   StarterPacksDialog: () => null,
@@ -110,6 +133,7 @@ async function pick(user: ReturnType<typeof userEvent.setup>, ...titles: string[
 }
 
 beforeEach(() => {
+  applyJobs.set([]);
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -527,6 +551,45 @@ describe("AdminCollections Delete all while select mode works", () => {
     expect(
       await screen.findByRole("menuitem", { name: "Delete all in this view…" }),
     ).not.toHaveAttribute("aria-disabled");
+  });
+});
+
+describe("AdminCollections Select collections delete", () => {
+  it("doesn't name the library when deleting a selection", async () => {
+    renderPage("/admin/collections?view=list&libraryId=1");
+    const user = await enterSelectMode();
+    await pick(user, "Netflix Originals", "Studio Ghibli");
+    await user.click(within(bar()).getByRole("button", { name: "Delete…" }));
+    // Deleting a collection removes it from every library, not just Movies.
+    expect(
+      await screen.findByRole("alertdialog", { name: "Delete 2 collections?" }),
+    ).toBeInTheDocument();
+  });
+
+  it("holds the confirm open, and says why, when a starter pack starts adding", async () => {
+    renderPage();
+    const user = await enterSelectMode();
+    await pick(user, "Studio Ghibli");
+    await user.click(within(bar()).getByRole("button", { name: "Delete…" }));
+    const name = "Delete 1 manual collection?";
+    const dialog = await screen.findByRole("alertdialog", { name });
+    act(() =>
+      applyJobs.set([
+        {
+          id: "job-1",
+          job_type: "template_bundle_apply",
+          status: "running",
+          message: "Adding",
+          requested_at: new Date().toISOString(),
+        },
+      ]),
+    );
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(STARTER_PACK_BLOCKS_DELETE);
+    const confirm = within(dialog).getByRole("button", { name: "Delete 1" });
+    expect(confirm).toBeDisabled();
+    await user.click(confirm);
+    expect(screen.getByRole("alertdialog", { name })).toBeInTheDocument();
+    expect(pathsOf("DELETE /api/v2/admin/collections/{id}")).toEqual([]);
   });
 });
 

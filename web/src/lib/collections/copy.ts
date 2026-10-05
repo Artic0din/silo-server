@@ -87,6 +87,9 @@ export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
 /** Rows use every collection a delete was asked for, so nothing goes. */
 export const COLLECTIONS_IN_USE = "Rows still use them. Remove the rows first.";
 
+/** A starter pack being added would race a delete of the collections it makes. */
+export const STARTER_PACK_BLOCKS_DELETE = "A starter pack is being added. Delete once it finishes.";
+
 const KIND_NOUN: Readonly<Record<CollectionKind | "mixed", readonly [string, string]>> = {
   manual: ["manual collection", "manual collections"],
   smart: ["smart collection", "smart collections"],

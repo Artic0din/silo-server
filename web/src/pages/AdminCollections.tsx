@@ -77,6 +77,7 @@ import { MAX_SELECTED_COLLECTIONS, runBatch } from "@/lib/collections/batch";
 import {
   COLLECTION_IN_USE,
   COLLECTIONS_IN_USE,
+  STARTER_PACK_BLOCKS_DELETE,
   alreadyShown,
   batchResult,
   serverDeleteDescription,
@@ -930,9 +931,11 @@ export default function AdminCollections() {
         }}
         count={bulkDelete?.snapshots.length ?? 0}
         kind={bulkDeleteKinds.size === 1 ? [...bulkDeleteKinds][0]! : null}
-        where={activeLibrary?.name ?? (bulkDelete?.wholeView ? "this view" : null)}
+        // A collection goes from every library, so only Delete all names where.
+        where={bulkDelete?.wholeView ? (activeLibrary?.name ?? "this view") : null}
         elsewhere={bulkDeleteElsewhere}
         kept={bulkDelete?.kept ?? []}
+        blocked={activeApplyJob ? STARTER_PACK_BLOCKS_DELETE : null}
         onConfirm={confirmBulkDelete}
       />
     </div>
