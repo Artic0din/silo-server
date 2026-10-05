@@ -14,7 +14,7 @@ export interface SyncAttention {
 /**
  * "Movies, Kids · 23 titles" under a collection's name, or "Manual · 23
  * titles" on a card. A Smart collection adds "Updates itself as titles are
- * added" after its count. Sync status is added at the end only when it needs
+ * added" after its count, and the editor adds where rows show it. Sync status is added at the end only when it needs
  * attention.
  */
 export function CollectionMetaLine({
@@ -28,7 +28,8 @@ export function CollectionMetaLine({
   typeLabel?: string;
   libraryNames?: readonly string[];
   itemCount?: number;
-  extra?: string;
+  /** What follows the count: one part, or several. */
+  extra?: string | readonly string[];
   attention?: SyncAttention;
   className?: string;
 }) {
@@ -38,7 +39,9 @@ export function CollectionMetaLine({
   ]
     .filter(Boolean)
     .join(" · ");
-  const parts = [counted, extra].filter((part): part is string => Boolean(part));
+  const parts = [counted, ...(typeof extra === "string" ? [extra] : (extra ?? []))].filter(
+    (part): part is string => Boolean(part),
+  );
   const names = libraryNames && libraryNames.length > 0 ? libraryNames.join(", ") : null;
   return (
     <p className={cn("text-muted-foreground text-[14px]", className)}>

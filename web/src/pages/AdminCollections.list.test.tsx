@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { components } from "@/api/v2/schema";
 import { PEEK_MAX_IN_FLIGHT, PEEK_STALE_MS } from "@/components/calm/usePeekLimiter";
+import { SHOW_IT_FIRST } from "@/lib/collections/copy";
 import { useListReturnPath } from "@/lib/collections/listReturn";
 import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
 
@@ -120,6 +121,7 @@ function renderPage(path = "/admin/collections", client = new QueryClient()) {
           <Route path="/admin/collections/:id/edit" element={<Editor />} />
           <Route path="/admin/collections/new" element={<Editor />} />
           <Route path="/catalog" element={<Where />} />
+          <Route path="/admin/home-rows" element={<Where />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -576,7 +578,14 @@ describe("AdminCollections List row menu", () => {
     expect(removes[1]!.headers["If-Match"]).toBe('"/api/v2/admin/collections/studio-ghibli#2"');
   });
 
-  it("keeps the collection and says why when rows still use it", async () => {
+  it("keeps the collection and says why when rows still use it and the server doesn't list them", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      groups: true,
+      imports: true,
+      import_sources: [],
+      artwork: true,
+      item_reorder: true,
+    });
     v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "collection_in_use"));
     const user = userEvent.setup();
     renderPage();
@@ -592,6 +601,127 @@ describe("AdminCollections List row menu", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(rowOf("Best Picture Winners")).toBeInTheDocument();
+    expect(v2Recorder.callsOf("GET /api/v2/admin/collections/{id}/sections")).toHaveLength(0);
+  });
+});
+
+describe("AdminCollections List: rows that show a collection", () => {
+  const homeRow = {
+    id: "s-home",
+    scope: "home",
+    library_id: null,
+    section_type: "collection",
+    title: "Best Picture",
+    featured: false,
+    enabled: true,
+    position: 5,
+    page_row_count: 9,
+  };
+  let sections: Array<typeof homeRow>;
+
+  beforeEach(() => {
+    sections = [homeRow];
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}/sections", () => ({ items: sections }));
+    v2Recorder.answer("GET /api/v2/admin/sections/{id}", () => homeRow);
+    v2Recorder.answer("DELETE /api/v2/admin/sections/{id}", () => {
+      sections = [];
+    });
+  });
+
+  it("adds a collection as a row on everyone's Home", async () => {
+    renderPage();
+    await screen.findByText("Studio Ghibli");
+    const { user, menu } = await openMenu("Studio Ghibli");
+    const home = within(menu).getByRole("menuitem", { name: "Add to Home…" });
+    expect(home).toHaveAccessibleDescription("A row on everyone's Home");
+    await user.click(home);
+    expect(location()).toBe("/admin/home-rows?page=home&add=collection%3Alibrary%3Astudio-ghibli");
+  });
+
+  it("adds a collection as a row above a library's grid, its own libraries first", async () => {
+    renderPage();
+    await screen.findByText("IMDb Top 250 Shows");
+    const { user, menu } = await openMenu("IMDb Top 250 Shows");
+    const page = within(menu).getByRole("menuitem", { name: "Add to a library page…" });
+    expect(page).toHaveAccessibleDescription("A row above a library's grid");
+    page.focus();
+    await user.keyboard("{ArrowRight}");
+    const submenu = (await screen.findAllByRole("menu")).at(-1)!;
+    expect(
+      within(submenu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["TV Shows", "Movies", "Kids"]);
+    await user.click(within(submenu).getByRole("menuitem", { name: "Kids" }));
+    expect(location()).toBe(
+      "/admin/home-rows?page=2&add=collection%3Alibrary%3Aimdb-top-250-shows",
+    );
+  });
+
+  it("can't add a hidden collection as a row, and says why", async () => {
+    renderPage();
+    await screen.findByText("Staff Picks");
+    const { menu } = await openMenu("Staff Picks");
+    for (const name of ["Add to Home…", "Add to a library page…"]) {
+      const item = within(menu).getByRole("menuitem", { name });
+      expect(item).toHaveAttribute("data-disabled");
+      expect(item).toHaveAccessibleDescription(SHOW_IT_FIRST);
+    }
+  });
+
+  it("lists the rows before a delete and deletes them first", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Best Picture Winners");
+    const { menu } = await openMenu("Best Picture Winners");
+    await user.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Best Picture Winners?" });
+    expect(
+      await within(dialog).findByRole("link", { name: "Open row: Best Picture" }),
+    ).toHaveAttribute("href", "/admin/home-rows?page=home&edit=s-home");
+    expect(dialog).toHaveTextContent("Home · row 6 of 9");
+    await user.click(within(dialog).getByRole("button", { name: "Delete it and its 1 row" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    const writes = v2Recorder
+      .writes()
+      .map((call) => `${call.operation.split(" ")[0]} ${call.path}`);
+    expect(writes).toEqual([
+      "DELETE /api/v2/admin/sections/s-home",
+      "DELETE /api/v2/admin/collections/best-picture-winners",
+    ]);
+  });
+
+  it("shows the rows when the server refuses a delete the list thought was free", async () => {
+    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "collection_in_use"));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Studio Ghibli");
+    const { menu } = await openMenu("Studio Ghibli");
+    await user.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Studio Ghibli?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const blocked = await screen.findByRole("button", { name: "Delete it and its 1 row" });
+    expect(blocked).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Open row: Best Picture" })).toBeInTheDocument();
+  });
+
+  it("keeps the collection when a row can't be deleted, and names the row", async () => {
+    v2Recorder.answer("DELETE /api/v2/admin/sections/{id}", () => {
+      throw new Error("Server error");
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Best Picture Winners");
+    const { menu } = await openMenu("Best Picture Winners");
+    await user.click(within(menu).getByRole("menuitem", { name: "Delete…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Best Picture Winners?" });
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Delete it and its 1 row" }),
+    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Couldn't delete every row, so the collection was kept. Still showing it: Best Picture (Home).",
+    );
+    expect(v2Recorder.callsOf("DELETE /api/v2/admin/collections/{id}")).toHaveLength(0);
   });
 });
 

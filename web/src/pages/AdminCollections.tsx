@@ -13,6 +13,10 @@ import { V2ProblemError } from "@/api/v2/request";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { useAdminCollectionsBoard } from "@/hooks/queries/admin/collectionGroups";
 import {
+  useAdminCollectionRows,
+  useDeleteCollectionRows,
+} from "@/hooks/queries/admin/collectionRows";
+import {
   patchAdminCollectionField,
   useAdminCollectionCapabilities,
   useAdminCollections,
@@ -32,6 +36,7 @@ import { PageMoreMenu, type PageMoreMenuItem } from "@/components/calm/PageMoreM
 import { PillSwitcher } from "@/components/calm/PillSwitcher";
 import { SelectAllHeader, SelectModeBar } from "@/components/calm/SelectModeBar";
 import { CollectionActionsMenu } from "@/components/collections/CollectionActionsMenu";
+import { DeleteCollectionDialog } from "@/components/collections/DeleteCollectionDialog";
 import { DeleteCollectionsDialog } from "@/components/collections/DeleteCollectionsDialog";
 import { HideCollectionDialog } from "@/components/collections/HideCollectionDialog";
 import {
@@ -43,7 +48,6 @@ import { MobileDockBar } from "@/components/homeRows/MobileDockBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   AlertCircle,
   CheckCircle2,
@@ -78,10 +82,11 @@ import { MAX_SELECTED_COLLECTIONS, runBatch } from "@/lib/collections/batch";
 import {
   COLLECTION_IN_USE,
   COLLECTIONS_IN_USE,
+  SHOW_IT_FIRST,
   STARTER_PACK_BLOCKS_DELETE,
   alreadyShown,
   batchResult,
-  serverDeleteDescription,
+  rowsLeftMessage,
   syncListsLabel,
   syncSkipNote,
   type BatchAction,
@@ -93,6 +98,13 @@ import {
 } from "@/lib/collections/dialogs";
 import { listReturnState } from "@/lib/collections/listReturn";
 import { serverCollectionPeek } from "@/lib/collections/peek";
+import {
+  addRowPath,
+  rowPages,
+  rowLabels,
+  type CollectionRow,
+  type RowsState,
+} from "@/lib/collections/rows";
 import { collectionsInAdminScope, SERVER_SCOPE } from "@/lib/collections/scope";
 import {
   COLLECTION_KIND_LABEL,
@@ -145,17 +157,24 @@ interface PendingDelete {
   collection: LibraryCollection;
   etag: string;
   error: string | null;
+  /** Rows show it (or the server said so): read them, and delete them first. */
+  checkRows: boolean;
+  /** The rows a delete is working through, so the dialog doesn't change under it. */
+  rows: CollectionRow[] | null;
 }
 
 const DELETE_CHANGED = "It changed since you opened this. Check it, then delete again.";
 
-function deleteErrorMessage(error: unknown): string {
-  if (
+function isCollectionInUse(error: unknown) {
+  return (
     error instanceof V2ProblemError &&
     error.status === 409 &&
     error.problemType === "collection_in_use"
-  )
-    return COLLECTION_IN_USE;
+  );
+}
+
+function deleteErrorMessage(error: unknown): string {
+  if (isCollectionInUse(error)) return COLLECTION_IN_USE;
   return SERVER_SCOPE.errorMessage(error, "Couldn't delete it");
 }
 
@@ -266,6 +285,22 @@ export default function AdminCollections() {
     retry: false,
     mutationFn: (ref: { id: string; etag: string }) => SERVER_SCOPE.remove(ref),
   });
+  // The rows that show a collection being deleted, when the server reports them.
+  const rowsReported = capabilities?.section_references === true;
+  const deleteRowsQuery = useAdminCollectionRows(
+    pendingDelete?.collection.id,
+    rowsReported && Boolean(pendingDelete?.checkRows),
+  );
+  const deleteRows = useDeleteCollectionRows();
+  let deleteRowsState: RowsState | null = null;
+  if (pendingDelete?.checkRows && rowsReported) {
+    if (pendingDelete.rows) deleteRowsState = { status: "ready", rows: pendingDelete.rows };
+    else if (deleteRowsQuery.data)
+      deleteRowsState = { status: "ready", rows: deleteRowsQuery.data };
+    else if (deleteRowsQuery.isError)
+      deleteRowsState = { status: "error", onRetry: () => void deleteRowsQuery.refetch() };
+    else deleteRowsState = { status: "loading" };
+  }
   const applyJobs = useTemplateBundleApplyJobs();
   useEventChannel("jobs");
   const latestApplyJob = applyJobs.data?.[0] ?? null;
@@ -359,16 +394,46 @@ export default function AdminCollections() {
   }
 
   async function prepareDelete(collection: LibraryCollection) {
+    // A single read carries no row counts and Arrange's board doesn't either;
+    // the List's does. A 409 on delete lists the rows anyway.
+    const rowCount =
+      collections.find((entry) => entry.id === collection.id)?.row_count ??
+      collection.row_count ??
+      0;
     try {
       const snapshot = await fetchAdminCollectionSnapshot(collection.id);
-      setPendingDelete({ collection: snapshot.collection, etag: snapshot.etag, error: null });
+      setPendingDelete({
+        collection: snapshot.collection,
+        etag: snapshot.etag,
+        error: null,
+        checkRows: rowsReported && rowCount > 0,
+        rows: null,
+      });
     } catch (error) {
       toast.error(adminMutationMessage(error, "Could not load collection"));
     }
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!pendingDelete) return;
+    const { id } = pendingDelete.collection;
+    const rows = deleteRowsState?.status === "ready" ? [...deleteRowsState.rows] : [];
+    if (rows.length > 0) {
+      setPendingDelete((current) => current && { ...current, rows, error: null });
+      const { remaining } = await deleteRows.mutateAsync(rows).catch(() => ({ remaining: rows }));
+      if (remaining.length > 0) {
+        setPendingDelete((current) =>
+          current?.collection.id === id
+            ? {
+                ...current,
+                rows: remaining,
+                error: rowsLeftMessage(rowLabels(remaining, libraryNames)),
+              }
+            : current,
+        );
+        return;
+      }
+    }
     holdDeleteOpen.current = true;
     removeOne.mutate(
       { id: pendingDelete.collection.id, etag: pendingDelete.etag },
@@ -386,9 +451,21 @@ export default function AdminCollections() {
     );
   }
 
-  /** A 412 means it changed under the dialog: read it again so the next Delete sends its ETag. */
+  /**
+   * A 412 means it changed under the dialog: read it again so the next Delete
+   * sends its ETag. A 409 means rows show it after all: list them.
+   */
   async function showDeleteError(error: unknown) {
     const id = pendingDelete?.collection.id;
+    if (rowsReported && isCollectionInUse(error)) {
+      setPendingDelete((current) =>
+        current && current.collection.id === id
+          ? { ...current, checkRows: true, rows: null, error: null }
+          : current,
+      );
+      void deleteRowsQuery.refetch();
+      return;
+    }
     let fresh: Pick<PendingDelete, "collection" | "etag"> | null = null;
     if (id && error instanceof V2ProblemError && error.status === 412) {
       fresh = await fetchAdminCollectionSnapshot(id).catch(() => null);
@@ -398,6 +475,7 @@ export default function AdminCollections() {
         ? {
             ...current,
             ...fresh,
+            rows: null,
             error: fresh ? DELETE_CHANGED : deleteErrorMessage(error),
           }
         : current,
@@ -759,6 +837,7 @@ export default function AdminCollections() {
                           const visible = isVisible(collection);
                           const syncing = syncingIds.has(collection.id);
                           const peekLibraryId = state.libraryId ?? libraries[0]?.id;
+                          const rowPageChoices = rowPages(libraries, libraryList);
                           return (
                             <CollectionListItem
                               key={collection.id}
@@ -817,6 +896,14 @@ export default function AdminCollections() {
                                           }
                                         : undefined
                                     }
+                                    addRow={{
+                                      libraries: [
+                                        ...rowPageChoices.bound,
+                                        ...rowPageChoices.others,
+                                      ],
+                                      onAdd: (page) => navigate(addRowPath(collection.id, page)),
+                                      disabledReason: visible ? undefined : SHOW_IT_FIRST,
+                                    }}
                                     onDelete={() => void prepareDelete(collection)}
                                   />
                                 )
@@ -938,18 +1025,18 @@ export default function AdminCollections() {
         />
       ) : null}
 
-      <ConfirmDialog
+      <DeleteCollectionDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
           if (!open && !holdDeleteOpen.current) setPendingDelete(null);
         }}
         title={`Delete ${pendingDelete?.collection.title ?? "collection"}?`}
-        description={serverDeleteDescription(pendingNames)}
-        confirmLabel="Delete"
-        variant="destructive"
-        isPending={removeOne.isPending}
+        libraryNames={pendingNames}
+        rows={deleteRowsState}
+        rowLibraryNames={libraryNames}
+        isPending={removeOne.isPending || deleteRows.isPending}
         error={pendingDelete?.error}
-        onConfirm={confirmDelete}
+        onConfirm={() => void confirmDelete()}
       />
 
       <HideCollectionDialog
