@@ -21,10 +21,16 @@ interface ConfirmDialogProps {
   variant?: "default" | "destructive";
   onConfirm: () => void;
   isPending?: boolean;
+  /** Turns the confirm button off without a spinner, e.g. while `error` explains why. */
+  confirmDisabled?: boolean;
   /** What the action does, one line each, under the description. */
   bullets?: { label: string; items: string[] };
   /** Says "This can't be undone." beside the buttons. */
   irreversible?: boolean;
+  /** Where focus goes on close, when the control that opened it is gone (e.g. a menu item). */
+  onCloseAutoFocus?: (event: Event) => void;
+  /** Why the action didn't happen, shown in the dialog; the caller keeps it open. */
+  error?: string | null;
 }
 
 export function ConfirmDialog({
@@ -37,8 +43,11 @@ export function ConfirmDialog({
   variant = "default",
   onConfirm,
   isPending,
+  confirmDisabled,
   bullets,
   irreversible = false,
+  onCloseAutoFocus,
+  error,
 }: ConfirmDialogProps) {
   const id = useId();
   const items = bullets?.items ?? [];
@@ -58,7 +67,7 @@ export function ConfirmDialog({
       <AlertDialogAction
         onClick={onConfirm}
         variant={variant === "destructive" ? "destructive" : "default"}
-        disabled={isPending}
+        disabled={isPending || confirmDisabled}
       >
         {isPending ? (
           <>
@@ -73,7 +82,7 @@ export function ConfirmDialog({
   );
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent aria-describedby={describedBy}>
+      <AlertDialogContent aria-describedby={describedBy} onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -88,6 +97,11 @@ export function ConfirmDialog({
               </li>
             ))}
           </ul>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-destructive text-sm font-medium">
+            {error}
+          </p>
         ) : null}
         {irreversible ? (
           <AlertDialogFooter className="items-center sm:justify-between">

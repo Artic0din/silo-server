@@ -46,6 +46,7 @@ import {
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
 import { draftRules, type DraftField } from "@/lib/collections/draft";
+import { useListReturnPath } from "@/lib/collections/listReturn";
 import type {
   CollectionDraft,
   CollectionScope,
@@ -240,12 +241,16 @@ export function CollectionEditor<Raw extends WireCollection>({
   const [leaving, setLeaving] = useState<string | null>(null);
   const [openEdit, setOpenEdit] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const listPath = scope.paths.list({ libraryId: isServer ? (draft.libraryIds[0] ?? null) : null });
+  const listPath = useListReturnPath(
+    scope.paths.list({ libraryId: isServer ? (draft.libraryIds[0] ?? null) : null }),
+  );
   const remove = useScopeDelete(scope, { onDeleted: () => setLeaving(listPath) });
   const syncList = useScopeSync(scope);
   // How many titles the last sync run here skipped; the collection doesn't carry it.
   const [skipped, setSkipped] = useState<number>();
-  const syncing = syncList.isPending || view?.sync?.status === "running";
+  // The server records a sync's status only when the run ends, and Sync now
+  // answers once it has: the request is the only sync this page can see.
+  const syncing = syncList.isPending;
   // Spec §3.1: only server lists offer Sync now here; a profile syncs its
   // lists from their cards on the Collections page.
   const canSync = created && isServer && Boolean(view?.source);
@@ -260,11 +265,10 @@ export function CollectionEditor<Raw extends WireCollection>({
   function syncNow() {
     if (!editor.id || syncing) return;
     syncList.mutate(editor.id, {
-      onSuccess: (run) => {
-        setSkipped(run.itemsUnmatched);
-        // The sync moved the collection's revision: read it so Save sends the new token.
-        reread();
-      },
+      onSuccess: (run) => setSkipped(run.itemsUnmatched),
+      // A sync records its run on the collection, even one that fails: read
+      // it for the status and so Save sends the new token.
+      onSettled: reread,
     });
   }
 

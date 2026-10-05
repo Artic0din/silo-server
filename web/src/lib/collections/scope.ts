@@ -589,7 +589,8 @@ function serverListRequest(
 /**
  * A saved personal list's PATCH. Name, sharing, libraries, the Collections
  * tab switch and Show only always go; everything else only when it changed
- * from `base`. A "custom" schedule is never sent: it stays until another is picked.
+ * from `base`. A legacy Trakt list never sends libraries: the server refuses
+ * any it's sent. A "custom" schedule is never sent: it stays until another is picked.
  */
 function personalListRequest(draft: ListEditDraft, base: CollectionDraft): UpdateCollectionRequest {
   const changed = new Set(changedFields(base, draft));
@@ -597,10 +598,10 @@ function personalListRequest(draft: ListEditDraft, base: CollectionDraft): Updat
   const body: UpdateCollectionRequest = {
     name: draft.name,
     is_shared: draft.personal?.shared ?? false,
-    library_ids: draft.libraryIds,
     include_in_server_collections: draft.personal?.inLibraryTabs ?? false,
     display_query_definition: draft.showOnly,
   };
+  if (list.source !== "trakt") body.library_ids = draft.libraryIds;
   if (changed.has("description")) body.description = draft.description;
   if (changed.has("rawSortConfig")) body.sort_config = draft.rawSortConfig ?? {};
   if (changed.has("list") && list.source === "mdblist") {
@@ -690,7 +691,10 @@ export const SERVER_SCOPE: CollectionScope<LibraryCollection> = {
   allowPersonalizedRules: false,
 
   paths: {
-    list: ({ libraryId, view } = {}) => withQuery("/admin/collections", { libraryId, view }),
+    // A bare `?libraryId=N` opens that library's Arrange (older links), so a
+    // library's List names its view.
+    list: ({ libraryId, view = libraryId ? "list" : undefined } = {}) =>
+      withQuery("/admin/collections", { libraryId, view }),
     create: ({ type, source, libraryId } = {}) =>
       withQuery("/admin/collections/new", { type, source, libraryId }),
     edit: (id, { libraryId, view, focus } = {}) =>

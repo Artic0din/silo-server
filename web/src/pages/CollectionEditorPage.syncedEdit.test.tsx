@@ -84,7 +84,11 @@ function serverList(
   return collection;
 }
 
-function personalList(type: "mdblist" | "tmdb", source: Source, extra: Record<string, unknown>) {
+function personalList(
+  type: "mdblist" | "tmdb" | "trakt",
+  source: Source,
+  extra: Record<string, unknown>,
+) {
   v2Recorder.answer("GET /api/v2/collections/{id}", {
     ...personalSyncedCollection(type, source),
     ...extra,
@@ -284,6 +288,46 @@ describe("server Synced list editor", () => {
     expect(patch.body).toMatchObject({ title: "Netflix Originals" });
   });
 
+  it("reads the list again after a failed Sync now, for its reason and token", async () => {
+    const saved = serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {
+      // The server records the failed run on the collection, then answers an error.
+      v2Recorder.bump("/api/v2/admin/collections/c1");
+      v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
+        ...saved,
+        last_sync_status: "failed",
+        last_sync_message: "MDBList didn't answer.",
+        last_sync_at: new Date().toISOString(),
+      });
+      throw new Error("MDBList didn't answer.");
+    });
+    showPage(SERVER_EDIT);
+    await rename("Netflix Originals");
+
+    const menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("MDBList didn't answer.");
+
+    const afterSync = v2Recorder.etag("/api/v2/admin/collections/c1");
+    await save(ADMIN_PATCH);
+    const [patch] = v2Recorder.callsOf(ADMIN_PATCH) as [RecordedCall];
+    expect(v2Recorder.callsOf(ADMIN_PATCH)).toHaveLength(1);
+    expect(patch.headers["If-Match"]).toBe(afterSync);
+  });
+
+  it("offers Sync now on a list whose stored status says running", async () => {
+    // The server writes a sync's status when the run ends, so a stored
+    // "running" is stale: it must not lock the editor.
+    serverList("mdblist", MDBLIST, { last_sync_status: "running" });
+    showPage(SERVER_EDIT);
+    await nameField();
+    expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull();
+    const menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: "Sync now" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+  });
+
   it("puts a failed sync at the top of the list, with the reason and Sync now", async () => {
     serverList("mdblist", MDBLIST, {
       last_sync_status: "failed",
@@ -301,6 +345,27 @@ describe("server Synced list editor", () => {
     await vi.waitFor(() =>
       expect(v2Recorder.callsOf("POST /api/v2/admin/collections/{id}/sync")).toHaveLength(1),
     );
+  });
+
+  it("says what the list decides and what the admin decides", async () => {
+    serverList("mdblist", MDBLIST);
+    showPage(SERVER_EDIT);
+    const list = await screen.findByRole("list", { name: "The list decides" });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Which titles are in it", "Their order, while the sort is “List order”"]);
+    const you = screen.getByRole("list", { name: "You decide" });
+    expect(
+      within(you)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Name, description and artwork",
+      "Order, max titles and the schedule",
+      "Where it shows",
+    ]);
   });
 
   it("changes an MDBList link, and sends it without its query or fragment", async () => {
@@ -533,6 +598,17 @@ describe("server Synced list editor", () => {
     expect(patches(ADMIN_PATCH)[0]).not.toHaveProperty("source_url");
   });
 
+  it("leaves a Discover list's split to its locked summary", async () => {
+    serverList("tmdb", {
+      source_url: "tmdb://discover/movie",
+      source_config: { mode: "tmdb_discover", media_type: "movie", discover: {}, limit: 40 },
+    });
+    showPage(SERVER_EDIT);
+    await screen.findByText("Made by a starter pack. Its rules can't be changed here.");
+    expect(screen.queryByRole("list", { name: "The list decides" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "You decide" })).toBeNull();
+  });
+
   describe("a legacy Trakt list", () => {
     const TRAKT: Source = {
       source_url: "trakt://recommended/movie/p-owner",
@@ -661,6 +737,27 @@ describe("personal Synced list editor", () => {
     });
   });
 
+  it("sends no libraries for a legacy Trakt list, which the server won't take", async () => {
+    personalList(
+      "trakt",
+      {
+        source_url: "trakt://recommended/movie/p-owner",
+        source_config: { limit: 40, library_ids: [1] },
+      },
+      { sync_schedule: "17 4 * * *", sync_cadence: "daily" },
+    );
+    showPage(PERSONAL_EDIT);
+    const schedule = await screen.findByRole("combobox", { name: "Sync schedule" });
+    await vi.waitFor(() => expect(schedule).toBeEnabled());
+    choose(schedule, "Weekly");
+    await save(PERSONAL_PATCH);
+    const body = patches(PERSONAL_PATCH)[0]!;
+    expect(body).toMatchObject({ sync_schedule: "weekly" });
+    expect(body).not.toHaveProperty("library_ids");
+    expect(body).not.toHaveProperty("source_url");
+    expect(body).not.toHaveProperty("max_items");
+  });
+
   it("keeps a schedule it can't name until another is picked", async () => {
     personalList("mdblist", PERSONAL_MDBLIST, {
       sync_schedule: "0 */6 * * *",
@@ -689,6 +786,10 @@ describe("personal Synced list editor", () => {
       await screen.findByText("This server doesn't let profiles change a list's schedule."),
     ).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Sync schedule" })).toBeDisabled();
+    // The profile no longer decides the schedule.
+    const you = screen.getByRole("list", { name: "You decide" });
+    expect(within(you).getByText("Order and max titles")).toBeInTheDocument();
+    expect(within(you).queryByText(/schedule/)).toBeNull();
   });
 
   it("changes its MDBList link", async () => {

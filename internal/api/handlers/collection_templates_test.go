@@ -37,6 +37,29 @@ func TestCollectionTemplateHandlerReturnsBuiltinCatalog(t *testing.T) {
 	}
 }
 
+// TestV1TemplateListKeepsEveryTemplate pins /api/v1 to the full built-in
+// catalog. The /api/v2 admin list leaves out templates no import route accepts;
+// the frozen v1 body still carries TMDB Discover and franchise templates.
+func TestV1TemplateListKeepsEveryTemplate(t *testing.T) {
+	full := templates.CatalogDefault()
+	var want bytes.Buffer
+	if err := json.NewEncoder(&want).Encode(full); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(want.Bytes(), []byte(`"source":"tmdb_discover"`)) || !bytes.Contains(want.Bytes(), []byte(`"source":"tmdb_collection"`)) {
+		t.Fatal("built-in catalog must contain Discover and franchise templates")
+	}
+
+	rec := httptest.NewRecorder()
+	NewCollectionTemplateHandler(nil).HandleListTemplates(rec, httptest.NewRequest(http.MethodGet, "/admin/collections/templates", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), want.Bytes()) {
+		t.Fatalf("v1 template list changed:\n got %.300s\nwant %.300s", rec.Body.String(), want.String())
+	}
+}
+
 // Bundle apply dedupes collections by slugified title per library
 // (applyTemplateBundle's slug-match adoption), so two builtin templates with
 // the same title slug can never coexist: whichever applies second is silently

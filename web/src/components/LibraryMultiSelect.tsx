@@ -36,16 +36,17 @@ function formatLibraryFilterSummary(
     .map((libraryId) => libraries.find((library) => library.id === libraryId)?.name)
     .filter((name): name is string => Boolean(name));
 
+  if (libraryIds.length === 1) {
+    return names[0] ?? "1 library";
+  }
   if (names.length === 0) {
     return `${libraryIds.length} libraries`;
   }
-  if (names.length === 1) {
-    return names[0] ?? "1 library";
-  }
-  if (names.length === 2) {
+  // Unnamed IDs (deleted or not yet loaded) still count toward "+N more".
+  if (libraryIds.length === 2 && names.length === 2) {
     return `${names[0] ?? "Library"}, ${names[1] ?? "Library"}`;
   }
-  return `${names[0] ?? "Library"} +${names.length - 1} more`;
+  return `${names[0] ?? "Library"} +${libraryIds.length - 1} more`;
 }
 
 function toggleLibrarySelection(

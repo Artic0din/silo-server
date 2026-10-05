@@ -1,6 +1,6 @@
 import type { DraftField } from "./draft";
 import type { ArtworkSlot, ScopeKind } from "./scope";
-import type { CollectionKind } from "./types";
+import { COLLECTION_KIND_LABEL, type CollectionKind } from "./types";
 
 /**
  * Words every collections surface shares, so the editor, lists and dialogs
@@ -78,10 +78,174 @@ export const SHOW_TO_OTHER_PROFILES_LABEL = "Show to other profiles";
 export const SHOW_TO_OTHER_PROFILES_HELP =
   "Every profile on this account sees it, minus titles it can't access. Nobody else on the server can see it.";
 
+/** What turning sharing off costs: "Maya and Leo lose it, including Home rows they made from it." */
+export function unshareConsequence(profileNames: readonly string[]): string {
+  const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
+  return `${who} lose it, including Home rows they made from it.`;
+}
+
 /** Shown when sharing is turned off on a saved collection. */
 export function unshareWarning(profileNames: readonly string[]): string {
-  const who = profileNames.length > 0 ? joinNames(profileNames) : "Other profiles";
-  return `When you save, ${who} lose it, including Home rows they made from it.`;
+  return `When you save, ${unshareConsequence(profileNames)}`;
+}
+
+/** The ⋯ switch's help on a card: the menu has room for one short line. */
+export const SHOW_TO_OTHER_PROFILES_SHORT_HELP = "Every profile on this account sees it";
+
+// --- Server list ------------------------------------------------------------
+
+export const ON_HOME = "On Home";
+export const HIDDEN_FROM_TAB = "Hidden from Collections tab";
+
+/** "Movies › Collections and Kids › Collections". */
+function collectionsTabs(libraryNames: readonly string[]): string {
+  return joinNames(libraryNames.map((name) => `${name} › Collections`));
+}
+
+export function hideCollectionTitle(name: string): string {
+  return `Hide ${name} from Collections tabs?`;
+}
+
+/** Hiding a collection rows show: they keep showing it, but See all can't open it. */
+export function hideCollectionDescription(
+  libraryNames: readonly string[],
+  rowCount: number,
+): string {
+  const leaves = libraryNames.length > 0 ? `It leaves ${collectionsTabs(libraryNames)}. ` : "";
+  const rows =
+    rowCount === 1
+      ? "1 row still shows it, but its See all won't open while it's hidden."
+      : `${rowCount} rows still show it, but their See all won't open while it's hidden.`;
+  return leaves + rows;
+}
+
+/** A delete the server refused because Home or library page rows still show the collection. */
+export const COLLECTION_IN_USE = "Rows still use it. Remove them first.";
+
+// --- Select mode and Delete all ---------------------------------------------
+
+/** Rows use every collection a delete was asked for, so nothing goes. */
+export const COLLECTIONS_IN_USE = "Rows still use them. Remove the rows first.";
+
+/** A starter pack being added would race a delete of the collections it makes. */
+export const STARTER_PACK_BLOCKS_DELETE = "A starter pack is being added. Delete once it finishes.";
+
+const KIND_NOUN: Readonly<Record<CollectionKind | "mixed", readonly [string, string]>> = {
+  manual: ["manual collection", "manual collections"],
+  smart: ["smart collection", "smart collections"],
+  synced: ["synced list", "synced lists"],
+  mixed: ["collection", "collections"],
+};
+
+/** "1 synced list", "7 collections": `kind` null when the collections are of several types. */
+function kindCount(count: number, kind: CollectionKind | null): string {
+  const [one, many] = KIND_NOUN[kind ?? "mixed"];
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** Up to five names, then how many more. */
+function someNames(names: readonly string[]): string {
+  const shown = names.length > 5 ? [...names.slice(0, 4), `${names.length - 4} more`] : names;
+  return joinNames(shown);
+}
+
+export function syncListsLabel(count: number): string {
+  return `Sync ${plural(count, "list")}`;
+}
+
+/** Sync works on synced lists only; says how many picked collections it passes over. */
+export function syncSkipNote(smart: number, manual: number): string | null {
+  if (smart + manual === 0) return null;
+  const kinds = smart && manual ? "smart and manual" : smart ? "smart" : "manual";
+  return `Sync skips ${kinds} collections (${smart + manual} here).`;
+}
+
+export type BatchAction = "sync" | "show" | "hide";
+
+const BATCH_WORDS: Readonly<
+  Record<BatchAction, { done: string; verb: string; noun: string; where: string }>
+> = {
+  sync: { done: "Synced", verb: "sync", noun: "list", where: "" },
+  show: { done: "Showed", verb: "show", noun: "collection", where: " on Collections tabs" },
+  hide: { done: "Hid", verb: "hide", noun: "collection", where: " from Collections tabs" },
+};
+
+/**
+ * The toast after a select-mode action: all done, some done, or none.
+ * `warned` counts the done ones that finished with warnings (a sync's unmatched entries).
+ */
+export function batchResult(
+  action: BatchAction,
+  done: number,
+  total: number,
+  warned = 0,
+): { tone: "success" | "warning" | "error"; message: string } {
+  const words = BATCH_WORDS[action];
+  const warnings = warned > 0 ? `, ${warned} with warnings` : "";
+  if (done === total)
+    return {
+      tone: warned > 0 ? "warning" : "success",
+      message: `${words.done} ${plural(done, words.noun)}${words.where}${warnings}.`,
+    };
+  if (done > 0)
+    return {
+      tone: "warning",
+      message: `${words.done} ${done} of ${plural(total, words.noun)}${warnings}.`,
+    };
+  return { tone: "error", message: `Couldn't ${words.verb} ${plural(total, words.noun)}.` };
+}
+
+export function alreadyShown(shown: boolean): string {
+  return shown
+    ? "The selected collections are already on Collections tabs."
+    : "The selected collections are already hidden.";
+}
+
+export function hideCollectionsTitle(count: number): string {
+  return `Hide ${count} collections from Collections tabs?`;
+}
+
+/** Hiding several collections rows show: `rowCount` is the rows' total. */
+export function hideCollectionsDescription(rowCount: number): string {
+  return rowCount === 1
+    ? "1 row still shows one of them, but its See all won't open while it's hidden."
+    : `${rowCount} rows still show them, but those rows' See all won't open while they're hidden.`;
+}
+
+/** "Delete 7 synced lists in Movies?" `where` is a library name or "this view". */
+export function deleteCollectionsTitle(
+  count: number,
+  kind: CollectionKind | null,
+  where: string | null,
+): string {
+  return `Delete ${kindCount(count, kind)}${where ? ` in ${where}` : ""}?`;
+}
+
+export function deleteCollectionsDescription(count: number): string {
+  return count === 1
+    ? "It's removed for everyone. Its titles stay in your libraries."
+    : "They're removed for everyone. Their titles stay in your libraries.";
+}
+
+/** A collection is one thing in every library it's in, so deleting it there removes it everywhere. */
+export function alsoDeletedElsewhere(
+  entries: ReadonlyArray<{ title: string; libraryNames: readonly string[] }>,
+  kind: CollectionKind | null,
+): string {
+  const [one, many] = KIND_NOUN[kind ?? "mixed"];
+  const names = someNames(
+    entries.map((entry) => `${entry.title} (${joinNames(entry.libraryNames)})`),
+  );
+  return entries.length === 1
+    ? `A ${one} that's also in another library goes there too: ${names}.`
+    : `${many.charAt(0).toUpperCase()}${many.slice(1)} that are also in other libraries go there too: ${names}.`;
+}
+
+/** The collections a delete leaves alone because Home or library page rows show them. */
+export function keptForRows(titles: readonly string[]): string {
+  return titles.length === 1
+    ? `1 is kept because rows use it: ${titles[0]}.`
+    : `${titles.length} are kept because rows use them: ${someNames(titles)}.`;
 }
 
 // --- Titles -----------------------------------------------------------------
@@ -103,6 +267,26 @@ export function removedTitle(title: string): string {
 
 export function createdButNotAdded(count: number): string {
   return `Created, but couldn't add ${plural(count, "title")}`;
+}
+
+// --- Add to collection -----------------------------------------------------
+
+export const ADD_TO_COLLECTION_FOOTNOTE =
+  "Only manual collections take titles by hand. Ticking saves right away.";
+
+/** "Manual · 15 titles": a manual collection's line in a picker. */
+export function manualTitleCount(count: number): string {
+  return `${COLLECTION_KIND_LABEL.manual} · ${plural(count, "title")}`;
+}
+
+/** The Add to collection footer: how many of the profile's collections hold the title. */
+export function inCollections(count: number): string {
+  return count === 0 ? "Not in a collection yet" : `In ${plural(count, "collection")}`;
+}
+
+/** The new collection was kept, but the title it was made for didn't go in. */
+export function madeButNotAdded(collection: string, title: string): string {
+  return `Made ${collection}, but couldn't add ${title}`;
 }
 
 // --- Rules (Smart) ----------------------------------------------------------
@@ -246,6 +430,21 @@ export const TRAKT_STILL_EDITABLE =
 export const TRAKT_SCHEDULE_STOPPED = "A stopped Trakt list can't be scheduled again.";
 export const PERSONAL_SCHEDULE_LOCKED =
   "This server doesn't let profiles change a list's schedule.";
+export const LIST_DECIDES = "The list decides";
+export const LIST_DECIDES_ITEMS = [
+  "Which titles are in it",
+  "Their order, while the sort is “List order”",
+] as const;
+export const YOU_DECIDE = "You decide";
+
+/** What the editor still controls on a list-backed collection. */
+export function youDecideItems(scheduleEditable: boolean): string[] {
+  return [
+    "Name, description and artwork",
+    scheduleEditable ? "Order, max titles and the schedule" : "Order and max titles",
+    "Where it shows",
+  ];
+}
 
 /** "3 hours ago": how long ago a sync ran. */
 export function syncedAgo(iso: string, now = Date.now()): string {
@@ -355,4 +554,84 @@ export function personalDeleteDescription(shared: boolean): string {
   return shared
     ? "It's removed for you and every profile you share it with. This can't be undone."
     : "This can't be undone.";
+}
+
+// --- Arrange ----------------------------------------------------------------
+
+export function arrangeHeading(libraryName: string): string {
+  return `Shelves on ${libraryName} › Collections`;
+}
+export const ARRANGE_SUBTITLE =
+  "Shelves are set separately for each library. Top to bottom, the way viewers see them.";
+export const ARRANGE_HINT =
+  "Drag shelves and collections, or focus a handle and press Space, then the arrow keys. ⋯ has Move to shelf. Changes save right away.";
+
+export const NO_HEADING = "No heading";
+export const NO_HEADING_HELP = "Collections not on a shelf, shown without a title";
+export const MY_COLLECTIONS_TAG = "Different for each viewer";
+export const MY_COLLECTIONS_NOTE = `Each viewer's own collections land here when they turn on “${SHOW_ON_TAB_LABEL}”. You can rename or move this shelf.`;
+/** Shown on My collections while a server collection is dragged. */
+export const MY_COLLECTIONS_NO_DROP = "Viewers' own collections only";
+export const HIDDEN_TAG = "Hidden";
+export const MOVE_FAILED = "Couldn't move it";
+/** A move found the order changed by someone else since Arrange read it; nothing was saved. */
+export const ORDER_CHANGED =
+  "Someone else changed this order, so nothing moved. Arrange now shows their order; move it again.";
+
+export const VIEWER_PREVIEW_LABEL = "What viewers see";
+export const VIEWER_PREVIEW_MINE = "Each viewer's own";
+export const VIEWER_PREVIEW_NOTE =
+  "The pin marks a collection kept at the start of its shelf. Hidden collections don't appear.";
+
+// --- Pin (`featured`) ---------------------------------------------------------
+
+export const PIN_LABEL = "Pin to the start of its shelf";
+export const UNPIN_LABEL = "Unpin";
+export const PINNED = "Pinned";
+export const PINNED_BAND = "Pinned to the start";
+
+/** Pin is set on the collection, not per library, so it reaches every library the collection is in. */
+const PIN_EVERY_LIBRARY = " This applies in every library it's in.";
+
+/**
+ * What Pin does, given what the shelf sorts by (null for Your order) and
+ * whether the collection is in more than one library. Pinned collections also
+ * lead the capped Server collections list on every profile's Collections
+ * page, which is all Pin does on a shelf that sorts itself.
+ */
+export function pinHelp(shelfSortedBy: string | null, inSeveralLibraries = false): string {
+  const help =
+    shelfSortedBy === null
+      ? "Shows first on this shelf and in Server collections on the Collections page."
+      : `Shows first in Server collections on the Collections page; this shelf sorts by ${shelfSortedBy}.`;
+  return inSeveralLibraries ? help + PIN_EVERY_LIBRARY : help;
+}
+
+export function unpinHelp(shelfSortedBy: string | null, inSeveralLibraries = false): string {
+  const help =
+    shelfSortedBy === null
+      ? "Stops showing first on this shelf and in Server collections on the Collections page."
+      : "Stops showing first in Server collections on the Collections page.";
+  return inSeveralLibraries ? help + PIN_EVERY_LIBRARY : help;
+}
+
+/**
+ * The phone sheet's Pin switch, which names the collection and its shelf
+ * (null for No heading, which viewers never see as a name).
+ */
+export function pinSwitchLabel(name: string, shelfName: string | null): string {
+  return `Pin ${name} to the start of ${shelfName ?? "the collections with no heading"}`;
+}
+
+export function deleteShelfTitle(name: string): string {
+  return `Delete the ${name} shelf?`;
+}
+
+/** Deleting a shelf never deletes its collections, and touches one library only. */
+export function deleteShelfDescription(collectionCount: number, libraryName: string): string {
+  const members =
+    collectionCount === 0
+      ? "It has no collections."
+      : `${collectionCount === 1 ? "Its 1 collection moves" : `Its ${collectionCount} collections move`} to ${NO_HEADING} on ${libraryName} › Collections. ${collectionCount === 1 ? "It isn't" : "They aren't"} deleted.`;
+  return `${members} Only ${libraryName} changes; shelves in other libraries stay as they are. You can make the shelf again later.`;
 }

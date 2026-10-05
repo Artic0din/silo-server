@@ -18,6 +18,7 @@ import {
   personalCapabilities,
   personalSmartCollection,
 } from "@/test/fixtures/collectionAnswers";
+import { listReturnState } from "@/lib/collections/listReturn";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import CollectionEditorPage from "./CollectionEditorPage";
 
@@ -126,7 +127,7 @@ function showPersonalSmart(query: Record<string, unknown>) {
   v2Recorder.answer("GET /api/v2/collections", { items: [smart] });
 }
 
-function showPage(url: string) {
+function showPage(url: string | { pathname: string; search?: string; state?: unknown }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -443,6 +444,28 @@ describe("who can open the editor", () => {
     await vi.waitFor(() => expect(router.state.location.pathname).toBe("/catalog"));
     expect(router.state.location.search).toContain("notice=read-only");
     expect(writes()).toEqual([]);
+  });
+});
+
+describe("Back", () => {
+  it("server: goes back to the list view the editor was opened from", async () => {
+    showPage({
+      pathname: "/admin/collections/c1/edit",
+      search: "?libraryId=1",
+      state: listReturnState("/admin/collections?view=list&libraryId=1&type=smart"),
+    });
+    expect(await screen.findByRole("link", { name: "Collections" })).toHaveAttribute(
+      "href",
+      "/admin/collections?view=list&libraryId=1&type=smart",
+    );
+  });
+
+  it("server: goes back to the library's List when it wasn't opened from the list", async () => {
+    showPage("/admin/collections/c1/edit?libraryId=1");
+    expect(await screen.findByRole("link", { name: "Collections" })).toHaveAttribute(
+      "href",
+      "/admin/collections?libraryId=1&view=list",
+    );
   });
 });
 

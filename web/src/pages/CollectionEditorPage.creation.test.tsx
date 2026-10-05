@@ -92,7 +92,11 @@ function show(admin = false) {
   );
 }
 it.each([
-  ["server", "/admin/collections/new?libraryId=7", "/admin/collections?libraryId=7&dialog=new"],
+  [
+    "server",
+    "/admin/collections/new?libraryId=7",
+    "/admin/collections?libraryId=7&view=list&dialog=new",
+  ],
   ["personal", "/collections/new", "/collections?dialog=new"],
 ] as const)(
   "opens the %s collection list with the type picker for a create link with no type",

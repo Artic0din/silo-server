@@ -40,9 +40,30 @@ fails closed, so the page waits for the acting profile before it decides.
 - **Artwork** saves after the collection: a file or link uploads, a staged removal sends `DELETE
   …/image`, and a new file in the same slot replaces the image without a DELETE. A slot whose
   upload fails after the collection saved stays staged and offers Retry.
-- **Pin** (`featured`) is not part of the draft. It is set in Arrange. A collection created in the
-  editor is created unpinned, and an editor PATCH leaves `featured` out, so a stale editor can't
-  undo a Pin set elsewhere.
+- **Pin** (`featured`, "Pin to the start of its shelf") is not part of the draft. It is set in
+  Arrange. A collection created in the editor is created unpinned, and an editor PATCH leaves
+  `featured` out, so a stale editor can't undo a Pin set elsewhere.
+
+## What Pin does
+
+The catalog lists a library's collections pinned first (`ListByLibrary` orders by `featured`,
+then position). That order reaches viewers in two places:
+
+- **A shelf set to Your order**, and No heading, shows its pinned collections first, then the rest
+  in their stored order. Arrange draws them in a band at the start of the shelf. A move never places
+  a card above the band, and the order a move saves is the order Arrange shows. A shelf that sorts
+  itself (by name, recently updated or most titles) ignores `featured` (`applyCollectionSort`).
+- **The Server collections list** on every profile's Collections page is capped per library
+  (`ListServerCollections`, `capServerCollections`), so pinned collections are the ones that lead
+  it, whatever their shelf's order. This is why Pin stays available on a shelf that sorts itself,
+  and why its help line names that list.
+
+`featured` is a column on the collection, so a Pin set from one library's Arrange applies in every
+library the collection is in, while its shelf and position stay per library. Pin's help line says so
+when the collection is in more than one library.
+
+Arrange sends a Pin as a PATCH of only `collection_type` and `featured`, with `If-Match` from a fresh
+read of the collection.
 
 ## Tokens and merging
 

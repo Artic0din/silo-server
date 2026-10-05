@@ -296,7 +296,7 @@ describe("personal collection writes refresh library Collections tabs", () => {
       "adding an item",
       () => {
         const m = useAddItemToCollection();
-        return () => m.mutateAsync({ collectionId: "c", mediaItemId: "m", source: "user" });
+        return () => m.mutateAsync({ collectionId: "c", mediaItemId: "m" });
       },
     ],
     [

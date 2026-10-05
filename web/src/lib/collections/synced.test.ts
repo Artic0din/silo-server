@@ -70,6 +70,16 @@ describe("MDBList links", () => {
     expect(isMDBListLink("https://evil.example/lists/u/top")).toBe(false);
     expect(isMDBListLink("mdblist.com/lists/u/top")).toBe(false);
   });
+
+  it("rejects the credentials and ports the server refuses", () => {
+    expect(isMDBListLink("https://user:pass@mdblist.com/lists/u/top")).toBe(false);
+    expect(isMDBListLink("https://user@mdblist.com/lists/u/top")).toBe(false);
+    expect(isMDBListLink("https://mdblist.com:8443/lists/u/top")).toBe(false);
+    expect(isMDBListLink("https://mdblist.com:443/lists/u/top")).toBe(true);
+    expect(isMDBListLink("http://mdblist.com:80/lists/u/top")).toBe(true);
+    expect(isMDBListLink("http://mdblist.com:443/lists/u/top")).toBe(true);
+    expect(isMDBListLink("https://mdblist.com./lists/u/top")).toBe(true);
+  });
 });
 
 describe("ready-made picks", () => {
