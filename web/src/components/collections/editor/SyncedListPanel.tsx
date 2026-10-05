@@ -838,6 +838,8 @@ function SavedListContents({
         <WhoDecides scheduleEditable={!scheduleLocked} />
       )}
       <ListSettings
+        // Discard puts back the settings' own state too, such as an open custom schedule.
+        key={`settings-${saved.discards ?? 0}`}
         isServer={isServer}
         draft={draft}
         onChange={onChange}
