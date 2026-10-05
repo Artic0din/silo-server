@@ -263,6 +263,12 @@ type Dependencies struct {
 	// Trakt / MDBList) — the user-facing analogue of CollectionService.
 	UserCollectionSync      *usercollections.Service
 	UserCollectionScheduler *usercollections.Scheduler
+	// PersonalCollectionCollages serves and builds personal collection
+	// collages. main.go builds it beside UserCollectionSync, before scheduled
+	// syncs start, and hands it to both; the router gives it its generator
+	// once the poster signer exists. Nil builds one here when artwork
+	// storage is configured.
+	PersonalCollectionCollages *catalog.PersonalCollectionCollages
 
 	// TrendingRefresher refreshes the persisted trending_discover snapshots.
 	// Built in main.go with TMDB wired; its Trakt fetcher is propagated here in
@@ -1044,6 +1050,18 @@ func newChiRouter(deps Dependencies) chi.Router {
 	var libraryPlaybackPrefHandler *handlers.LibraryPlaybackPrefHandler
 	var watchProviderHandler *handlers.WatchProviderHandler
 	var playbackSessionsLoader *handlers.PlaybackSessionsLoader
+	// Personal collections without an uploaded or imported poster show a
+	// collage of their titles; it needs artwork storage and poster signing.
+	var personalCollages *catalog.PersonalCollectionCollages
+	if deps.DB != nil && detailSvc != nil {
+		if gen := handlers.NewPersonalCollectionCollageGenerator(deps.Blobs.Assets, detailSvc, nil); gen != nil {
+			personalCollages = deps.PersonalCollectionCollages
+			if personalCollages == nil {
+				personalCollages = catalog.NewPersonalCollectionCollages(deps.DB, nil)
+			}
+			personalCollages.SetCollageGenerator(gen)
+		}
+	}
 	if deps.DB != nil {
 		playbackSessionsLoader = handlers.NewPlaybackSessionsLoader(deps.DB, deps.UserStoreProvider, detailSvc)
 	}
@@ -1101,6 +1119,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 			collectionHandler.ItemPosters = detailSvc
 		}
 		collectionHandler.CollectionOwners = collectionOwners
+		collectionHandler.Collages = personalCollages
 		// The import handler is built beside the collection handler so the v1
 		// route group and the v2 operations share one instance; the v1 routes
 		// keep their userImportHandler != nil condition.
@@ -1855,8 +1874,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 			sectionHandler.AccessGroups = accessGroupStore
 		}
 		if settingsRepo != nil {
-			sectionHandler.Settings = settingsRepo
-			sectionSettingsHandler = &handlers.SectionSettingsHandler{Settings: settingsRepo}
+			sectionSettingsHandler = &handlers.SectionSettingsHandler{}
 		}
 
 		libraryCollectionRepo := catalog.NewLibraryCollectionRepository(deps.DB)
@@ -1974,6 +1992,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		libraryCollectionHandler.SectionRepo = sectionRepo
 		libraryCollectionHandler.UserCollectionPool = deps.DB
 		libraryCollectionHandler.CollectionOwners = collectionOwners
+		libraryCollectionHandler.PersonalCollages = personalCollages
 		libraryCollectionHandler.EventsHub = deps.EventsHub
 		libraryCollectionHandler.SortPreferenceCleaner = collectionSortCleaner
 		if deps.FolderRepo != nil {
@@ -2811,10 +2830,6 @@ func newChiRouter(deps Dependencies) chi.Router {
 	}
 	if sectionHandler != nil {
 		v2deps.ProfileSections = sectionHandler
-	}
-	if sectionSettingsHandler != nil {
-		v2deps.SectionFlags = sectionSettingsHandler
-		v2deps.AdminSectionSettingsWrite = sectionSettingsHandler
 	}
 	if webhookSyncHandler != nil {
 		v2deps.WebhookSync = webhookSyncHandler

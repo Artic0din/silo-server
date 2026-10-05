@@ -47,6 +47,58 @@ the person without `prefetch` when the user actually opens them.
 the server accepts the parameter. Check it first: `/api/v2` rejects unknown query
 parameters, so an older server answers a prefetch read with `422`.
 
+## Facet typeahead
+
+`GET /api/v2/catalog/filters/search` (`searchCatalogFacet`) searches the values of
+one facet in a scope. The scope parameters are the ones `getCatalogFilters` takes:
+`source`, `library_id`, `type` (media scope: `movie`, `series`, `episode`, and so
+on), and the rest. `library_ids` names several libraries, one `library_ids`
+parameter per id, and combines with `library_id`. Requested libraries are
+intersected with the viewer's allowed libraries and stripped of disabled ones,
+so the parameter can narrow a scope but never widen it; a scope left with no
+library answers no values. `library_ids` is refused with `source=section`.
+`getCatalogFilters` accepts it too.
+
+The answer carries two lists, each at most `limit` long.
+
+`matches` holds the values that start with `q`, ignoring case, in A to Z order,
+and is empty for an empty `q`. `has_more` is true when more values than `limit`
+start with `q`. This is the answer `matches` has always given, so a client that
+reads only `matches` sees no change.
+
+`values` is the ranked answer, each entry with `count`, the number of titles in
+the scope that carry the value. `values_has_more` is true when more values
+matched than `limit`. For `genre`, `studio`, `network`, `country`,
+`original_language`, and `content_rating`, a value matches when it starts with
+`q` or when any word in it does; words are split on any character that is not a
+letter or digit, so `bros` finds `Warner Bros. Pictures`. Values that start with
+`q` come first, then word matches. Within each group, values with more titles
+come first, then A to Z. An empty `q` returns the most common values. For
+`author`, `narrator`, and `series`, `values` holds the names in `matches`, and an
+empty `q` returns nothing.
+
+Matching ignores case, A to Z compares lowercased code points, and `%` and `_`
+in `q` match literally.
+
+The server answers the first six facets from an in-memory list of the scope's
+values, built with one query and kept for two minutes. The list is keyed by the
+scope's full SQL and arguments, so viewers with different library access,
+disabled libraries, or rating limits never share one. Each node keeps its own
+lists, so `count` and newly added values can lag catalog changes by up to two
+minutes. A node holds at most 500,000 values across all lists and drops the
+least recently used list first, and builds at most four lists at once. A scope
+with more distinct values than that is searched in SQL on every request, with
+the same matching and order.
+
+`GET /api/v2/catalog/search/capabilities` advertises `facet_value_search: true`
+when the server accepts `library_ids`, answers `values` and `values_has_more`,
+matches word starts in `values`, and returns common values for an empty `q`.
+
+`GET /api/v1/catalog/filters/search` is frozen and answers as it always has:
+names that start with `q`, read live from the database in `LOWER(name)` order
+under the database collation, with `%` and `_` in `q` acting as wildcards. It
+returns nothing for an empty `q`.
+
 ## Saved browse sort
 
 `PUT /api/v2/collections/sort-preference` (`setCollectionSortPreference`) saves the

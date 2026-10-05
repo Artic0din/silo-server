@@ -88,7 +88,12 @@ describe("catalog browse and facets on the v2 contract", () => {
     expect(url.searchParams.get("facet")).toBe("author");
     expect(url.searchParams.get("q")).toBe("fra");
     expect(url.searchParams.get("limit")).toBe("10");
-    expect(result).toEqual({ matches: ["Frank Herbert"], has_more: true });
+    expect(result).toEqual({
+      matches: ["Frank Herbert"],
+      has_more: true,
+      values: [{ value: "Frank Herbert", count: 6 }],
+      values_has_more: true,
+    });
   });
 
   it("posts structured filters, query cap and explicit sorting without bracket parameters", async () => {

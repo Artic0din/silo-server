@@ -19,6 +19,12 @@ import {
   personalCapabilities,
   personalSmartCollection,
 } from "@/test/fixtures/collectionAnswers";
+import {
+  chooseArtwork,
+  openArtworkMenu,
+  pasteArtworkLink,
+  uploadArtwork,
+} from "@/test/collectionArtwork";
 import { goldens } from "@/test/fixtures/collectionBodies";
 import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
 import CollectionEditorPage from "./CollectionEditorPage";
@@ -112,21 +118,19 @@ function writes() {
   return v2Recorder.writes();
 }
 
-/** An artwork slot on the editor page's Details panel. */
+/** An artwork tile in the editor page's Look card, once it is open. */
 function editorSlot(label: "Poster" | "Backdrop") {
   return screen.getByRole("group", { name: label });
 }
 
+const SLOT = { Poster: "poster", Backdrop: "backdrop" } as const;
+
 function chooseEditorFile(label: "Poster" | "Backdrop", name: string) {
-  fireEvent.change(within(editorSlot(label)).getByLabelText(`Upload ${label.toLowerCase()}`), {
-    target: { files: [new File(["image"], name, { type: "image/png" })] },
-  });
+  return uploadArtwork(SLOT[label], new File(["image"], name, { type: "image/png" }));
 }
 
 function pasteEditorLink(label: "Poster" | "Backdrop", url: string) {
-  fireEvent.change(within(editorSlot(label)).getByLabelText(`${label} link`), {
-    target: { value: url },
-  });
+  return pasteArtworkLink(SLOT[label], url);
 }
 
 async function nameField() {
@@ -150,8 +154,8 @@ describe("admin manual collections on the editor page", () => {
   it("creates a manual collection, then uploads its poster and backdrop in that order", async () => {
     const router = showPage("/admin/collections/new?type=manual&libraryId=1");
     fireEvent.change(await nameField(), { target: { value: "Staff picks" } });
-    chooseEditorFile("Poster", "poster.png");
-    pasteEditorLink("Backdrop", "https://images.example/backdrop.png");
+    await chooseEditorFile("Poster", "poster.png");
+    await pasteEditorLink("Backdrop", "https://images.example/backdrop.png");
     fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
     await vi.waitFor(() =>
       expect(router.state.location.pathname).toBe("/admin/collections/c1/edit"),
@@ -171,7 +175,7 @@ describe("admin manual collections on the editor page", () => {
   it("deletes a staged poster removal only after the PATCH succeeds", async () => {
     v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList(withArtwork()));
     showPage("/admin/collections/c1/edit?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: "Remove poster" }));
+    await chooseArtwork("poster", "Use the collage");
     await act(async () => {});
     expect(writes()).toEqual([]);
     await saveOnPage(2);
@@ -181,8 +185,8 @@ describe("admin manual collections on the editor page", () => {
   it("replaces a removed backdrop with a file without deleting it", async () => {
     v2Recorder.answer("GET /api/v2/admin/collections", adminCollectionList(withArtwork()));
     showPage("/admin/collections/c1/edit?libraryId=1");
-    fireEvent.click(await screen.findByRole("button", { name: "Remove backdrop" }));
-    chooseEditorFile("Backdrop", "backdrop.png");
+    await chooseArtwork("backdrop", "Remove backdrop");
+    await chooseEditorFile("Backdrop", "backdrop.png");
     await saveOnPage(2);
     expect(writes()).toEqual(goldens.adminBackdropReplacement);
   });
@@ -258,7 +262,7 @@ describe("personal manual and smart collections", () => {
   it("creates a smart collection on the editor page, then uploads its poster", async () => {
     const router = showPage("/collections/new?type=smart");
     fireEvent.change(await nameField(), { target: { value: "Comfort" } });
-    chooseEditorFile("Poster", "poster.png");
+    await chooseEditorFile("Poster", "poster.png");
     fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
     await vi.waitFor(() => expect(router.state.location.pathname).toBe("/collections/c1/edit"));
     expect(writes()).toEqual(goldens.personalSmartCreate);
@@ -267,7 +271,7 @@ describe("personal manual and smart collections", () => {
   it("creates a manual collection and sends a pasted poster URL in the POST body", async () => {
     const router = showPage("/collections/new?type=manual");
     fireEvent.change(await nameField(), { target: { value: "Rainy days" } });
-    pasteEditorLink("Poster", "https://images.example/poster.png");
+    await pasteEditorLink("Poster", "https://images.example/poster.png");
     fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
     await vi.waitFor(() => expect(router.state.location.pathname).toBe("/collections/c1/edit"));
     expect(writes()).toEqual(goldens.personalManualCreate);
@@ -289,7 +293,7 @@ describe("personal poster removal waits for Save", () => {
   });
 
   async function removePosterOnPage() {
-    fireEvent.click(await screen.findByRole("button", { name: "Remove poster" }));
+    await chooseArtwork("poster", "Use the collage");
     expect(within(editorSlot("Poster")).queryByRole("img")).toBeNull();
     expect(
       within(editorSlot("Poster")).getByText("The poster is removed when you save."),
@@ -319,7 +323,7 @@ describe("personal poster removal waits for Save", () => {
   it("manual: uploads a file chosen after the removal and sends no DELETE", async () => {
     showPage("/collections/c1/edit");
     await removePosterOnPage();
-    chooseEditorFile("Poster", "poster.png");
+    await chooseEditorFile("Poster", "poster.png");
     await saveOnPage(2);
     expect(writes()).toEqual(goldens.personalPosterReplacement);
   });
@@ -367,5 +371,22 @@ describe("personal manual page: a title added before Save", () => {
     await saveOnPage(2);
     expect(writes()).toEqual(goldens.personalAddThenRename);
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+describe("personal collages need the server's capability", () => {
+  it("offers to remove the poster, not a collage, when the server doesn't report collages", async () => {
+    // An older server's capabilities have no poster_collages.
+    v2Recorder.answer("GET /api/v2/collections/capabilities", {
+      ...personalCapabilities,
+      poster_collages: undefined,
+    });
+    v2Recorder.answer("GET /api/v2/collections", {
+      items: [{ ...getCollectionOk, poster_url: "https://images.example/poster.png" }],
+    });
+    showPage("/collections/c1/edit");
+    const menu = await openArtworkMenu("poster");
+    expect(within(menu).queryByRole("menuitem", { name: "Use the collage" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: /^Remove/ })).toBeTruthy();
   });
 });

@@ -3296,6 +3296,13 @@
             "patternDescription": "a non-zero RFC 3339 instant",
             "type": "string"
           },
+          "poster_is_collage": {
+            "description": "poster_url is the acting profile's collage of the collection's first members it can access, composed by the server because the collection has no uploaded or template poster. False for an uploaded or template poster and whenever poster_url is empty, including before the collage is built and on reads that carry no poster_url",
+            "examples": [
+              false
+            ],
+            "type": "boolean"
+          },
           "poster_thumbhash": {
             "type": "string"
           },
@@ -3352,6 +3359,7 @@
           "featured",
           "poster_url",
           "backdrop_url",
+          "poster_is_collage",
           "source_url",
           "query_definition",
           "sort_config",
@@ -20093,20 +20101,57 @@
         "additionalProperties": false,
         "properties": {
           "has_more": {
-            "description": "Whether more values matched than limit",
+            "description": "Whether more values than limit start with q",
             "type": "boolean"
           },
           "matches": {
-            "description": "Empty, never null",
+            "description": "Values that start with q, case-insensitively, A-Z; empty for an empty q. Empty, never null",
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "values": {
+            "description": "The ranked answer, each value with its title count. For genre, studio, network, country, original_language and content_rating a value matches when it or any word in it starts with q; whole-value matches rank first, then more titles, then A-Z, and an empty q returns the most common values. For author, narrator and series these are the names in matches. Empty, never null",
+            "items": {
+              "$ref": "#/components/schemas/CatalogFacetValue"
+            },
+            "type": "array"
+          },
+          "values_has_more": {
+            "description": "Whether more values matched than limit for values",
+            "type": "boolean"
           }
         },
         "required": [
           "matches",
-          "has_more"
+          "has_more",
+          "values",
+          "values_has_more"
+        ],
+        "type": "object"
+      },
+      "CatalogFacetValue": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "description": "Titles in the scope with this value; values can lag catalog changes by up to two minutes",
+            "examples": [
+              42
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "value": {
+            "examples": [
+              "Warner Bros. Pictures"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
         ],
         "type": "object"
       },
@@ -21354,6 +21399,10 @@
         "properties": {
           "allowed": {
             "description": "Whether the current principal may use the capability",
+            "type": "boolean"
+          },
+          "facet_value_search": {
+            "description": "searchCatalogFacet accepts library_ids and answers values and values_has_more: ranked values with title counts that match word starts, and the most common values for an empty q",
             "type": "boolean"
           },
           "max_sessions_per_account": {
@@ -22672,6 +22721,13 @@
             ],
             "type": "boolean"
           },
+          "poster_collages": {
+            "description": "A collection with no uploaded or imported poster shows a collage of its first titles the acting profile can see in poster_url, marked by poster_is_collage, on listCollections, getLibraryCollections and listLibraryUserCollections, once the server has built it. False when the server has no artwork storage or the acting account's store keeps no artwork",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
           "preview_posters": {
             "description": "previewCollection items carry poster_url when the title has a poster",
             "examples": [
@@ -22738,6 +22794,7 @@
           "sync_schedule_editable",
           "contains_item",
           "preview_posters",
+          "poster_collages",
           "revision",
           "state",
           "allowed"
@@ -23879,6 +23936,13 @@
             "patternDescription": "a non-zero RFC 3339 instant",
             "type": "string"
           },
+          "poster_is_collage": {
+            "description": "poster_url is the acting profile's collage of the collection's first titles it can see, composed by the server because the collection has no uploaded, template or imported poster. False for an uploaded, template or imported poster and whenever poster_url is empty. See getCollectionCapabilities poster_collages",
+            "examples": [
+              false
+            ],
+            "type": "boolean"
+          },
           "poster_thumbhash": {
             "type": "string"
           },
@@ -23963,7 +24027,8 @@
           "last_sync_message",
           "item_count",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "poster_is_collage"
         ],
         "type": "object"
       },
@@ -29454,6 +29519,13 @@
             "format": "int64",
             "type": "integer"
           },
+          "poster_is_collage": {
+            "description": "poster_url is the acting profile's collage of the collection's first titles it can see, composed by the server because the collection has no uploaded, template or imported poster. False for an uploaded, template or imported poster and whenever poster_url is empty. See getCollectionCapabilities poster_collages",
+            "examples": [
+              false
+            ],
+            "type": "boolean"
+          },
           "poster_thumbhash": {
             "type": "string"
           },
@@ -29472,7 +29544,8 @@
           "id",
           "title",
           "poster_url",
-          "item_count"
+          "item_count",
+          "poster_is_collage"
         ],
         "type": "object"
       },
@@ -34772,6 +34845,13 @@
               "null"
             ]
           },
+          "poster_is_collage": {
+            "description": "poster_url is a collage of the collection's first titles the acting profile can see, composed by the server because the collection has no uploaded or imported poster. False for an uploaded or imported poster and whenever poster_url is empty: before the collage is built, when no title the profile can see has a poster, and on getCollection and updateCollection, which carry no poster_url for any poster because their body sits behind a strong ETag. See getCollectionCapabilities poster_collages",
+            "examples": [
+              false
+            ],
+            "type": "boolean"
+          },
           "poster_thumbhash": {
             "examples": [
               ""
@@ -34872,6 +34952,7 @@
           "include_in_server_collections",
           "poster_url",
           "poster_thumbhash",
+          "poster_is_collage",
           "created_at",
           "updated_at"
         ],
@@ -37957,9 +38038,10 @@
         "additionalProperties": false,
         "properties": {
           "allow_profile_custom_sections": {
-            "description": "Whether non-admin profiles may build sections from admin-only recipes",
+            "deprecated": true,
+            "description": "Deprecated; always true. Profiles may always add rule rows (custom_filter). Whether a profile that is not an admin may add a new row of a recipe is that recipe's admin_only in listSectionRecipes; follow it instead of this flag. Kept for clients that still read it.",
             "examples": [
-              false
+              true
             ],
             "type": "boolean"
           }
@@ -39214,6 +39296,7 @@
         "additionalProperties": false,
         "properties": {
           "admin_only": {
+            "description": "Only an admin may add a new section of this recipe; a profile keeps and changes the ones it already has",
             "examples": [
               false
             ],
@@ -44510,6 +44593,13 @@
             ],
             "type": "string"
           },
+          "poster_is_collage": {
+            "description": "poster_url is the acting profile's collage of the collection's first titles it can see, composed by the server because the collection has no uploaded, template or imported poster. False for an uploaded, template or imported poster and whenever poster_url is empty. See getCollectionCapabilities poster_collages",
+            "examples": [
+              false
+            ],
+            "type": "boolean"
+          },
           "poster_thumbhash": {
             "type": "string"
           },
@@ -44534,6 +44624,7 @@
           "name",
           "collection_type",
           "item_count",
+          "poster_is_collage",
           "created_at",
           "updated_at"
         ],
@@ -106855,437 +106946,6 @@
         "x-silo-class": "acting_admin"
       }
     },
-    "/api/v2/admin/settings/sections": {
-      "get": {
-        "operationId": "getAdminSectionSettings",
-        "parameters": [
-          {
-            "description": "Optional first precondition, evaluated before If-None-Match: a tag that does not match the current representation is 412 precondition_failed.",
-            "in": "header",
-            "name": "If-Match",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted.",
-            "in": "header",
-            "name": "X-Profile-Id",
-            "schema": {
-              "examples": [
-                "1"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked",
-            "in": "header",
-            "name": "X-Profile-Token",
-            "schema": {
-              "examples": [
-                "pvt_5f3a9c1e7b2d4e8fa0c6"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "If-None-Match",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProfileSectionFlags"
-                }
-              }
-            },
-            "description": "OK",
-            "headers": {
-              "ETag": {
-                "description": "The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "304": {
-            "description": "The representation named by If-None-Match is current; no body.",
-            "headers": {
-              "ETag": {
-                "description": "The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Not Acceptable"
-          },
-          "412": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Precondition Failed",
-            "headers": {
-              "ETag": {
-                "description": "The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          },
-          "429": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "Read section permission configuration; read failures retain the disabled default.",
-        "tags": [
-          "admin-settings"
-        ],
-        "x-silo-class": "acting_admin",
-        "x-silo-conditional": true,
-        "x-silo-service-backed": true
-      },
-      "put": {
-        "operationId": "updateAdminSectionSettings",
-        "parameters": [
-          {
-            "description": "The resource's current ETag, or \"*\" to overwrite deliberately. A missing field is 428 precondition_required; a stale tag is 412 precondition_failed with the current ETag.",
-            "in": "header",
-            "name": "If-Match",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Optional second precondition, evaluated after If-Match succeeds: \"*\" or any tag matching the current representation is 412 precondition_failed with the current ETag.",
-            "in": "header",
-            "name": "If-None-Match",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted.",
-            "in": "header",
-            "name": "X-Profile-Id",
-            "schema": {
-              "examples": [
-                "1"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked",
-            "in": "header",
-            "name": "X-Profile-Token",
-            "schema": {
-              "examples": [
-                "pvt_5f3a9c1e7b2d4e8fa0c6"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProfileSectionFlags"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProfileSectionFlags"
-                }
-              }
-            },
-            "description": "OK",
-            "headers": {
-              "ETag": {
-                "description": "The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Not Acceptable"
-          },
-          "408": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Request Timeout"
-          },
-          "412": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Precondition Failed",
-            "headers": {
-              "ETag": {
-                "description": "The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "413": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Request Entity Too Large"
-          },
-          "415": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Unsupported Media Type"
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          },
-          "428": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Precondition Required"
-          },
-          "429": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "Replace section permission configuration under the existing settings transaction guard.",
-        "tags": [
-          "admin-settings"
-        ],
-        "x-silo-class": "acting_admin",
-        "x-silo-demo-restricted": true,
-        "x-silo-guarded": true,
-        "x-silo-retry-safety": "natural_idempotent",
-        "x-silo-service-backed": true
-      }
-    },
     "/api/v2/admin/settings/sensitive-status": {
       "get": {
         "operationId": "getAdminSensitiveSettingsStatus",
@@ -125541,6 +125201,31 @@
             }
           },
           {
+            "description": "Restrict to several libraries, one library_ids parameter per id; combines with library_id. Libraries the viewer cannot see are dropped, and a scope left with none is empty. Not accepted with source=section",
+            "explode": true,
+            "in": "query",
+            "name": "library_ids",
+            "schema": {
+              "description": "Restrict to several libraries, one library_ids parameter per id; combines with library_id. Libraries the viewer cannot see are dropped, and a scope left with none is empty. Not accepted with source=section",
+              "examples": [
+                [
+                  "1",
+                  "2"
+                ]
+              ],
+              "items": {
+                "description": "Opaque identifier",
+                "examples": [
+                  "1"
+                ],
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 200,
+              "type": "array"
+            }
+          },
+          {
             "explode": false,
             "in": "query",
             "name": "collection_id",
@@ -125563,10 +125248,12 @@
             }
           },
           {
+            "description": "Media scope: movie, series, episode, audiobook, ebook, podcast, video, …",
             "explode": false,
             "in": "query",
             "name": "type",
             "schema": {
+              "description": "Media scope: movie, series, episode, audiobook, ebook, podcast, video, …",
               "examples": [
                 "movie"
               ],
@@ -125781,6 +125468,31 @@
             }
           },
           {
+            "description": "Restrict to several libraries, one library_ids parameter per id; combines with library_id. Libraries the viewer cannot see are dropped, and a scope left with none is empty. Not accepted with source=section",
+            "explode": true,
+            "in": "query",
+            "name": "library_ids",
+            "schema": {
+              "description": "Restrict to several libraries, one library_ids parameter per id; combines with library_id. Libraries the viewer cannot see are dropped, and a scope left with none is empty. Not accepted with source=section",
+              "examples": [
+                [
+                  "1",
+                  "2"
+                ]
+              ],
+              "items": {
+                "description": "Opaque identifier",
+                "examples": [
+                  "1"
+                ],
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 200,
+              "type": "array"
+            }
+          },
+          {
             "explode": false,
             "in": "query",
             "name": "collection_id",
@@ -125803,10 +125515,12 @@
             }
           },
           {
+            "description": "Media scope: movie, series, episode, audiobook, ebook, podcast, video, …",
             "explode": false,
             "in": "query",
             "name": "type",
             "schema": {
+              "description": "Media scope: movie, series, episode, audiobook, ebook, podcast, video, …",
               "examples": [
                 "movie"
               ],
@@ -125849,12 +125563,12 @@
             }
           },
           {
-            "description": "Case-insensitive prefix",
+            "description": "Case-insensitive search text; see matches and values for how each answers it",
             "explode": false,
             "in": "query",
             "name": "q",
             "schema": {
-              "description": "Case-insensitive prefix",
+              "description": "Case-insensitive search text; see matches and values for how each answers it",
               "examples": [
                 "ste"
               ],
@@ -125862,13 +125576,13 @@
             }
           },
           {
-            "description": "Most matches to return; default 20, maximum 100",
+            "description": "Most values to return in matches and in values; default 20, maximum 100",
             "explode": false,
             "in": "query",
             "name": "limit",
             "schema": {
               "default": 20,
-              "description": "Most matches to return; default 20, maximum 100",
+              "description": "Most values to return in matches and in values; default 20, maximum 100",
               "format": "int64",
               "maximum": 100,
               "minimum": 1,
@@ -125983,7 +125697,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "Prefix typeahead over one facet of a scope.",
+        "summary": "Typeahead over one facet of a scope, with title counts.",
         "tags": [
           "catalog"
         ],
@@ -170404,8 +170118,7 @@
         "tags": [
           "profile_sections"
         ],
-        "x-silo-class": "profile_scoped",
-        "x-silo-service-backed": true
+        "x-silo-class": "profile_scoped"
       }
     },
     "/api/v2/profile/sections/settings": {

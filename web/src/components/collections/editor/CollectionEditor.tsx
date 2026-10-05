@@ -16,9 +16,11 @@ import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/catalog";
 import {
   useCollectionDraft,
+  useListedPoster,
   useScopeDelete,
   useScopePreview,
   useScopeSync,
+  type ScopePreview,
 } from "@/hooks/queries/collectionScope";
 import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { catalogKeys } from "@/hooks/queries/keys";
@@ -30,7 +32,6 @@ import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsave
 import {
   CHANGED_BEFORE_DELETE,
   CHECK_BEFORE_DELETE_FAILED,
-  CREATE_IT_FIRST,
   DRAFT_FIELD_LABEL,
   NAME_FILLED_HELP,
   NAME_IT_THEN_CREATE,
@@ -38,6 +39,7 @@ import {
   PICK_A_LIBRARY,
   PICK_A_LIST_FIRST,
   PICK_LIBRARIES_FIRST,
+  PREVIEW_EVERY_LIBRARY,
   PREVIEW_SHOWS_UNSAVED,
   SAVE_AFTER_CONFLICTS,
   SAVE_FAILED,
@@ -55,6 +57,7 @@ import {
   personalDeleteDescription,
   rowsLeftMessage,
   saveFirstDescription,
+  smartCreateHint,
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
 import { changedFields, draftRules, type DraftField } from "@/lib/collections/draft";
@@ -86,16 +89,16 @@ import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 import { DeleteCollectionDialog } from "../DeleteCollectionDialog";
 import { LibrariesLine } from "../fields/LibrariesLine";
 import { focusLibrariesLine } from "../fields/librariesLineFocus";
-import { AddAsRowMenu } from "./AddAsRowMenu";
 import { CollectionEditorShell } from "./CollectionEditorShell";
 import { CollectionMetaLine } from "./CollectionMetaLine";
 import { ConflictBanner } from "./ConflictBanner";
 import { DetailsPanel } from "./DetailsPanel";
 import { EditorHeader, type OpenTarget } from "./EditorHeader";
 import { CollectionPreviewPane } from "./CollectionPreviewPane";
+import { LookPanel } from "./LookPanel";
 import { ManualContentsPanel } from "./ManualContentsPanel";
 import { PersonalRowsThatShowIt } from "./PersonalRowsThatShowIt";
-import { RowsThatShowIt } from "./RowsThatShowIt";
+import { RowsOnceCreated, RowsThatShowIt } from "./RowsThatShowIt";
 import { SaveFirstDialog } from "./SaveFirstDialog";
 import { SmartRulesPanel } from "./SmartRulesPanel";
 import { SyncedListPanel, type SyncedListPanelProps } from "./SyncedListPanel";
@@ -163,33 +166,36 @@ function useUntickWarning(
   return `${count} only in ${joinNames(names.filter(Boolean))}: ${shown}. They'll stop showing when you save.`;
 }
 
-/** A Smart collection's rules and their live preview, over the libraries the scope offers. */
+/** A Smart collection's rules and, under them, their live preview. */
 function SmartContents<Raw extends WireCollection>({
   scope,
   draft,
-  offMessage,
   onChange,
   libraries,
+  preview,
 }: {
   scope: CollectionScope<Raw>;
   draft: CollectionDraft;
-  /** Why there is no preview while no library is picked. */
-  offMessage: string;
   onChange: (update: (draft: CollectionDraft) => CollectionDraft) => void;
   libraries: Array<{ id: number; name: string }>;
+  preview: ScopePreview;
 }) {
+  // A server collection with no library yet still previews, across every library, so
+  // the rules can be tried before picking where it shows.
   const needsLibraries = scope.requireLibraries && draft.libraryIds.length === 0;
-  const preview = useScopePreview(scope, draftRules(draft), !needsLibraries);
   return (
-    <div className="grid gap-6">
+    <>
       <SmartRulesPanel
         scopeKind={scope.kind}
         draft={draft}
         onChange={onChange}
         libraries={libraries}
       />
-      <CollectionPreviewPane preview={preview} offMessage={offMessage} />
-    </div>
+      <CollectionPreviewPane
+        preview={preview}
+        note={needsLibraries ? PREVIEW_EVERY_LIBRARY : undefined}
+      />
+    </>
   );
 }
 
@@ -263,6 +269,8 @@ export function CollectionEditor<Raw extends WireCollection>({
   const newList = synced && !snapshot;
   const editor = useCollectionDraft(scope, { snapshot, kind, libraryId });
   const { draft, view } = editor;
+  // Smart: the live preview under the rules, whose count the save bar repeats before Create.
+  const preview = useScopePreview(scope, draftRules(draft), { enabled: smart });
   const created = Boolean(editor.id) && !newList;
   const isServer = scope.kind === "server";
   useDocumentTitle(created ? `Edit ${view?.name ?? draft.name}` : "New collection");
@@ -455,9 +463,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   }
   // Only a hidden server collection waits to be shown: a personal row's See all
   // opens however its Collections tab switch is set.
-  let addRowBlocked: string | null = null;
-  if (!created) addRowBlocked = CREATE_IT_FIRST;
-  else if (draft.server?.visibility === "hidden") addRowBlocked = SHOW_IT_FIRST;
+  const addRowBlocked = draft.server?.visibility === "hidden" ? SHOW_IT_FIRST : null;
   // Hidden as saved: discarding keeps it hidden, so only saving lets Home rows add it.
   const discardKeepsHidden = view?.server?.visibility === "hidden";
 
@@ -551,24 +557,22 @@ export function CollectionEditor<Raw extends WireCollection>({
   // A created Synced list keeps this bar until it moves to its edit page; one Create is enough.
   const canCreate = !editor.id && draft.name.trim() !== "" && !needsLibraries && !needsList;
   const pending = editor.pendingLabels;
-  // What the save bar adds after the pending fields, and before Create.
+  // What the save bar adds after the pending fields.
   let afterPending: string | null = kind === "manual" ? TITLES_ALREADY_SAVED : listProblem;
-  let createHint = titlesReadyToAdd(staged.length);
   if (smart) {
     afterPending = editor.changed.some((field) => PREVIEWED.has(field))
       ? PREVIEW_SHOWS_UNSAVED
       : null;
-    createHint = NAME_IT_THEN_CREATE;
   }
-  if (newList) {
-    if (needsList) createHint = PICK_A_LIST_FIRST;
-    else if (draft.name.trim() === "") createHint = NAME_IT_THEN_CREATE;
-    else createHint = SYNCS_ON_CREATE;
-  }
-  if (needsLibraries && !needsList) {
-    afterPending = PICK_A_LIBRARY;
-    createHint = PICK_LIBRARIES_FIRST;
-  }
+  if (needsLibraries && !needsList) afterPending = PICK_A_LIBRARY;
+  // Before Create: what's still missing, in the order the page asks for it.
+  let createHint: string | null = null;
+  if (needsList) createHint = PICK_A_LIST_FIRST;
+  else if (draft.name.trim() === "") createHint = NAME_IT_THEN_CREATE;
+  else if (needsLibraries) createHint = PICK_LIBRARIES_FIRST;
+  else if (newList) createHint = SYNCS_ON_CREATE;
+  else if (smart && preview.status === "ready") createHint = smartCreateHint(preview.total);
+  else if (staged.length > 0) createHint = titlesReadyToAdd(staged.length);
   // Save and Save and continue wait for the same things.
   let saveBlockedReason: string | null = null;
   if (editor.conflicts.length > 0) saveBlockedReason = SAVE_AFTER_CONFLICTS;
@@ -577,6 +581,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   const saveBar = created ? (
     <SaveBar
       placement="page"
+      className="max-w-3xl"
       dirtyCount={pending.length}
       visible={editor.isDirty || Boolean(editor.saveError)}
       isSaving={editor.isSaving}
@@ -603,6 +608,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   ) : (
     <SaveBar
       placement="page"
+      className="max-w-3xl"
       dirtyCount={0}
       visible
       tone="idle"
@@ -617,20 +623,63 @@ export function CollectionEditor<Raw extends WireCollection>({
           `${SAVE_FAILED} · ${editor.saveError}`
         ) : (
           <>
-            {NOT_CREATED_YET}{" "}
-            <span className="text-muted-foreground ml-3 font-normal">{createHint}</span>
+            {NOT_CREATED_YET} {/* A phone's bar has room for the state and the buttons only. */}
+            {createHint ? (
+              <span className="text-muted-foreground ml-3 font-normal max-sm:sr-only">
+                {createHint}
+              </span>
+            ) : null}
           </>
         )
       }
     />
   );
 
+  const artworkSlots = capabilities?.artwork === false ? [] : scope.artworkSlots;
+  // Without its own poster a collection shows a collage of its titles, except
+  // a server Smart collection, whose titles come from its rules.
+  const collages = isServer ? !smart : personalCapabilities.data?.poster_collages === true;
+  const poster = useListedPoster(scope, view, {
+    awaitCollage: created && collages && artworkSlots.length > 0,
+    version: editor.etag,
+  });
+  // A new Synced list starts with its pick's poster.
+  const posterUrl = poster.url ?? draft.synced?.posterUrl;
+
+  let rowsThatShowIt: ReactNode;
+  if (!isServer) {
+    rowsThatShowIt = (
+      <PersonalRowsThatShowIt
+        collectionId={created ? editor.id : undefined}
+        draftLibraryIds={draft.libraryIds}
+        addedRowId={addedRowId}
+        disabledReason={addRowBlocked}
+        onAdd={addAsRow}
+        onLineChange={setPersonalOnRows}
+      />
+    );
+  } else if (created) {
+    rowsThatShowIt = (
+      <RowsThatShowIt
+        rows={rowsState}
+        libraryNames={libraryNames}
+        highlightId={highlightId}
+        addAsRow={{
+          ...rowPages(chosenLibraries, libraryOptions),
+          disabledReason: addRowBlocked,
+          onPick: addAsRow,
+        }}
+      />
+    );
+  } else {
+    rowsThatShowIt = <RowsOnceCreated />;
+  }
+
   // The meta line ends with what keeps the collection filled: its rules or its list.
   let metaExtra: string | undefined;
   if (smart) metaExtra = SMART_UPDATES_ITSELF;
   else if (view?.source) metaExtra = SYNCED_SOURCE_LABEL[view.source];
 
-  const previewOffMessage = created ? PICK_A_LIBRARY : PICK_LIBRARIES_FIRST;
   let contents: ReactNode;
   let panel: WithoutLibraries<SyncedListPanelProps> | null = null;
   const common = { scopeKind: scope.kind, onChange: editor.setDraft, capabilities };
@@ -661,9 +710,9 @@ export function CollectionEditor<Raw extends WireCollection>({
       <SmartContents
         scope={scope}
         draft={draft}
-        offMessage={previewOffMessage}
         onChange={editor.setDraft}
         libraries={libraryOptions}
+        preview={preview}
       />
     );
   } else if (smart) {
@@ -671,8 +720,8 @@ export function CollectionEditor<Raw extends WireCollection>({
       <PersonalSmartContents
         scope={scope}
         draft={draft}
-        offMessage={previewOffMessage}
         onChange={editor.setDraft}
+        preview={preview}
       />
     );
   } else {
@@ -715,8 +764,6 @@ export function CollectionEditor<Raw extends WireCollection>({
     <>
       <UnsavedChangesGuard />
       <CollectionEditorShell
-        createMode={!created}
-        contentsLabel={synced ? "The list" : smart ? "Rules" : "Titles"}
         header={
           <EditorHeader
             back={{ label: "Collections", href: listPath }}
@@ -724,7 +771,7 @@ export function CollectionEditor<Raw extends WireCollection>({
             name={view?.name ?? draft.name}
             created={created}
             shared={view?.personal?.shared}
-            posterUrl={view?.posterUrl ?? draft.synced?.posterUrl}
+            posterUrl={posterUrl}
             meta={
               newList ? (
                 <p className="text-muted-foreground text-[14px]">{SYNCED_CREATE_SUBTITLE}</p>
@@ -755,61 +802,41 @@ export function CollectionEditor<Raw extends WireCollection>({
             />
           ) : null
         }
-        contents={contents}
-        details={
-          <DetailsPanel
-            draft={draft}
-            onChange={editor.setDraft}
-            showOnly={!isServer && !smart}
-            nameNote={synced ? syncedNameNote(draft) : undefined}
-            artworkSlots={capabilities?.artwork === false ? [] : scope.artworkSlots}
-            savedArtwork={{
-              // A new Synced list starts with its pick's poster.
-              poster: view?.posterUrl ?? draft.synced?.posterUrl,
+        footer={saveBar}
+      >
+        <DetailsPanel
+          draft={draft}
+          onChange={editor.setDraft}
+          showOnly={!isServer && !smart}
+          nameNote={synced ? syncedNameNote(draft) : undefined}
+        />
+        {contents}
+        <WhereItShowsPanel
+          scopeKind={scope.kind}
+          collectionId={created ? editor.id : undefined}
+          draft={draft}
+          onChange={editor.setDraft}
+          libraries={chosenLibraries}
+          otherProfileNames={otherProfileNames}
+          savedShared={view?.personal?.shared ?? false}
+          rows={rowsThatShowIt}
+          hideConfirm={hideConfirm}
+        />
+        {artworkSlots.length > 0 ? (
+          <LookPanel
+            slots={artworkSlots}
+            saved={{
+              poster: poster.isCollage ? undefined : posterUrl,
               backdrop: view?.backdropUrl,
             }}
-            artworkErrors={editor.artworkErrors}
-            onRetryArtwork={() => void editor.save()}
+            posterFallback={{ collages, collageUrl: poster.isCollage ? poster.url : undefined }}
+            value={draft.artwork}
+            errors={editor.artworkErrors}
+            onRetry={() => void editor.save()}
+            onChange={(artwork) => editor.setDraft((current) => ({ ...current, artwork }))}
           />
-        }
-        where={
-          <WhereItShowsPanel
-            scopeKind={scope.kind}
-            collectionId={created ? editor.id : undefined}
-            draft={draft}
-            onChange={editor.setDraft}
-            libraries={chosenLibraries}
-            otherProfileNames={otherProfileNames}
-            savedShared={view?.personal?.shared ?? false}
-            rows={
-              isServer ? (
-                <RowsThatShowIt
-                  rows={rowsState}
-                  libraryNames={libraryNames}
-                  highlightId={highlightId}
-                >
-                  <AddAsRowMenu
-                    {...rowPages(chosenLibraries, libraryOptions)}
-                    disabledReason={addRowBlocked}
-                    onPick={addAsRow}
-                  />
-                </RowsThatShowIt>
-              ) : (
-                <PersonalRowsThatShowIt
-                  collectionId={created ? editor.id : undefined}
-                  draftLibraryIds={draft.libraryIds}
-                  addedRowId={addedRowId}
-                  disabledReason={addRowBlocked}
-                  onAdd={addAsRow}
-                  onLineChange={setPersonalOnRows}
-                />
-              )
-            }
-            hideConfirm={hideConfirm}
-          />
-        }
-        footer={saveBar}
-      />
+        ) : null}
+      </CollectionEditorShell>
       {view && editor.etag && isServer ? (
         <DeleteCollectionDialog
           open={confirmDelete}

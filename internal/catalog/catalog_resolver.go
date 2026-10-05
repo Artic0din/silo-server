@@ -87,23 +87,26 @@ type facetFetcher interface {
 	// AudiobookSeries returns distinct series_name values from the active
 	// book series table joined onto the scoped result set.
 	AudiobookSeries(ctx context.Context, filters BrowseFilters, baseRelation string, mediaScope string) ([]string, error)
-	// SearchDistinctArrayColumn prefix-searches an array-column facet
-	// (genres, studios, networks, countries). Returns up to limit
-	// alphabetical matches and hasMore=true when more would be available.
-	SearchDistinctArrayColumn(ctx context.Context, column string, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error)
-	// SearchDistinctScalarColumn is the scalar-column variant (e.g.
-	// content_rating, original_language).
-	SearchDistinctScalarColumn(ctx context.Context, column string, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error)
-	// SearchPeopleByKind is the typeahead equivalent of PeopleByKind.
-	SearchPeopleByKind(ctx context.Context, kind models.PersonKind, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error)
-	// SearchAudiobookSeries is the typeahead equivalent of AudiobookSeries.
-	SearchAudiobookSeries(ctx context.Context, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error)
+	// SearchColumnValues answers a typeahead over an array-column facet
+	// (genres, studios, networks, countries) or a scalar one
+	// (content_rating, original_language). See facetSearchMode for how
+	// values match and order; hasMore is true when more values matched
+	// than the search limit.
+	SearchColumnValues(ctx context.Context, column facetColumn, filters BrowseFilters, baseRelation string, mediaScope string, search facetSearch) ([]FacetValue, bool, error)
+	// SearchPeopleByKind is the typeahead equivalent of PeopleByKind:
+	// names whose lowercased form matches the LIKE pattern, A-Z.
+	SearchPeopleByKind(ctx context.Context, kind models.PersonKind, filters BrowseFilters, baseRelation string, mediaScope string, pattern string, limit int) ([]FacetValue, bool, error)
+	// SearchAudiobookSeries is the typeahead equivalent of AudiobookSeries,
+	// matching like SearchPeopleByKind.
+	SearchAudiobookSeries(ctx context.Context, filters BrowseFilters, baseRelation string, mediaScope string, pattern string, limit int) ([]FacetValue, bool, error)
 }
 
 // pgxFacetFetcher is the production facetFetcher. It dispatches each method to
-// the existing package-level helpers using the supplied pool.
+// the existing package-level helpers using the supplied pool. values caches
+// column facet value lists for typeahead; nil disables caching.
 type pgxFacetFetcher struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	values *facetValueCache
 }
 
 func (f *pgxFacetFetcher) DistinctArrayColumn(ctx context.Context, column string, filters BrowseFilters, baseRelation string, mediaScope string) ([]string, error) {
@@ -134,20 +137,16 @@ func (f *pgxFacetFetcher) AudiobookSeries(ctx context.Context, filters BrowseFil
 	return listDistinctAudiobookSeriesWithSource(ctx, f.pool, filters, baseRelation, mediaScope)
 }
 
-func (f *pgxFacetFetcher) SearchDistinctArrayColumn(ctx context.Context, column string, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error) {
-	return searchDistinctArrayColumnWithSource(ctx, f.pool, column, filters, baseRelation, mediaScope, prefix, limit)
+func (f *pgxFacetFetcher) SearchColumnValues(ctx context.Context, column facetColumn, filters BrowseFilters, baseRelation string, mediaScope string, search facetSearch) ([]FacetValue, bool, error) {
+	return searchColumnFacet(ctx, f.pool, f.values, column, filters, baseRelation, mediaScope, search)
 }
 
-func (f *pgxFacetFetcher) SearchDistinctScalarColumn(ctx context.Context, column string, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error) {
-	return searchDistinctScalarColumnWithSource(ctx, f.pool, column, filters, baseRelation, mediaScope, prefix, limit)
+func (f *pgxFacetFetcher) SearchPeopleByKind(ctx context.Context, kind models.PersonKind, filters BrowseFilters, baseRelation string, mediaScope string, pattern string, limit int) ([]FacetValue, bool, error) {
+	return searchDistinctPeopleByKindWithSource(ctx, f.pool, kind, filters, baseRelation, mediaScope, pattern, limit)
 }
 
-func (f *pgxFacetFetcher) SearchPeopleByKind(ctx context.Context, kind models.PersonKind, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error) {
-	return searchDistinctPeopleByKindWithSource(ctx, f.pool, kind, filters, baseRelation, mediaScope, prefix, limit)
-}
-
-func (f *pgxFacetFetcher) SearchAudiobookSeries(ctx context.Context, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error) {
-	return searchDistinctAudiobookSeriesWithSource(ctx, f.pool, filters, baseRelation, mediaScope, prefix, limit)
+func (f *pgxFacetFetcher) SearchAudiobookSeries(ctx context.Context, filters BrowseFilters, baseRelation string, mediaScope string, pattern string, limit int) ([]FacetValue, bool, error) {
+	return searchDistinctAudiobookSeriesWithSource(ctx, f.pool, filters, baseRelation, mediaScope, pattern, limit)
 }
 
 // previewExecutor is the seam consumed by previewQuerySource so tests can
@@ -198,7 +197,7 @@ func NewCatalogResolver(browseRepo *BrowseRepository, itemRepo *ItemRepository) 
 		searchProvider: NewPostgresSearchProvider(itemRepo),
 	}
 	if browseRepo != nil {
-		r.facets = &pgxFacetFetcher{pool: browseRepo.pool}
+		r.facets = browseRepo.facetFetcher()
 	}
 	return r
 }
@@ -1240,12 +1239,22 @@ func (r *CatalogResolver) ListFiltersWithOptions(ctx context.Context, req Catalo
 	return r.listFiltersForSource(ctx, filters, options, "media_items mi", req.Query.MediaScope)
 }
 
-// CatalogFacetSearchResult is the typed return for SearchFacet. Matches
-// is in alphabetical order; HasMore is true when the underlying result
-// set held more rows than the supplied limit.
+// CatalogFacetSearchResult is the typed return for SearchFacet.
 type CatalogFacetSearchResult struct {
+	// Matches are the values that start with q, case-insensitively, A-Z;
+	// none for an empty q. HasMore is true when more matched than the
+	// limit.
 	Matches []string
 	HasMore bool
+	// Values are the ranked answer, each with its title count in scope.
+	// For column facets (genre, studio, network, country,
+	// original_language, content_rating) a value matches when it or any
+	// word in it starts with q; whole-value matches rank first, then more
+	// titles, then A-Z, and an empty q returns the most common values.
+	// People and series facets answer the same names as Matches.
+	// ValuesHasMore is true when more values matched than the limit.
+	Values        []FacetValue
+	ValuesHasMore bool
 }
 
 // catalogFacetSearchMaxLimit caps how many matches a single typeahead
@@ -1253,27 +1262,113 @@ type CatalogFacetSearchResult struct {
 // the page; clients that need more pages should narrow the prefix.
 const catalogFacetSearchMaxLimit = 50
 
-// SearchFacet powers /api/v1/catalog/filters/search. The request scope
-// (libraries / access / media scope) mirrors ListFiltersWithOptions;
-// the additional facet + prefix + limit arguments come from the URL.
-// Empty or whitespace-only prefix returns no matches — the caller
-// should fall back to the bulk /catalog/filters endpoint for the
-// initial dropdown render.
-func (r *CatalogResolver) SearchFacet(ctx context.Context, req CatalogRequest, access AccessFilter, facet string, prefix string, limit int) (*CatalogFacetSearchResult, error) {
+// clampFacetSearchLimit applies the typeahead's default and cap.
+func clampFacetSearchLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	return min(limit, catalogFacetSearchMaxLimit)
+}
+
+// SearchFacet powers the v2 catalog facet typeahead. The request scope
+// (libraries / access / media scope) mirrors ListFiltersWithOptions; the
+// additional facet + q + limit arguments come from the URL. Column facets
+// are searched in the scope's cached value list, so they can lag catalog
+// changes by facetValueCacheTTL.
+func (r *CatalogResolver) SearchFacet(ctx context.Context, req CatalogRequest, access AccessFilter, facet string, q string, limit int) (*CatalogFacetSearchResult, error) {
 	if r == nil || r.browseRepo == nil {
 		return nil, fmt.Errorf("catalog resolver requires a browse repository")
 	}
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		return &CatalogFacetSearchResult{Matches: []string{}}, nil
+	q = strings.TrimSpace(q)
+	limit = clampFacetSearchLimit(limit)
+	result := &CatalogFacetSearchResult{Matches: []string{}, Values: []FacetValue{}}
+	column, isColumn := facetColumns[facet]
+	if q == "" && !isColumn {
+		return result, nil
 	}
-	if limit <= 0 {
-		limit = 20
+	if req.Source == CatalogSourceHistory && req.SnapshotAt == nil {
+		// The snapshot is part of the facet value cache key, so a
+		// per-request "now" would never hit. The next whole minute still
+		// covers every event watched so far.
+		req.SnapshotAt = new(time.Now().UTC().Truncate(time.Minute).Add(time.Minute))
 	}
-	if limit > catalogFacetSearchMaxLimit {
-		limit = catalogFacetSearchMaxLimit
+	scope, err := r.facetSearchScope(ctx, req, access)
+	if err != nil {
+		return nil, err
+	}
+	if scope.empty {
+		return result, nil
+	}
+	facets := r.facets
+	if facets == nil {
+		facets = r.browseRepo.facetFetcher()
 	}
 
+	if !isColumn {
+		values, hasMore, err := searchNamedFacet(ctx, facets, facet, scope.filters, scope.baseRelation, scope.mediaScope, likePrefixPattern(q), limit)
+		if err != nil {
+			return nil, err
+		}
+		result.Values, result.ValuesHasMore = nonNilFacetValues(values), hasMore
+		result.Matches, result.HasMore = facetValueNames(values), hasMore
+		return result, nil
+	}
+	search := func(mode facetSearchMode) ([]FacetValue, bool, error) {
+		values, hasMore, err := facets.SearchColumnValues(ctx, column, scope.filters, scope.baseRelation, scope.mediaScope, facetSearch{Q: q, Limit: limit, Mode: mode})
+		return nonNilFacetValues(values), hasMore, err
+	}
+	if q != "" {
+		matches, hasMore, err := search(facetSearchPrefix)
+		if err != nil {
+			return nil, err
+		}
+		result.Matches, result.HasMore = facetValueNames(matches), hasMore
+	}
+	if result.Values, result.ValuesHasMore, err = search(facetSearchRanked); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// SearchFacetV1 answers /api/v1/catalog/filters/search as that frozen
+// contract always has: see searchFacetV1. A blank prefix matches nothing.
+func (r *CatalogResolver) SearchFacetV1(ctx context.Context, req CatalogRequest, access AccessFilter, facet string, prefix string, limit int) ([]string, bool, error) {
+	if r == nil || r.browseRepo == nil {
+		return nil, false, fmt.Errorf("catalog resolver requires a browse repository")
+	}
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return []string{}, false, nil
+	}
+	scope, err := r.facetSearchScope(ctx, req, access)
+	if err != nil {
+		return nil, false, err
+	}
+	if scope.empty {
+		return []string{}, false, nil
+	}
+	matches, hasMore, err := searchFacetV1(ctx, r.browseRepo.pool, facet, scope.filters, scope.baseRelation, scope.mediaScope, prefix, clampFacetSearchLimit(limit))
+	if err != nil {
+		return nil, false, err
+	}
+	if matches == nil {
+		matches = []string{}
+	}
+	return matches, hasMore, nil
+}
+
+// facetScope is where a facet typeahead searches.
+type facetScope struct {
+	filters      BrowseFilters
+	baseRelation string
+	mediaScope   string
+	// empty is true when the scope can hold no titles.
+	empty bool
+}
+
+// facetSearchScope validates a typeahead's catalog request and resolves
+// the titles it searches.
+func (r *CatalogResolver) facetSearchScope(ctx context.Context, req CatalogRequest, access AccessFilter) (facetScope, error) {
 	var (
 		filters    BrowseFilters
 		earlyEmpty bool
@@ -1282,109 +1377,123 @@ func (r *CatalogResolver) SearchFacet(ctx context.Context, req CatalogRequest, a
 	switch req.Source {
 	case CatalogSourceQuery:
 		if err := validateCatalogQueryRequest(req, strings.TrimSpace(access.ProfileID) != ""); err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		filters, earlyEmpty, err = catalogBrowseFilters(req, access)
 		if err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 	case CatalogSourceFavorites, CatalogSourceWatchlist, CatalogSourceHistory:
 		if err := validateCatalogPersonalRequest(req, strings.TrimSpace(access.ProfileID) != ""); err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		if access.UserID <= 0 || strings.TrimSpace(access.ProfileID) == "" {
-			return nil, fmt.Errorf("%w: source %q requires active user scope", ErrInvalidCatalogRequest, "personal")
+			return facetScope{}, fmt.Errorf("%w: source %q requires active user scope", ErrInvalidCatalogRequest, "personal")
 		}
 		filters, earlyEmpty, err = catalogBrowseFilters(req, access)
 		if err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		if req.Source == CatalogSourceHistory {
 			scopeHistoryFacetFilters(&filters, req, access)
 		} else {
 			store, err := r.catalogStoreForAccess(ctx, access)
 			if err != nil {
-				return nil, err
+				return facetScope{}, err
 			}
 			filters.ContentIDs, err = r.loadPersonalSourceIDs(ctx, store, req, access)
 			if err != nil {
-				return nil, err
+				return facetScope{}, err
 			}
 		}
 	case CatalogSourcePerson:
 		if err := validateCatalogPersonRequest(req); err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		filters, earlyEmpty, err = catalogBrowseFilters(req, access)
 		if err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		filters.PersonID = req.PersonID
 	case CatalogSourceLibraryCollection, CatalogSourceUserCollection:
 		if err := validateCatalogCollectionRequest(req, strings.TrimSpace(access.ProfileID) != ""); err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		contentIDs, err := r.loadCollectionSourceIDs(ctx, req, access)
 		if err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		filters, earlyEmpty, err = catalogBrowseFilters(req, access)
 		if err != nil {
-			return nil, err
+			return facetScope{}, err
 		}
 		filters.ContentIDs = contentIDs
 	default:
-		return nil, fmt.Errorf("%w: source %q is not supported", ErrInvalidCatalogRequest, req.Source)
+		return facetScope{}, fmt.Errorf("%w: source %q is not supported", ErrInvalidCatalogRequest, req.Source)
 	}
-	if earlyEmpty {
-		return &CatalogFacetSearchResult{Matches: []string{}}, nil
-	}
-
-	baseRelation := "media_items mi"
-	mediaScope := req.Query.MediaScope
-	if isEpisodeCatalogScope(req.Query.MediaScope) {
-		baseRelation = episodeCatalogBaseRelation
-	}
-
-	facets := r.facets
-	if facets == nil {
-		facets = &pgxFacetFetcher{pool: r.browseRepo.pool}
-	}
-
-	matches, hasMore, err := dispatchFacetSearch(ctx, facets, facet, filters, baseRelation, mediaScope, prefix, limit)
-	if err != nil {
-		return nil, err
-	}
-	return &CatalogFacetSearchResult{Matches: matches, HasMore: hasMore}, nil
+	return facetScope{filters: filters, baseRelation: catalogBaseRelationForScope(req.Query.MediaScope), mediaScope: req.Query.MediaScope, empty: earlyEmpty}, nil
 }
 
-// dispatchFacetSearch routes a facet name to the right facetFetcher
-// method. The set of supported facet names mirrors what
-// /api/v1/catalog/filters returns; anything else is rejected as an
-// invalid request so callers learn about typos at the API boundary.
-func dispatchFacetSearch(ctx context.Context, facets facetFetcher, facet string, filters BrowseFilters, baseRelation string, mediaScope string, prefix string, limit int) ([]string, bool, error) {
+// facetValueNames returns the values without their counts, never nil.
+func facetValueNames(values []FacetValue) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = v.Value
+	}
+	return out
+}
+
+func nonNilFacetValues(values []FacetValue) []FacetValue {
+	if values == nil {
+		return []FacetValue{}
+	}
+	return values
+}
+
+// The column facet names and the media_items columns they read.
+const (
+	facetGenre            = "genre"
+	facetStudio           = "studio"
+	facetNetwork          = "network"
+	facetCountry          = "country"
+	facetOriginalLanguage = "original_language"
+	facetContentRating    = "content_rating"
+
+	columnGenres           = "genres"
+	columnStudios          = "studios"
+	columnNetworks         = "networks"
+	columnCountries        = "countries"
+	columnOriginalLanguage = "original_language"
+	columnContentRating    = "content_rating"
+)
+
+// facetColumns maps the column facet names to the media_items column each
+// reads.
+var facetColumns = map[string]facetColumn{
+	facetGenre:            {name: columnGenres, array: true},
+	facetStudio:           {name: columnStudios, array: true},
+	facetNetwork:          {name: columnNetworks, array: true},
+	facetCountry:          {name: columnCountries, array: true},
+	facetOriginalLanguage: {name: columnOriginalLanguage},
+	facetContentRating:    {name: columnContentRating},
+}
+
+// searchNamedFacet routes the people and series facet names to their
+// facetFetcher method. With facetColumns, the supported names mirror what
+// /catalog/filters returns; anything else is rejected as an invalid
+// request so callers learn about typos at the API boundary. pattern is a
+// LIKE pattern matched against the lowercased name.
+func searchNamedFacet(ctx context.Context, facets facetFetcher, facet string, filters BrowseFilters, baseRelation string, mediaScope string, pattern string, limit int) ([]FacetValue, bool, error) {
 	switch facet {
-	case "genre":
-		return facets.SearchDistinctArrayColumn(ctx, "genres", filters, baseRelation, mediaScope, prefix, limit)
-	case "studio":
-		return facets.SearchDistinctArrayColumn(ctx, "studios", filters, baseRelation, mediaScope, prefix, limit)
-	case "network":
-		return facets.SearchDistinctArrayColumn(ctx, "networks", filters, baseRelation, mediaScope, prefix, limit)
-	case "country":
-		return facets.SearchDistinctArrayColumn(ctx, "countries", filters, baseRelation, mediaScope, prefix, limit)
-	case "original_language":
-		return facets.SearchDistinctScalarColumn(ctx, "original_language", filters, baseRelation, mediaScope, prefix, limit)
-	case "content_rating":
-		return facets.SearchDistinctScalarColumn(ctx, "content_rating", filters, baseRelation, mediaScope, prefix, limit)
 	case "author":
-		return facets.SearchPeopleByKind(ctx, models.PersonKindAuthor, filters, baseRelation, mediaScope, prefix, limit)
+		return facets.SearchPeopleByKind(ctx, models.PersonKindAuthor, filters, baseRelation, mediaScope, pattern, limit)
 	case "narrator":
 		if mediaScope == "ebook" {
 			return nil, false, fmt.Errorf("%w: narrator facet is not available for ebook scope", ErrInvalidCatalogRequest)
 		}
-		return facets.SearchPeopleByKind(ctx, models.PersonKindNarrator, filters, baseRelation, mediaScope, prefix, limit)
+		return facets.SearchPeopleByKind(ctx, models.PersonKindNarrator, filters, baseRelation, mediaScope, pattern, limit)
 	case "series":
-		return facets.SearchAudiobookSeries(ctx, filters, baseRelation, mediaScope, prefix, limit)
+		return facets.SearchAudiobookSeries(ctx, filters, baseRelation, mediaScope, pattern, limit)
 	default:
 		return nil, false, fmt.Errorf("%w: unknown facet %q", ErrInvalidCatalogRequest, facet)
 	}
@@ -1415,7 +1524,7 @@ func (r *CatalogResolver) listFiltersForSource(
 ) (*CatalogFiltersResult, error) {
 	facets := r.facets
 	if facets == nil {
-		facets = &pgxFacetFetcher{pool: r.browseRepo.pool}
+		facets = r.browseRepo.facetFetcher()
 	}
 
 	var (

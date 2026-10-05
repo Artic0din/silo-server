@@ -4329,24 +4329,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v2/admin/settings/sections": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Read section permission configuration; read failures retain the disabled default. */
-    get: operations["getAdminSectionSettings"];
-    /** Replace section permission configuration under the existing settings transaction guard. */
-    put: operations["updateAdminSectionSettings"];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/api/v2/admin/settings/sensitive-status": {
     parameters: {
       query?: never;
@@ -6000,7 +5982,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Prefix typeahead over one facet of a scope. */
+    /** Typeahead over one facet of a scope, with title counts. */
     get: operations["searchCatalogFacet"];
     put?: never;
     post?: never;
@@ -12589,6 +12571,11 @@ export interface components {
        * @description RFC 3339 instant in UTC with millisecond precision
        */
       next_sync_at?: string;
+      /**
+       * @description poster_url is the acting profile's collage of the collection's first members it can access, composed by the server because the collection has no uploaded or template poster. False for an uploaded or template poster and whenever poster_url is empty, including before the collage is built and on reads that carry no poster_url
+       * @example false
+       */
+      poster_is_collage: boolean;
       poster_thumbhash?: string;
       poster_url: string;
       query_definition: unknown;
@@ -18752,10 +18739,24 @@ export interface components {
       order: string;
     };
     CatalogFacetMatches: {
-      /** @description Whether more values matched than limit */
+      /** @description Whether more values than limit start with q */
       has_more: boolean;
-      /** @description Empty, never null */
+      /** @description Values that start with q, case-insensitively, A-Z; empty for an empty q. Empty, never null */
       matches: string[];
+      /** @description The ranked answer, each value with its title count. For genre, studio, network, country, original_language and content_rating a value matches when it or any word in it starts with q; whole-value matches rank first, then more titles, then A-Z, and an empty q returns the most common values. For author, narrator and series these are the names in matches. Empty, never null */
+      values: components["schemas"]["CatalogFacetValue"][];
+      /** @description Whether more values matched than limit for values */
+      values_has_more: boolean;
+    };
+    CatalogFacetValue: {
+      /**
+       * Format: int64
+       * @description Titles in the scope with this value; values can lag catalog changes by up to two minutes
+       * @example 42
+       */
+      count: number;
+      /** @example Warner Bros. Pictures */
+      value: string;
     };
     CatalogFilters: {
       /** @description First 1000 alphabetically; searchCatalogFacet pages the rest */
@@ -19285,6 +19286,8 @@ export interface components {
     CatalogSearchCapabilities: {
       /** @description Whether the current principal may use the capability */
       allowed: boolean;
+      /** @description searchCatalogFacet accepts library_ids and answers values and values_has_more: ranked values with title counts that match word starts, and the most common values for an empty q */
+      facet_value_search?: boolean;
       /**
        * Format: int64
        * @description Oldest ranking sessions expire when this retention bound is exceeded
@@ -19713,6 +19716,11 @@ export interface components {
        * @example true
        */
       mdblist_search: boolean;
+      /**
+       * @description A collection with no uploaded or imported poster shows a collage of its first titles the acting profile can see in poster_url, marked by poster_is_collage, on listCollections, getLibraryCollections and listLibraryUserCollections, once the server has built it. False when the server has no artwork storage or the acting account's store keeps no artwork
+       * @example true
+       */
+      poster_collages: boolean;
       /**
        * @description previewCollection items carry poster_url when the title has a poster
        * @example true
@@ -20150,6 +20158,11 @@ export interface components {
        * @description RFC 3339 instant in UTC with millisecond precision
        */
       next_sync_at?: string;
+      /**
+       * @description poster_url is the acting profile's collage of the collection's first titles it can see, composed by the server because the collection has no uploaded, template or imported poster. False for an uploaded, template or imported poster and whenever poster_url is empty. See getCollectionCapabilities poster_collages
+       * @example false
+       */
+      poster_is_collage: boolean;
       poster_thumbhash?: string;
       /** @description Presigned, short-lived; empty when none */
       poster_url: string;
@@ -22430,6 +22443,11 @@ export interface components {
        * @example 12
        */
       item_count: number;
+      /**
+       * @description poster_url is the acting profile's collage of the collection's first titles it can see, composed by the server because the collection has no uploaded, template or imported poster. False for an uploaded, template or imported poster and whenever poster_url is empty. See getCollectionCapabilities poster_collages
+       * @example false
+       */
+      poster_is_collage: boolean;
       poster_thumbhash?: string;
       /** @description Presigned, short-lived; empty when none */
       poster_url: string;
@@ -24561,6 +24579,11 @@ export interface components {
        * @example 2026-01-02T03:04:05.678Z
        */
       next_sync_at: string | null;
+      /**
+       * @description poster_url is a collage of the collection's first titles the acting profile can see, composed by the server because the collection has no uploaded or imported poster. False for an uploaded or imported poster and whenever poster_url is empty: before the collage is built, when no title the profile can see has a poster, and on getCollection and updateCollection, which carry no poster_url for any poster because their body sits behind a strong ETag. See getCollectionCapabilities poster_collages
+       * @example false
+       */
+      poster_is_collage: boolean;
       /** @example  */
       poster_thumbhash: string;
       /**
@@ -25987,8 +26010,9 @@ export interface components {
     };
     ProfileSectionFlags: {
       /**
-       * @description Whether non-admin profiles may build sections from admin-only recipes
-       * @example false
+       * @deprecated
+       * @description Deprecated; always true. Profiles may always add rule rows (custom_filter). Whether a profile that is not an admin may add a new row of a recipe is that recipe's admin_only in listSectionRecipes; follow it instead of this flag. Kept for clients that still read it.
+       * @example true
        */
       allow_profile_custom_sections: boolean;
     };
@@ -26505,7 +26529,10 @@ export interface components {
       recipes: components["schemas"]["RecipeDefinition"][];
     };
     RecipeDefinition: {
-      /** @example false */
+      /**
+       * @description Only an admin may add a new section of this recipe; a profile keeps and changes the ones it already has
+       * @example false
+       */
       admin_only: boolean;
       /** @example true */
       avoid_duplicates: boolean;
@@ -28766,6 +28793,11 @@ export interface components {
       item_count: number;
       /** @example Rainy days */
       name: string;
+      /**
+       * @description poster_url is the acting profile's collage of the collection's first titles it can see, composed by the server because the collection has no uploaded, template or imported poster. False for an uploaded, template or imported poster and whenever poster_url is empty. See getCollectionCapabilities poster_collages
+       * @example false
+       */
+      poster_is_collage: boolean;
       poster_thumbhash?: string;
       /** @description Presigned, short-lived */
       poster_url?: string;
@@ -70692,300 +70724,6 @@ export interface operations {
       };
     };
   };
-  getAdminSectionSettings: {
-    parameters: {
-      query?: never;
-      header?: {
-        /** @description Optional first precondition, evaluated before If-None-Match: a tag that does not match the current representation is 412 precondition_failed. */
-        "If-Match"?: string;
-        "If-None-Match"?: string;
-        /** @description Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted. */
-        "X-Profile-Id"?: string;
-        /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
-        "X-Profile-Token"?: string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
-          ETag?: string;
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ProfileSectionFlags"];
-        };
-      };
-      /** @description The representation named by If-None-Match is current; no body. */
-      304: {
-        headers: {
-          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
-          ETag?: string;
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Not Acceptable */
-      406: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Precondition Failed */
-      412: {
-        headers: {
-          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
-          ETag?: string;
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Too Many Requests */
-      429: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Service Unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-    };
-  };
-  updateAdminSectionSettings: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description The resource's current ETag, or "*" to overwrite deliberately. A missing field is 428 precondition_required; a stale tag is 412 precondition_failed with the current ETag. */
-        "If-Match": string;
-        /** @description Optional second precondition, evaluated after If-Match succeeds: "*" or any tag matching the current representation is 412 precondition_failed with the current ETag. */
-        "If-None-Match"?: string;
-        /** @description Optional. When present, it must name the authenticated account's primary profile; an absent header is accepted. */
-        "X-Profile-Id"?: string;
-        /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
-        "X-Profile-Token"?: string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["ProfileSectionFlags"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
-          ETag?: string;
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ProfileSectionFlags"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Not Acceptable */
-      406: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Request Timeout */
-      408: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Precondition Failed */
-      412: {
-        headers: {
-          /** @description The strong, opaque validator of the representation; send it back in If-Match on a guarded mutation or If-None-Match on a conditional read. */
-          ETag?: string;
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Request Entity Too Large */
-      413: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Unsupported Media Type */
-      415: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Precondition Required */
-      428: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Too Many Requests */
-      429: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-      /** @description Service Unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/problem+json": components["schemas"]["Problem"];
-        };
-      };
-    };
-  };
   getAdminSensitiveSettingsStatus: {
     parameters: {
       query?: never;
@@ -83023,6 +82761,8 @@ export interface operations {
         collection_id?: string;
         /** @description Opaque identifier */
         library_id?: string;
+        /** @description Restrict to several libraries, one library_ids parameter per id; combines with library_id. Libraries the viewer cannot see are dropped, and a scope left with none is empty. Not accepted with source=section */
+        library_ids?: string[];
         /** @description Opaque identifier */
         person_id?: string;
         scope?: "home" | "library";
@@ -83039,6 +82779,7 @@ export interface operations {
           | "watchlist"
           | "history"
           | "person";
+        /** @description Media scope: movie, series, episode, audiobook, ebook, podcast, video, … */
         type?: string;
       };
       header: {
@@ -83161,11 +82902,13 @@ export interface operations {
           | "series";
         /** @description Opaque identifier */
         library_id?: string;
-        /** @description Most matches to return; default 20, maximum 100 */
+        /** @description Restrict to several libraries, one library_ids parameter per id; combines with library_id. Libraries the viewer cannot see are dropped, and a scope left with none is empty. Not accepted with source=section */
+        library_ids?: string[];
+        /** @description Most values to return in matches and in values; default 20, maximum 100 */
         limit?: number;
         /** @description Opaque identifier */
         person_id?: string;
-        /** @description Case-insensitive prefix */
+        /** @description Case-insensitive search text; see matches and values for how each answers it */
         q?: string;
         scope?: "home" | "library";
         section_id?: string;
@@ -83181,6 +82924,7 @@ export interface operations {
           | "watchlist"
           | "history"
           | "person";
+        /** @description Media scope: movie, series, episode, audiobook, ebook, podcast, video, … */
         type?: string;
       };
       header: {

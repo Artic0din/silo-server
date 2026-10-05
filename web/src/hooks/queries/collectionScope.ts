@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -25,13 +25,64 @@ import type {
 
 /**
  * An editor read may carry no artwork URLs (they are presigned, and would move
- * its ETag), so a collection's artwork comes from the scope's list.
+ * its ETag), so a collection's artwork comes from the scope's list, with
+ * whether its poster is the server's collage.
  */
 function withListedArtwork<Raw extends WireCollection>(fetched: Raw, listed: Raw | undefined): Raw {
   if (!listed) return fetched;
+  const poster = {
+    poster_url: listed.poster_url ?? fetched.poster_url,
+    poster_thumbhash: listed.poster_thumbhash ?? fetched.poster_thumbhash,
+    poster_is_collage: listed.poster_is_collage,
+  };
   return "backdrop_url" in fetched && "backdrop_url" in listed
-    ? { ...fetched, poster_url: listed.poster_url, backdrop_url: listed.backdrop_url }
-    : { ...fetched, poster_url: listed.poster_url ?? fetched.poster_url };
+    ? { ...fetched, ...poster, backdrop_url: listed.backdrop_url }
+    : { ...fetched, ...poster };
+}
+
+/** How long, and how often, an editor reads the list again for a collage being made. */
+const COLLAGE_WAIT_MS = 15_000;
+const COLLAGE_POLL_MS = 3_000;
+
+/**
+ * The poster a collection shows now, as its scope's list has it, falling
+ * back to the editor's copy. A collection with no poster of its own shows the
+ * collage the server makes of its titles in the background after a change, so
+ * while one with titles shows no poster (`awaitCollage`), the list is read
+ * again every few seconds for a short while. `version` names the saved state
+ * the editor holds (its ETag): a save moves it and starts a new wait, even
+ * after an earlier one gave up.
+ */
+export function useListedPoster<Raw extends WireCollection>(
+  scope: CollectionScope<Raw>,
+  view: CollectionView<Raw> | undefined,
+  { awaitCollage, version }: { awaitCollage: boolean; version?: string },
+): { url?: string; isCollage: boolean } {
+  const id = view?.id;
+  // When this wait for a collage began, and for which saved version; reset
+  // once the poster arrives.
+  const waiting = useRef<{ since: number; version?: string } | null>(null);
+  const { data: listed } = useQuery({
+    queryKey: scope.keys.list,
+    queryFn: () => scope.fetchList(),
+    enabled: Boolean(id),
+    select: (data) => data.collections.find((entry) => entry.id === id),
+    refetchInterval: (query) => {
+      const entry = query.state.data?.collections.find((c) => c.id === id);
+      if (!awaitCollage || !entry || entry.poster_url || !entry.item_count) {
+        waiting.current = null;
+        return false;
+      }
+      let wait = waiting.current;
+      if (!wait || wait.version !== version) {
+        wait = { since: Date.now(), version };
+        waiting.current = wait;
+      }
+      return Date.now() - wait.since < COLLAGE_WAIT_MS ? COLLAGE_POLL_MS : false;
+    },
+  });
+  const shown = useMemo(() => (listed ? scope.toView(listed) : view), [listed, scope, view]);
+  return { url: shown?.posterUrl, isCollage: shown?.posterIsCollage ?? false };
 }
 
 /**
@@ -100,7 +151,6 @@ export const PREVIEW_LIMIT = 24;
 const PREVIEW_DEBOUNCE_MS = 300;
 
 export type ScopePreview =
-  | { status: "off" }
   | { status: "loading" }
   | { status: "error" }
   | {
@@ -112,15 +162,15 @@ export type ScopePreview =
     };
 
 /**
- * A live preview of smart rules across every library they name, from the
- * scope's preview route. The rules are debounced so editing doesn't send a
+ * A live preview of smart rules across every library they name (every library
+ * the scope can see when they name none), from the scope's preview route. The rules are debounced so editing doesn't send a
  * request per keystroke, and the last result stays on screen while the next
- * one loads.
+ * one loads. Nothing is asked while `enabled` is false.
  */
 export function useScopePreview<Raw extends WireCollection>(
   scope: CollectionScope<Raw>,
   rules: QueryDefinition,
-  enabled: boolean,
+  { enabled = true }: { enabled?: boolean } = {},
 ): ScopePreview {
   // A string, so a re-render with equal rules does not restart the wait.
   const current = JSON.stringify(normalizeQueryDefinition(rules));
@@ -134,7 +184,6 @@ export function useScopePreview<Raw extends WireCollection>(
     staleTime: 30_000,
     retry: false,
   });
-  if (!enabled) return { status: "off" };
   if (query.data) {
     return {
       status: "ready",

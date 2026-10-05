@@ -202,7 +202,9 @@ func TestReplaceProfileSectionOverridesDecisions(t *testing.T) {
 		// refuses is a validation failure at the override set.
 		{&handlers.APIError{Status: http.StatusBadRequest, Code: "unknown_recipe", Message: "section_type not registered: nope"}, TypeValidationFailed, locationOverrides},
 		{&handlers.APIError{Status: http.StatusBadRequest, Code: "invalid_config", Message: "library_ids: at least one"}, TypeValidationFailed, locationOverrides},
-		// An admin-only recipe on a server that does not allow custom sections.
+		// A new Editor's picks row from a profile that is not an admin.
+		// v2 names the rule, where v1 keeps the message from when a server
+		// setting decided this.
 		{&handlers.APIError{Status: http.StatusForbidden, Code: "custom_disabled", Message: "this server does not allow profiles to build custom sections"}, TypePermissionDenied, ""},
 		{&handlers.APIError{Status: http.StatusInternalServerError, Code: TypeInternalError.ID, Message: "Failed to save overrides"}, TypeInternalError, ""},
 	} {
@@ -213,6 +215,9 @@ func TestReplaceProfileSectionOverridesDecisions(t *testing.T) {
 		}
 		if tc.want == TypeInternalError && strings.Contains(p.Detail, "Failed") {
 			t.Errorf("internal detail leaked: %q", p.Detail)
+		}
+		if tc.want == TypePermissionDenied && p.Detail != "Only an admin can add an Editor's picks row." {
+			t.Errorf("custom_disabled detail = %q", p.Detail)
 		}
 	}
 }
@@ -290,8 +295,11 @@ func TestProfileSectionsDenied(t *testing.T) {
 	}
 	// A missing service fails closed.
 	unwired := sectionDeps(nil)
-	unwired.ProfileSections, unwired.SectionFlags = nil, nil
+	unwired.ProfileSections = nil
 	hu := newTestHandler(t, unwired)
 	requireProblem(t, do(t, hu, http.MethodGet, "/api/v2/profile/sections", "", auth), TypeDependencyUnavailable)
-	requireProblem(t, do(t, hu, http.MethodGet, "/api/v2/profile/sections/flags", "", auth), TypeDependencyUnavailable)
+	// The flag is a constant now and needs no service.
+	if rec := do(t, hu, http.MethodGet, "/api/v2/profile/sections/flags", "", auth); rec.Code != 200 {
+		t.Fatalf("unwired flags: %d %s", rec.Code, rec.Body.String())
+	}
 }

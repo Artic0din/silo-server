@@ -116,7 +116,6 @@ type Dependencies struct {
 	WatchTogetherPicker             WatchTogetherPickerService
 	WatchTogetherCapability         WatchTogetherCapabilityService
 	WatchTogetherSuggestions        WatchTogetherSuggestionService
-	AdminSectionSettingsWrite       AdminSectionSettingsWriteService
 	AdminDashboardStats             AdminDashboardStatsService
 	AdminHardwareAcceleration       AdminHardwareAccelerationService
 	AdminDashboardLayout            AdminDashboardLayoutService
@@ -383,9 +382,6 @@ type Dependencies struct {
 	// ProfileSections reads and writes a profile's home-row overrides
 	// (*handlers.SectionHandler).
 	ProfileSections ProfileSectionService
-	// SectionFlags reads the profile-facing sections settings
-	// (*handlers.SectionSettingsHandler).
-	SectionFlags SectionFlagService
 	// Requests serves media requests and the discovery surface
 	// (*requests.Service, the value *handlers.RequestsHandler wraps).
 	AdminSubtitleInspection            AdminSubtitleInspectionService
@@ -827,12 +823,6 @@ type ProfileSectionService interface {
 	ResolveProfileSectionSettings(ctx context.Context, userID int, profileID, scope string, libraryID *int, filter mediacatalog.AccessFilter) ([]sections.ResolvedSection, error)
 }
 
-// SectionFlagService is the slice of *handlers.SectionSettingsHandler
-// getProfileSectionFlags uses.
-type SectionFlagService interface {
-	AllowProfileCustomSections(ctx context.Context) bool
-}
-
 // LibraryService is the slice of *catalog.FolderRepository updateProfile
 // uses to validate a library allowlist before the store sees it.
 type LibraryService interface {
@@ -1077,7 +1067,7 @@ type CatalogAccessService interface {
 type CatalogBrowseService interface {
 	Browse(ctx context.Context, v handlers.ItemViewer, req mediacatalog.CatalogRequest, groupedByWork bool) (handlers.CatalogBrowseView, error)
 	Filters(ctx context.Context, v handlers.ItemViewer, req mediacatalog.CatalogRequest, includeTechnical bool) (handlers.CatalogFiltersView, error)
-	SearchFacet(ctx context.Context, v handlers.ItemViewer, req mediacatalog.CatalogRequest, facet, prefix string, limit int) (handlers.CatalogFacetSearchView, error)
+	SearchFacet(ctx context.Context, v handlers.ItemViewer, req mediacatalog.CatalogRequest, facet, q string, limit int) (handlers.CatalogFacetSearchView, error)
 	AudiobookGroups(ctx context.Context, v handlers.ItemViewer, query mediacatalog.AudiobookGroupsQuery) (handlers.AudiobookGroupsView, error)
 }
 

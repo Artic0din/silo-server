@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -65,7 +65,7 @@ describe("FilterRuleEditor", () => {
       supportsRange: true,
     });
     expect(getCollectionFieldOption("release_date")).toMatchObject({
-      inputType: "text",
+      inputType: "date",
       supportsRange: true,
     });
     expect(getCollectionFieldOption("actor")).toMatchObject({
@@ -78,7 +78,7 @@ describe("FilterRuleEditor", () => {
     });
     expect(getCollectionFieldOption("resolution")).toMatchObject({
       inputType: "select",
-      selectOptions: expect.arrayContaining(["2160p"]),
+      selectOptions: expect.arrayContaining([{ value: "2160p", label: "2160p" }]),
     });
   });
 
@@ -88,7 +88,7 @@ describe("FilterRuleEditor", () => {
 
     expect(ebookOptions.find((option) => option.value === "watched")?.label).toBe("Read");
     expect(ebookOptions.find((option) => option.value === "in_progress")?.label).toBe(
-      "In Progress",
+      "In progress",
     );
     expect(movieOptions.find((option) => option.value === "watched")?.label).toBe("Watched");
   });
@@ -114,7 +114,7 @@ describe("FilterRuleEditor", () => {
 
     const second = screen.getByRole("group", { name: "Rule 2" });
     expect(within(second).getByRole("combobox", { name: "Field" })).toHaveTextContent(
-      "IMDb Rating",
+      "IMDb rating",
     );
     expect(within(second).getByRole("button", { name: "Remove rule" })).toBeInTheDocument();
   });
@@ -183,5 +183,27 @@ describe("FilterRuleEditor", () => {
       'Not editable here original_language is "fr"Remove',
       'Not editable here author is "Ursula K. Le Guin"Remove',
     ]);
+  });
+
+  it("keeps a cleared number value empty instead of writing zero", () => {
+    const onChange = vi.fn();
+    render(
+      <FilterRuleEditor
+        value={{
+          match: "all",
+          groups: [{ match: "all", rules: [{ field: "rating_imdb", op: "gte", value: 7 }] }],
+        }}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Value" }), {
+      target: { value: "" },
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      match: "all",
+      groups: [{ match: "all", rules: [{ field: "rating_imdb", op: "gte", value: "" }] }],
+    });
   });
 });
