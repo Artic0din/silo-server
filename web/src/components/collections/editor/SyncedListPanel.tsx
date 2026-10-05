@@ -756,6 +756,8 @@ export interface SavedListSync {
   syncing: boolean;
   /** Titles the last sync run here skipped. */
   skipped?: number;
+  /** Unsaved changes to what the sync reads: Sync now waits for Save. */
+  saveFirst?: boolean;
   onSyncNow?: () => void;
   /** Counts Discards; each puts the source card back. */
   discards?: number;
@@ -812,6 +814,7 @@ function SavedListContents({
           sync={sync}
           itemCount={view.itemCount}
           syncing={syncing}
+          saveFirst={saved.saveFirst}
           onSyncNow={saved.onSyncNow}
         />
       ) : null}
@@ -835,6 +838,8 @@ function SavedListContents({
         <WhoDecides scheduleEditable={!scheduleLocked} />
       )}
       <ListSettings
+        // Discard puts back the settings' own state too, such as an open custom schedule.
+        key={`settings-${saved.discards ?? 0}`}
         isServer={isServer}
         draft={draft}
         onChange={onChange}

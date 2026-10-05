@@ -835,8 +835,8 @@ export const goldens = {
   /**
    * Starter packs, hero switch turned on with the default heroes: the first
    * dry run has no heroes; the rest, the job included, carry the same `featured`.
-   * When the job ends the switch turns back off, so after the refresh of the
-   * open check comes one more dry run without heroes.
+   * When the job ends the switch turns back off, and only the check without
+   * heroes runs again: the one with heroes the switch left isn't refetched.
    */
   starterPackApplyWithHeroes: [
     starterPackDryRun(),
@@ -848,7 +848,6 @@ export const goldens = {
       headers: {},
       body: { library_ids: ["1", "2"], delete_existing: false, featured: starterPackHeroes },
     },
-    starterPackDryRun(starterPackHeroes),
     starterPackDryRun(),
   ] satisfies Writes,
   /** Add to collection, own manual collection: the personal item route. */

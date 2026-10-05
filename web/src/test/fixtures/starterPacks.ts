@@ -168,7 +168,7 @@ export const coreApplied = result({
     { ...entry("tmdb_popular_movies", 1, ""), collection_id: "c2" },
     { ...entry("tmdb_trending_tv_week", 2, ""), collection_id: "c3" },
   ],
-  failed: [entry("tmdb_popular_tv", 2, "TMDB is not configured")],
+  failed: [entry("tmdb_popular_tv", 2, "operation_failed")],
   skipped: coreDryRun.skipped,
 });
 
@@ -176,8 +176,8 @@ export const coreApplied = result({
 export const coreAppliedAllFailed = result({
   dry_run: false,
   failed: [
-    entry("tmdb_trending_movies_week", 1, "TMDB is not configured"),
-    entry("tmdb_popular_movies", 1, "TMDB is not configured"),
+    entry("tmdb_trending_movies_week", 1, "operation_failed"),
+    entry("tmdb_popular_movies", 1, "operation_failed"),
   ],
   skipped: coreDryRun.skipped,
 });

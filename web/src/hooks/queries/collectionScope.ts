@@ -172,11 +172,12 @@ export function useScopeSync<Raw extends WireCollection>(scope: CollectionScope<
  * Deletes a collection with the ETag its caller read. `onDeleted` runs before
  * the scope's queries refresh, so a page showing the collection can leave
  * before its own read answers 404. A 412 refreshes them, so the next try sends
- * the current version.
+ * the current version; `onStale` lets a caller that keeps its own copy, such
+ * as the editor, read it again too.
  */
 export function useScopeDelete<Raw extends WireCollection>(
   scope: CollectionScope<Raw>,
-  options: { onDeleted?: (id: string) => void } = {},
+  options: { onDeleted?: (id: string) => void; onStale?: () => void } = {},
 ) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -189,8 +190,10 @@ export function useScopeDelete<Raw extends WireCollection>(
     },
     onError: (error) => {
       toast.error(scope.errorMessage(error, "Failed to delete"));
-      if (error instanceof V2ProblemError && error.status === 412)
+      if (isPreconditionFailed(error)) {
         void scope.invalidate(queryClient);
+        options.onStale?.();
+      }
     },
   });
 }

@@ -459,6 +459,22 @@ describe("AdminCollections List switch", () => {
 });
 
 describe("AdminCollections List row menu", () => {
+  it("offers no Sync now when the server can't import lists", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/capabilities", {
+      groups: true,
+      imports: false,
+      import_sources: [],
+      artwork: true,
+      item_reorder: true,
+      section_references: true,
+    });
+    renderPage();
+    await screen.findByText("Best Picture Winners");
+    const { menu } = await openMenu("Best Picture Winners");
+    expect(within(menu).getByRole("menuitem", { name: "Edit collection" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Sync now" })).not.toBeInTheDocument();
+  });
+
   it("offers Sync now only on synced lists", async () => {
     renderPage();
     await screen.findByText("Studio Ghibli");
