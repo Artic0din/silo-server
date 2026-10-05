@@ -32,18 +32,21 @@ vi.mock("@/hooks/useAuth", () => ({
   useOptionalAuth: () => ({ user: { id: 1, role: "admin" }, profile: OWNER }),
 }));
 
+const LIBRARIES = [
+  { id: 1, name: "Movies" },
+  { id: 2, name: "4K Movies" },
+];
+/** True while the profile's hidden-library preferences are still loading. */
+const preferences = vi.hoisted(() => ({ loading: false }));
 vi.mock("@/hooks/queries/libraries", () => ({
-  useAvailableUserLibraries: () => ({
-    data: [
-      { id: 1, name: "Movies" },
-      { id: 2, name: "4K Movies" },
-    ],
-  }),
+  useAvailableUserLibraries: () => ({ data: LIBRARIES }),
+  useUserLibraries: () => ({ data: LIBRARIES, isLoading: preferences.loading }),
 }));
 
 installV2Recorder();
 
 beforeEach(() => {
+  preferences.loading = false;
   v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER]));
   v2Recorder.answer("DELETE /api/v2/collections/{id}", undefined);
   v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", undefined);
@@ -278,7 +281,7 @@ describe("CollectionPageActions", () => {
     ]);
   });
 
-  it("names the owner of a shared collection and offers nothing to change it", async () => {
+  it("names the owner of a shared collection and offers only Add to my Home", async () => {
     v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER, MAYA]));
     personalCollection({ creator_profile_id: "p-maya", profile_id: "p-maya", is_shared: true });
     renderPage({ scope: "personal", id: "c1" });
@@ -288,6 +291,57 @@ describe("CollectionPageActions", () => {
     );
     expect(byline).toBeVisible();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add to my Home" })).toHaveAttribute(
+      "href",
+      "/settings/home-screen?page=home&add=collection%3Auser%3Ac1",
+    );
+
+    // ⋯ holds your library pages, and nothing that changes the collection.
+    const menu = await openMenu();
+    const pages = within(menu).getByRole("menuitem", { name: "Add to my library page" });
+    expect(within(menu).getAllByRole("menuitem")).toEqual([pages]);
+    pages.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(await screen.findByRole("menuitem", { name: "4K Movies page" })).toHaveAttribute(
+      "href",
+      "/settings/home-screen?page=2&add=collection%3Auser%3Ac1",
+    );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Movies page" }));
+    await waitFor(() =>
+      expect(location()).toHaveTextContent(
+        "/settings/home-screen?page=1&add=collection%3Auser%3Ac1",
+      ),
+    );
+    expect(v2Recorder.writes()).toEqual([]);
+  });
+
+  it("offers no library pages until it knows which libraries the profile hides", async () => {
+    // Until the preferences load, the library list still holds hidden libraries.
+    preferences.loading = true;
+    v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER, MAYA]));
+    personalCollection({ creator_profile_id: "p-maya", profile_id: "p-maya", is_shared: true });
+    renderPage({ scope: "personal", id: "c1" });
+
+    expect(await screen.findByRole("link", { name: "Add to my Home" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+  });
+
+  it("offers a shared collection only the library pages it matches", async () => {
+    v2Recorder.answer("GET /api/v2/profiles", profilesAnswer([OWNER, MAYA]));
+    personalCollection({
+      creator_profile_id: "p-maya",
+      profile_id: "p-maya",
+      is_shared: true,
+      collection_type: "smart",
+      query_definition: { library_ids: [2] },
+    });
+    renderPage({ scope: "personal", id: "c1" });
+
+    const menu = await openMenu();
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Add to my 4K Movies page"]);
   });
 });

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { Lock, MoreHorizontal, Pencil } from "lucide-react";
+import { House, Library as LibraryIcon, Lock, MoreHorizontal, Pencil } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
@@ -17,10 +17,18 @@ import {
 import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
 import { useScopeDelete, useScopeSync } from "@/hooks/queries/collectionScope";
 import { useCollectionCapabilities } from "@/hooks/queries/collections";
-import { useAvailableUserLibraries } from "@/hooks/queries/libraries";
+import { useAvailableUserLibraries, useUserLibraries } from "@/hooks/queries/libraries";
 import type { CollectionPageAccess } from "@/hooks/useCollectionPageAccess";
-import { personalDeleteDescription, serverDeleteDescription } from "@/lib/collections/copy";
+import {
+  ADD_TO_MY_HOME,
+  ADD_TO_MY_LIBRARY_PAGE,
+  libraryPageLabel,
+  personalDeleteDescription,
+  serverDeleteDescription,
+} from "@/lib/collections/copy";
+import { addToMyHomePath, matchedLibraries, rowPages } from "@/lib/collections/rows";
 import { PERSONAL_SCOPE, type CollectionScope, type EditorSnapshot } from "@/lib/collections/scope";
+import type { RowLinkCollection } from "@/lib/homeRows/rowLinks";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
 /** "by *Name* · Read-only" under the title of another profile's shared collection. */
@@ -52,13 +60,16 @@ export function ReadOnlyCollectionCallout({
       <p>
         Only {access.ownerName ?? "admins"} can change{" "}
         <strong className="text-foreground font-semibold">{collectionName}</strong>, so you're on
-        its page instead.
+        its page instead. You can still watch it and add it to your Home.
       </p>
     </div>
   );
 }
 
-/** Edit + ⋯, top-right on a collection page, for viewers who may change the collection. */
+/**
+ * Top-right on a collection page: Edit + ⋯ for viewers who may change the
+ * collection, Add to my Home + ⋯ for everyone else.
+ */
 export function CollectionPageActions({
   access,
   libraryId,
@@ -66,6 +77,9 @@ export function CollectionPageActions({
   access: CollectionPageAccess;
   libraryId?: number;
 }) {
+  if (access.kind === "read-only") {
+    return <AddToMyHomeActions collection={access.collection} libraryIds={access.libraryIds} />;
+  }
   if (access.kind !== "manage") return null;
   return (
     <ManageActions
@@ -175,6 +189,76 @@ function ManageActions({
           isPending={remove.isPending}
           onConfirm={() => remove.mutate({ id, etag: snapshot.etag })}
         />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Add to my Home, and in ⋯ the viewer's own library pages: a shared personal
+ * collection offers the libraries it matches, a server collection the library
+ * it was opened in first, then the others. Each opens Settings > Home Screen
+ * with Add row on the collection; nothing changes until that row is added.
+ */
+function AddToMyHomeActions({
+  collection,
+  libraryIds,
+}: {
+  collection: RowLinkCollection;
+  libraryIds: readonly number[];
+}) {
+  const userLibraries = useUserLibraries();
+  // Until the display preferences load, the list still holds hidden libraries.
+  const libraries = (userLibraries.isLoading ? undefined : userLibraries.data) ?? [];
+  let pages: ReadonlyArray<{ id: number; name: string }>;
+  if (collection.source === "user") pages = matchedLibraries(libraries, libraryIds);
+  else {
+    const { bound, others } = rowPages(matchedLibraries(libraries, libraryIds), libraries);
+    pages = [...bound, ...others];
+  }
+  const pageLink = (library: { id: number; name: string }) =>
+    addToMyHomePath(collection, { kind: "library", libraryId: library.id });
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button asChild variant="outline" size="sm">
+        <Link to={addToMyHomePath(collection, { kind: "home" })}>
+          <House aria-hidden />
+          {ADD_TO_MY_HOME}
+        </Link>
+      </Button>
+      {pages.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" size="icon-sm" aria-label="More actions">
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-48">
+            {pages.length === 1 ? (
+              <DropdownMenuItem asChild>
+                <Link to={pageLink(pages[0]!)}>
+                  <LibraryIcon aria-hidden />
+                  {`Add to my ${libraryPageLabel(pages[0]!.name)}`}
+                </Link>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <LibraryIcon aria-hidden />
+                  {ADD_TO_MY_LIBRARY_PAGE}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {pages.map((library) => (
+                    <DropdownMenuItem key={library.id} asChild>
+                      <Link to={pageLink(library)}>{libraryPageLabel(library.name)}</Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : null}
     </div>
   );

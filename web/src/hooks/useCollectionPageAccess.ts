@@ -3,6 +3,7 @@ import { useProfiles } from "@/hooks/queries/profiles";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useIsActingAdmin } from "@/hooks/useIsActingAdmin";
 import { ownerName } from "@/lib/collections/personalOwnership";
+import type { RowLinkCollection } from "@/lib/homeRows/rowLinks";
 import {
   PERSONAL_SCOPE,
   SERVER_SCOPE,
@@ -22,13 +23,21 @@ export interface CollectionPageTarget {
  * What a collection page offers the viewer. `manage`: they may change it
  * (their own personal collection, or a server collection while acting as
  * admin). `read-only`: someone else's; `ownerName` is the personal
- * collection's creator, null for a server collection. `none` while that is
- * still unknown, so nothing appears and then disappears.
+ * collection's creator, null for a server collection. The viewer can still
+ * add a read-only `collection` to their own Home or the library pages of
+ * `libraryIds` (the library a server collection was opened in, or the
+ * libraries a personal one matches; none means every library). `none` while
+ * that is still unknown, so nothing appears and then disappears.
  */
 export type CollectionPageAccess =
   | { kind: "none" }
   | { kind: "manage"; scope: CollectionScope; id: string; snapshot?: EditorSnapshot }
-  | { kind: "read-only"; ownerName: string | null };
+  | {
+      kind: "read-only";
+      ownerName: string | null;
+      collection: RowLinkCollection;
+      libraryIds: readonly number[];
+    };
 
 const NONE: CollectionPageAccess = { kind: "none" };
 
@@ -49,7 +58,12 @@ export function useCollectionPageAccess(target: CollectionPageTarget | null): Co
   if (target.scope === "server") {
     return actingAdmin
       ? { kind: "manage", scope: SERVER_SCOPE, id: target.id, snapshot: server.data }
-      : { kind: "read-only", ownerName: null };
+      : {
+          kind: "read-only",
+          ownerName: null,
+          collection: { source: "library", id: target.id },
+          libraryIds: target.libraryId ? [target.libraryId] : [],
+        };
   }
   const snapshot = personal.data;
   if (!snapshot || !profile) return NONE;
@@ -59,6 +73,8 @@ export function useCollectionPageAccess(target: CollectionPageTarget | null): Co
     return {
       kind: "read-only",
       ownerName: ownerName(profiles.data, snapshot.view.ownerProfileId ?? ""),
+      collection: { source: "user", id: target.id },
+      libraryIds: snapshot.view.libraryIds,
     };
   }
   return { kind: "manage", scope: PERSONAL_SCOPE, id: target.id, snapshot };

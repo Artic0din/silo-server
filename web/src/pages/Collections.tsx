@@ -65,6 +65,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { personalDeleteDescription, unshareConsequence } from "@/lib/collections/copy";
 import { NEW_COLLECTION_DIALOG } from "@/lib/collections/dialogs";
 import { partitionPersonalCollections } from "@/lib/collections/personalOwnership";
+import { addToMyHomePath } from "@/lib/collections/rows";
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 import { COLLECTION_KIND_LABEL, collectionKindOf } from "@/lib/collections/types";
 import { cn } from "@/lib/utils";
@@ -418,6 +419,12 @@ function YourCollections({
                           ? { syncing, onSync: () => sync.mutate(collection.id) }
                           : undefined
                       }
+                      addRow={{
+                        mine: true,
+                        libraries: [],
+                        onAdd: (page) =>
+                          navigate(addToMyHomePath({ source: "user", id: collection.id }, page)),
+                      }}
                       share={
                         otherProfileNames.length > 0
                           ? {
