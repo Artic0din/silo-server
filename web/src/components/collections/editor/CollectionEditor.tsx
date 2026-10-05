@@ -250,9 +250,12 @@ export function CollectionEditor<Raw extends WireCollection>({
   const syncList = useScopeSync(scope);
   // How many titles the last sync run here skipped; the collection doesn't carry it.
   const [skipped, setSkipped] = useState<number>();
+  // Reading the collection again after Sync now, for its status and token.
+  const [rereading, setRereading] = useState(false);
   // The server records a sync's status only when the run ends, and Sync now
-  // answers once it has: the request is the only sync this page can see.
-  const syncing = syncList.isPending;
+  // answers once it has: the request is the only sync this page can see. It
+  // counts as running until the read after it brings the new token.
+  const syncing = syncList.isPending || rereading;
   // Spec §3.1: only server lists offer Sync now here; a profile syncs its
   // lists from their cards on the Collections page. Sync answers 501 when the
   // server can't import, so it needs the capability.
@@ -263,7 +266,7 @@ export function CollectionEditor<Raw extends WireCollection>({
 
   /** Reads the collection again; a failed read keeps the old token, and Save's 412 merges. */
   function reread() {
-    editor.syncWithServer().catch(() => {});
+    return editor.syncWithServer().catch(() => {});
   }
 
   function syncNow() {
@@ -271,8 +274,11 @@ export function CollectionEditor<Raw extends WireCollection>({
     syncList.mutate(editor.id, {
       onSuccess: (run) => setSkipped(run.itemsUnmatched),
       // A sync records its run on the collection, even one that fails: read
-      // it for the status and so Save sends the new token.
-      onSettled: reread,
+      // it for the status and so Save and Delete send the new token.
+      onSettled: () => {
+        setRereading(true);
+        void reread().finally(() => setRereading(false));
+      },
     });
   }
 

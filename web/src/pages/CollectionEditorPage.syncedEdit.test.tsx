@@ -288,6 +288,41 @@ describe("server Synced list editor", () => {
     expect(patch.body).toMatchObject({ title: "Netflix Originals" });
   });
 
+  it("keeps Sync now and Delete waiting until the list is read again after a sync", async () => {
+    const saved = serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
+    showPage(SERVER_EDIT);
+    await nameField();
+    // Hold the read after the sync: until it answers, the editor has the old token.
+    let release: () => void = () => {};
+    v2Recorder.answer(
+      "GET /api/v2/admin/collections/{id}",
+      () => new Promise((resolve) => (release = () => resolve(saved))),
+    );
+    let menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    await vi.waitFor(() =>
+      expect(v2Recorder.callsOf("GET /api/v2/admin/collections/{id}")).toHaveLength(2),
+    );
+    menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: "Syncing now…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    fireEvent.keyDown(menu, { key: "Escape" });
+
+    await act(async () => release());
+    await vi.waitFor(() => expect(within(statusStrip()).queryByText("Syncing now…")).toBeNull());
+    menu = await openMoreActions();
+    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+  });
+
   it("reads the list again after a failed Sync now, for its reason and token", async () => {
     const saved = serverList("mdblist", MDBLIST);
     v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", () => {

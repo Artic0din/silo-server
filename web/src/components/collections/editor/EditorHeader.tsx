@@ -116,7 +116,7 @@ export function EditorHeader({
   posterUrl?: string;
   meta?: ReactNode;
   open: readonly OpenTarget[];
-  /** A synced list's Sync now, disabled while a sync runs or until `saveFirst` changes are saved. */
+  /** A synced list's Sync now, disabled while a sync runs (Delete too) or until `saveFirst` changes are saved. */
   sync?: { syncing: boolean; saveFirst?: boolean; onSyncNow: () => void };
   onDelete?: () => void;
 }) {
@@ -139,6 +139,8 @@ export function EditorHeader({
       icon: Trash2,
       destructive: true,
       group: Boolean(sync),
+      // A sync moves the list's token; Delete waits for the new one.
+      disabled: sync?.syncing,
       onSelect: onDelete,
     });
   }
