@@ -385,24 +385,6 @@ describe("personal Synced list editor", () => {
       await saveAndWait(3);
       expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
     });
-
-    it("starts again from the saved collection after Save", async () => {
-      await removePoster();
-      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-      expect(await screen.findByText("0 unsaved changes")).toBeTruthy();
-      expect(within(posterField()).queryByRole("img")).toBeNull();
-
-      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
-      fireEvent.click(screen.getByRole("button", { name: "Discard" }));
-      expect(within(posterField()).queryByRole("img")).toBeNull();
-
-      // The second save sends the ETag the first one left, so it is not a 412.
-      const savedETag = v2Recorder.etag("/api/v2/collections/c1");
-      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Top Watched" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-      await vi.waitFor(() => expect(v2Recorder.writes()).toHaveLength(3));
-      expect(v2Recorder.writes()[2]?.headers["If-Match"]).toBe(savedETag);
-    });
   });
 
   it("clears Max titles with max_items 0", async () => {

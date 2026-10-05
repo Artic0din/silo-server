@@ -43,8 +43,6 @@ function withListedArtwork<Raw extends WireCollection>(fetched: Raw, listed: Raw
  * refetch never replaces what someone is editing. It carries the list's
  * artwork when the list is there; a scope with `editorAwaitsList` waits for
  * the list first. A 404 outranks the kept copy: the collection is gone.
- * An editor that stays open after its own save calls `rebase` once the save's
- * refetch lands, so its next save starts from the saved collection and ETag.
  */
 export function useScopeEditor<Raw extends WireCollection>(
   scope: CollectionScope<Raw>,
@@ -80,7 +78,6 @@ export function useScopeEditor<Raw extends WireCollection>(
     isFetching: fetched.isFetching,
     error: fetched.error,
     refetch: fetched.refetch,
-    rebase: () => setFrozen(undefined),
   };
 }
 
