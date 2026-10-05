@@ -1,36 +1,26 @@
-import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ArrowLeft } from "lucide-react";
 
 import type { LibraryCollection } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useListReturnPath } from "@/lib/collections/listReturn";
 import { SERVER_SCOPE, type EditorSnapshot } from "@/lib/collections/scope";
 import { isListBackedCollectionType } from "@/lib/collections/types";
 
-import {
-  CollectionEditForm,
-  MDBListImportForm,
-  SourceTypeSelector,
-  TMDBPresetForm,
-  type CollectionSourceType,
-} from "./adminCollectionsShared";
-type CreateChoice = Exclude<CollectionSourceType, "manual" | "trakt">;
+import { CollectionEditForm, SourceTypeSelector } from "./adminCollectionsShared";
 
-const CREATE_TITLES: Record<CreateChoice, string> = {
-  mdblist: "Import MDBList Collection",
-  tmdb: "Import TMDB Collection",
-};
+/** The Synced list tab each import card opens; templates open on the first. */
+const SOURCE_OF_CARD = { mdblist: "mdblist", tmdb: "tmdb_chart", templates: undefined } as const;
 
 /**
  * The server editors that haven't moved onto the collection editor page yet,
- * rendered inside it: the create chooser (its Manual and Smart cards open the
- * editor page) and the Synced list editor for a saved collection. The page
- * loads the collection and handles loading, missing and read-only states.
+ * rendered inside it: the create chooser (every card opens the editor page;
+ * templates and the MDBList and TMDB cards open its Synced list step) and the
+ * Synced list editor for a saved collection. The page loads the collection
+ * and handles loading, missing and read-only states.
  */
 export default function AdminCollectionEditor({
   snapshot,
@@ -44,17 +34,11 @@ export default function AdminCollectionEditor({
   const returnPath = useListReturnPath(SERVER_SCOPE.paths.list({ libraryId: initialLibraryId }));
   const { data: libraries = [] } = useAdminLibraries();
   const collection = snapshot?.view.raw ?? null;
-  const [choice, setChoice] = useState<CreateChoice | null>(null);
-  const [galleryOpen, setGalleryOpen] = useState(false);
 
-  const title = collection
-    ? `Edit ${collection.title}`
-    : (choice && CREATE_TITLES[choice]) || "Add Collection";
+  const title = collection ? `Edit ${collection.title}` : "Add Collection";
   const description = collection
     ? "Collections now open in a dedicated workspace so rules, artwork, and preview can stay visible."
-    : choice === null
-      ? "Choose how this collection should be created."
-      : "Build the collection in a full-page editor instead of a cramped dialog.";
+    : "Choose how this collection should be created.";
 
   useDocumentTitle(title);
 
@@ -73,33 +57,30 @@ export default function AdminCollectionEditor({
             <p className="page-subtitle mt-1 text-sm sm:text-base">{description}</p>
           </div>
         </div>
-
-        {!collection && choice !== null ? (
-          <Button variant="outline" onClick={() => setChoice(null)}>
-            Change Source Type
-          </Button>
-        ) : null}
       </div>
 
-      {!collection && choice === null ? (
+      {!collection ? (
         <Card className="surface-panel rounded-2xl border-0 shadow-none">
           <CardHeader>
             <CardTitle>Choose a Collection Type</CardTitle>
             <CardDescription>
-              Manual and Smart collections open the collection editor. Imports keep their
-              source-specific setup.
+              Every type opens the collection editor. Templates are ready-made Synced lists.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <SourceTypeSelector
               showTemplates
               onSelect={(type) => {
-                if (type === "templates") {
-                  setGalleryOpen(true);
-                } else if (type === "manual" || type === "smart") {
+                if (type === "manual" || type === "smart") {
                   navigate(SERVER_SCOPE.paths.create({ type, libraryId: initialLibraryId }));
                 } else if (type !== "trakt") {
-                  setChoice(type);
+                  navigate(
+                    SERVER_SCOPE.paths.create({
+                      type: "synced",
+                      source: SOURCE_OF_CARD[type],
+                      libraryId: initialLibraryId,
+                    }),
+                  );
                 }
               }}
             />
@@ -107,37 +88,11 @@ export default function AdminCollectionEditor({
         </Card>
       ) : null}
 
-      <CollectionTemplateGallery
-        open={galleryOpen}
-        onOpenChange={setGalleryOpen}
-        libraries={libraries}
-        initialLibraryId={initialLibraryId}
-        onCreated={() => {
-          if (!collection) navigate(returnPath);
-        }}
-      />
-
       {collection && isListBackedCollectionType(collection.collection_type) ? (
         <CollectionEditForm
           libraries={libraries}
           collection={collection}
           etag={snapshot?.etag}
-          initialLibraryId={initialLibraryId}
-          onClose={() => navigate(returnPath)}
-        />
-      ) : null}
-
-      {!collection && choice === "mdblist" ? (
-        <MDBListImportForm
-          libraries={libraries}
-          initialLibraryId={initialLibraryId}
-          onClose={() => navigate(returnPath)}
-        />
-      ) : null}
-
-      {!collection && choice === "tmdb" ? (
-        <TMDBPresetForm
-          libraries={libraries}
           initialLibraryId={initialLibraryId}
           onClose={() => navigate(returnPath)}
         />

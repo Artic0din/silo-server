@@ -1771,10 +1771,6 @@ export interface UserImportSharedFields {
   sort_config?: CollectionSortConfig;
 }
 
-export interface ImportUserMDBListCollectionRequest extends UserImportSharedFields {
-  url: string;
-}
-
 export interface MDBListListSummary {
   id: number;
   user_id: number;
@@ -1795,17 +1791,6 @@ export interface MDBListDiscoveryResponse {
   lists: MDBListListSummary[];
 }
 
-export interface ImportUserTMDBCollectionRequest extends UserImportSharedFields {
-  preset: ImportTMDBCollectionRequest["preset"];
-  media_type: ImportTMDBCollectionRequest["media_type"];
-  time_window?: ImportTMDBCollectionRequest["time_window"];
-}
-
-export interface ImportUserTMDBListCollectionRequest extends UserImportSharedFields {
-  /** A public TMDB list page URL or its numeric ID. */
-  url: string;
-}
-
 // A completed sync always has a non-empty status; the empty-string variant in
 // UserCollectionSyncStatus only appears on un-synced rows.
 export type UserCollectionSyncResultStatus = Exclude<UserCollectionSyncStatus, "">;
@@ -1817,11 +1802,6 @@ export interface UserCollectionSyncResult {
   items_unmatched: number;
   started_at: string;
   completed_at: string;
-}
-
-export interface ImportUserCollectionResponse {
-  collection: Collection;
-  sync?: UserCollectionSyncResult;
 }
 
 // Media Requests

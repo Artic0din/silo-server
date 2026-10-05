@@ -45,7 +45,6 @@ import {
   type SyncAttention,
 } from "@/components/collections/editor/CollectionMetaLine";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -90,7 +89,6 @@ export default function Collections() {
     .map((entry) => entry.name);
   // A one-profile account has nobody to share with: no sharing switch, no Shared with me.
   const multiProfile = otherProfileNames.length > 0;
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const narrow = useMediaQuery(NARROW_QUERY);
 
   const newCollection = (
@@ -100,10 +98,12 @@ export default function Collections() {
       </Link>
     </Button>
   );
-  // Until the New collection picker offers synced lists, templates stay here.
+  // Templates are ready-made picks in the editor's Synced list step.
   const browseTemplates = capabilities?.imports ? (
-    <Button size="sm" variant="outline" onClick={() => setGalleryOpen(true)}>
-      <Sparkles aria-hidden /> Browse Templates
+    <Button asChild size="sm" variant="outline">
+      <Link to={PERSONAL_SCOPE.paths.create({ type: "synced" })}>
+        <Sparkles aria-hidden /> Browse Templates
+      </Link>
     </Button>
   ) : null;
 
@@ -125,9 +125,6 @@ export default function Collections() {
         }
         padBottom={narrow}
       >
-        {capabilities?.imports ? (
-          <CollectionTemplateGallery mode="user" open={galleryOpen} onOpenChange={setGalleryOpen} />
-        ) : null}
         {isLoading ? (
           <PosterGridSkeleton />
         ) : (

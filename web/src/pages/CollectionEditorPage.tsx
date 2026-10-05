@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { ListPlus, ListFilter } from "lucide-react";
+import { ListPlus, ListFilter, RefreshCw } from "lucide-react";
 
 import type { Collection, LibraryCollection } from "@/api/types";
 import { isNotFoundProblem } from "@/api/v2/request";
@@ -12,16 +12,20 @@ import { CollectionEditor } from "@/components/collections/editor/CollectionEdit
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useScopeEditor } from "@/hooks/queries/collectionScope";
+import { useCollectionCapabilities } from "@/hooks/queries/collections";
 import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { SYNCED_OFF } from "@/lib/collections/copy";
 import {
   PERSONAL_SCOPE,
   SERVER_SCOPE,
   type CollectionScope,
+  type CreateKind,
   type EditorSnapshot,
   type ScopeKind,
 } from "@/lib/collections/scope";
 import { useListReturnPath } from "@/lib/collections/listReturn";
+import type { SyncedTab } from "@/lib/collections/synced";
 
 // The earlier editors load on their own, so each scope downloads only its own.
 const AdminCollectionEditor = lazy(() => import("./AdminCollectionEditor"));
@@ -31,7 +35,8 @@ const ImportedCollectionEditor = lazy(() =>
   })),
 );
 
-const EDITOR_KINDS = new Set(["manual", "smart"]);
+const CREATE_KINDS: readonly CreateKind[] = ["manual", "smart", "synced"];
+const SYNCED_TABS: readonly SyncedTab[] = ["mdblist", "tmdb_chart", "tmdb_list"];
 
 /** The collection's page with the lock callout, for someone who can't change it. */
 function readOnlyHref(href: string) {
@@ -76,19 +81,21 @@ function EditorSkeleton() {
 }
 
 /**
- * Every collection editor URL, both scopes: `/new?type=…` and `/:id/edit`.
- * Mounted once per family by a pathless route, so it stays the same page from
- * `/new` to `/:id/edit` after Create. Manual and Smart collections open the
- * editor page; Synced lists keep their earlier editors inside it for now. Someone
- * who can't change the collection is sent to its page instead of a form.
+ * Every collection editor URL, both scopes: `/new?type=…[&source=…]` and
+ * `/:id/edit`. Mounted once per family by a pathless route, so it stays the
+ * same page from `/new` to `/:id/edit` after Create. Manual and Smart
+ * collections open the editor page, and so does creating a Synced list; a
+ * saved Synced list keeps its earlier editor inside it for now. Someone who
+ * can't change the collection is sent to its page instead of a form.
  */
 export default function CollectionEditorPage({ scope: scopeKind }: { scope: ScopeKind }) {
   const scope = (scopeKind === "server" ? SERVER_SCOPE : PERSONAL_SCOPE) as CollectionScope;
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const libraryId = Number(searchParams.get("libraryId")) || null;
-  const type = searchParams.get("type");
-  const createKind = type === "smart" ? "smart" : "manual";
+  const type = CREATE_KINDS.find((kind) => kind === searchParams.get("type"));
+  const createKind = type ?? "manual";
+  const source = SYNCED_TABS.find((tab) => tab === searchParams.get("source"));
   const location = useLocation();
   // The collection the create editor made, its kind, and the visit it was made
   // on: the editor carries on at its edit URL. Any other visit starts a fresh one.
@@ -96,7 +103,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
     round: number;
     id?: string;
     visit?: string;
-    kind?: "manual" | "smart";
+    kind?: CreateKind;
   }>({ round: 0 });
   if (created.id && (id ? id !== created.id : location.key !== created.visit)) {
     setCreated({ round: created.round + 1 });
@@ -106,7 +113,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
   const { profile, isLoading: profileLoading } = useCurrentProfile();
   const listPath = useListReturnPath(scope.paths.list({ libraryId }));
 
-  if ((!id && type && EDITOR_KINDS.has(type)) || carriedOn) {
+  if ((!id && type) || carriedOn) {
     const kind = carriedOn ? created.kind : createKind;
     return (
       <CollectionEditor
@@ -114,6 +121,7 @@ export default function CollectionEditorPage({ scope: scopeKind }: { scope: Scop
         scope={scope}
         kind={kind}
         libraryId={libraryId}
+        syncedTab={source}
         onCreated={(newId) =>
           setCreated({ ...created, id: newId, visit: location.key, kind: createKind })
         }
@@ -199,12 +207,23 @@ function LegacyCreate({ scope, libraryId }: { scope: ScopeKind; libraryId: numbe
 const PERSONAL_TYPES = [
   { type: "manual", icon: ListPlus, label: "Manual", description: "Pick the titles yourself." },
   { type: "smart", icon: ListFilter, label: "Smart", description: "Match titles with rules." },
+  {
+    type: "synced",
+    icon: RefreshCw,
+    label: "Synced list",
+    description: "Follow a list from MDBList or TMDB.",
+  },
 ] as const;
 
-/** A new personal collection: Manual or Smart, each opening the editor page. */
+const CARD =
+  "border-border flex h-full flex-col items-start gap-3 rounded-2xl border p-5 text-left transition-colors outline-none";
+
+/** A new personal collection: Manual, Smart or Synced list, each opening the editor page. */
 function PersonalTypeChooser() {
   useDocumentTitle("New collection");
   const listPath = PERSONAL_SCOPE.paths.list();
+  const { data: capabilities } = useCollectionCapabilities();
+  const syncedOff = capabilities !== undefined && capabilities.import_sources.length === 0;
   return (
     <div className="page-shell relative space-y-6 py-4 sm:py-6">
       <PageBack to={listPath} up />
@@ -214,25 +233,37 @@ function PersonalTypeChooser() {
           Next: name it and fill it in, on its own page.
         </p>
       </div>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {PERSONAL_TYPES.map(({ type, icon: Icon, label, description }) => (
-          <li key={type}>
-            <ViewTransitionLink
-              to={PERSONAL_SCOPE.paths.create({ type })}
-              aria-labelledby={`new-${type}-label`}
-              aria-describedby={`new-${type}-help`}
-              className="border-border hover:border-primary hover:bg-accent focus-visible:ring-ring/50 flex h-full flex-col items-start gap-3 rounded-2xl border p-5 text-left transition-colors outline-none focus-visible:ring-[3px]"
-            >
+      <ul className="grid gap-3 sm:grid-cols-3">
+        {PERSONAL_TYPES.map(({ type, icon: Icon, label, description }) => {
+          const off = type === "synced" && syncedOff;
+          const body = (
+            <>
               <Icon aria-hidden className="text-muted-foreground size-7" />
               <span id={`new-${type}-label`} className="text-sm font-medium">
                 {label}
               </span>
               <span id={`new-${type}-help`} className="text-muted-foreground -mt-2 text-xs">
-                {description}
+                {off ? SYNCED_OFF : description}
               </span>
-            </ViewTransitionLink>
-          </li>
-        ))}
+            </>
+          );
+          return (
+            <li key={type}>
+              {off ? (
+                <div className={`${CARD} opacity-60`}>{body}</div>
+              ) : (
+                <ViewTransitionLink
+                  to={PERSONAL_SCOPE.paths.create({ type })}
+                  aria-labelledby={`new-${type}-label`}
+                  aria-describedby={`new-${type}-help`}
+                  className={`${CARD} hover:border-primary hover:bg-accent focus-visible:ring-ring/50 focus-visible:ring-[3px]`}
+                >
+                  {body}
+                </ViewTransitionLink>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

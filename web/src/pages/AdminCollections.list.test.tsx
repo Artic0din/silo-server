@@ -26,9 +26,6 @@ vi.mock("@/hooks/queries/admin/taskJobs", () => ({
   useAdminTaskJobs: () => ({ data: [] }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
-}));
 
 installV2Recorder();
 

@@ -14,9 +14,12 @@ import type {
   CollectionDraft,
   CollectionScope,
   CollectionView,
+  CreatableDraft,
+  CreateKind,
   EditorSnapshot,
   PreviewItem,
   SavableDraft,
+  SyncOutcome,
   WireCollection,
 } from "@/lib/collections/scope";
 
@@ -243,6 +246,10 @@ export interface CreateResult {
   id: string;
   /** Staged titles that couldn't be added; they stay staged for Try again. */
   failedItems: string[];
+  /** A synced list's first sync, when it ran. */
+  sync?: SyncOutcome;
+  /** What saved with problems after the collection was created. */
+  warnings: string[];
 }
 
 /**
@@ -257,7 +264,7 @@ export interface CreateResult {
  */
 export function useCollectionDraft<Raw extends WireCollection>(
   scope: CollectionScope<Raw>,
-  init: { snapshot?: EditorSnapshot<Raw>; kind: "manual" | "smart"; libraryId?: number | null },
+  init: { snapshot?: EditorSnapshot<Raw>; kind: CreateKind; libraryId?: number | null },
 ) {
   const queryClient = useQueryClient();
   const [state, setStateValue] = useState<DraftState<Raw>>(() => {
@@ -378,6 +385,8 @@ export function useCollectionDraft<Raw extends WireCollection>(
             ...later,
             artwork: kept,
             stagedItems: stillStaged ? stagedOrNone(stillStaged) : previous.draft.stagedItems,
+            // A new Synced list's step isn't on the saved collection; it stays until the page leaves.
+            synced: previous.draft.synced,
           },
           conflicts: [],
         };
@@ -408,11 +417,13 @@ export function useCollectionDraft<Raw extends WireCollection>(
    * becomes the base, and the next save reads the collection first.
    */
   const create = useCallback(async (): Promise<CreateResult | null> => {
+    // Created already: a second Create would make a second collection.
+    if (current.current.id) return null;
     const saved = current.current.draft;
     setSaving(true);
     setSaveError(null);
     try {
-      const outcome = await scope.create(saved as SavableDraft);
+      const outcome = await scope.create(saved as CreatableDraft);
       const failedItems = await addStaged(outcome.id, saved.stagedItems ?? [], 0);
       try {
         await rebase(outcome.id, saved, outcome.failedArtwork, outcome.warnings, failedItems);
@@ -426,7 +437,7 @@ export function useCollectionDraft<Raw extends WireCollection>(
           conflicts: [],
         }));
       }
-      return { id: outcome.id, failedItems };
+      return { id: outcome.id, failedItems, sync: outcome.sync, warnings: outcome.warnings };
     } catch (error) {
       setSaveError(scope.errorMessage(error, SAVE_FAILED));
       return null;

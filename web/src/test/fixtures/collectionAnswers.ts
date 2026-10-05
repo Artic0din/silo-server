@@ -13,6 +13,8 @@ export const adminCapabilities = {
   groups: true,
   imports: true,
   import_sources: ["mdblist", "tmdb", "tmdb_list"],
+  mdblist_search: true,
+  schedule_time_zone: { utc_offset: "-05:00", abbreviation: "CDT" },
   artwork: true,
   item_reorder: true,
 };
@@ -26,6 +28,8 @@ export const personalCapabilities = {
   login_sharing: true,
   imports: true,
   import_sources: ["mdblist", "tmdb", "tmdb_list"],
+  mdblist_search: true,
+  schedule_time_zone: { utc_offset: "-05:00", abbreviation: "CDT" },
   artwork: true,
   item_reorder: true,
   display_filter_fields: [],

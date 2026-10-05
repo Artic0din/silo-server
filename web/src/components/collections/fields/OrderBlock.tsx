@@ -12,7 +12,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useShownRatingSources } from "@/hooks/queries/ratingsCapability";
-import { MANUAL_ORDER_LINE, NO_LIMIT, ORDER_HELP, storedSortLine } from "@/lib/collections/copy";
+import { COLLECTION_MAX_ITEMS } from "@/lib/collectionTemplates";
+import {
+  COLLECTION_SOURCE_ORDER,
+  collectionDefaultSortOptions,
+  selectValueToSortConfig,
+  sortConfigToSelectValue,
+} from "@/lib/collectionSortConfig";
+import {
+  MANUAL_ORDER_LINE,
+  NO_LIMIT,
+  ORDER_HELP,
+  SYNCED_ORDER_HELP,
+  storedSortLine,
+} from "@/lib/collections/copy";
 import { clearDefaultSort } from "@/lib/collections/draft";
 import {
   getDefaultQuerySortOrder,
@@ -67,6 +80,16 @@ function parsedLimit(text: string, current: number | undefined): number | undefi
 export type OrderBlockProps =
   | { mode?: "manual" }
   | {
+      mode: "synced";
+      /** The default sort viewers land on; `{}` keeps the list's own order. */
+      sortConfig: Record<string, unknown> | undefined;
+      /** Blank takes the whole list. */
+      limit: number | undefined;
+      onSortChange: (sortConfig: Record<string, unknown>) => void;
+      onLimitChange: (limit: number | undefined) => void;
+      allowPersonalized: boolean;
+    }
+  | {
       mode: "smart";
       rules: QueryDefinition;
       sortConfig: Record<string, unknown> | undefined;
@@ -78,9 +101,11 @@ export type OrderBlockProps =
 /**
  * The last block of a Contents panel: how the titles are ordered. Manual is a
  * read-only line; Smart picks a sort, its direction and a maximum, and shows a
- * stored default sort (which wins over them) with Clear.
+ * stored default sort (which wins over them) with Clear; a Synced list picks
+ * the sort viewers land on and how many of the list's titles it keeps.
  */
 export function OrderBlock(props: OrderBlockProps) {
+  if (props.mode === "synced") return <SyncedOrder {...props} />;
   if (props.mode !== "smart") {
     return (
       <div className="border-border/70 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t pt-4">
@@ -165,25 +190,7 @@ function SmartOrder({
             <SelectItem value="asc">{directions.asc}</SelectItem>
           </SelectContent>
         </Select>
-        <label className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-11 items-center gap-2 rounded-md border px-3 focus-within:ring-[3px]">
-          <Input
-            key={rules.limit ?? ""}
-            type="number"
-            min={1}
-            step={1}
-            aria-label="Max titles"
-            placeholder={NO_LIMIT}
-            defaultValue={rules.limit ?? ""}
-            className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-            onBlur={(event) => commitLimit(event.currentTarget)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-          />
-          <span aria-hidden className="text-muted-foreground shrink-0 text-[12.5px]">
-            max titles
-          </span>
-        </label>
+        <MaxTitlesInput limit={rules.limit} placeholder={NO_LIMIT} onCommit={commitLimit} />
       </div>
       {stored ? (
         <div className="bg-muted/50 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl px-3 py-2.5 text-[13px]">
@@ -201,6 +208,100 @@ function SmartOrder({
         </div>
       ) : null}
       <p className="text-muted-foreground text-[13px]">{ORDER_HELP}</p>
+    </section>
+  );
+}
+
+/** "[ 250   max titles ]": commits on blur or Enter. */
+function MaxTitlesInput({
+  limit,
+  placeholder,
+  max,
+  onCommit,
+}: {
+  limit: number | undefined;
+  placeholder: string;
+  max?: number;
+  onCommit: (input: HTMLInputElement) => void;
+}) {
+  return (
+    <label className="border-input focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex h-11 items-center gap-2 rounded-md border px-3 focus-within:ring-[3px]">
+      <Input
+        key={limit ?? ""}
+        type="number"
+        min={1}
+        max={max}
+        step={1}
+        aria-label="Max titles"
+        placeholder={placeholder}
+        defaultValue={limit ?? ""}
+        className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+        onBlur={(event) => onCommit(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+      <span aria-hidden className="text-muted-foreground shrink-0 text-[12.5px]">
+        max titles
+      </span>
+    </label>
+  );
+}
+
+function SyncedOrder({
+  sortConfig,
+  limit,
+  onSortChange,
+  onLimitChange,
+  allowPersonalized,
+}: Extract<OrderBlockProps, { mode: "synced" }>) {
+  const id = useId();
+  const shownRatingSources = useShownRatingSources();
+  const value = sortConfigToSelectValue(sortConfig);
+  const options = collectionDefaultSortOptions(
+    allowPersonalized,
+    shownRatingSources,
+    value.split(":")[0],
+  );
+
+  function commitLimit(input: HTMLInputElement) {
+    const typed = parsedLimit(input.value, limit);
+    const next = typed === undefined ? undefined : Math.min(typed, COLLECTION_MAX_ITEMS);
+    input.value = next === undefined ? "" : String(next);
+    if (next !== limit) onLimitChange(next);
+  }
+
+  return (
+    <section
+      aria-labelledby={`${id}-heading`}
+      className="border-border/70 grid gap-3 border-t pt-4"
+    >
+      <h3 id={`${id}-heading`} className="text-[14.5px] font-semibold">
+        Order
+      </h3>
+      <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Select value={value} onValueChange={(next) => onSortChange(selectValueToSortConfig(next))}>
+          <SelectTrigger aria-label="Default sort" className="h-11 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.value === COLLECTION_SOURCE_ORDER ? "List order" : option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <MaxTitlesInput
+          limit={limit}
+          placeholder="Whole list"
+          max={COLLECTION_MAX_ITEMS}
+          onCommit={commitLimit}
+        />
+      </div>
+      <p className="text-muted-foreground text-[13px]">
+        {SYNCED_ORDER_HELP} {ORDER_HELP}
+      </p>
     </section>
   );
 }

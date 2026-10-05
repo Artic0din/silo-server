@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQueries } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SaveBar } from "@/components/SaveBar";
@@ -23,15 +24,21 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHasUnsavedChanges, useReportUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import {
   DRAFT_FIELD_LABEL,
+  NAME_FILLED_HELP,
   NAME_IT_THEN_CREATE,
   NOT_CREATED_YET,
   PICK_A_LIBRARY,
+  PICK_A_LIST_FIRST,
   PICK_LIBRARIES_FIRST,
   PREVIEW_SHOWS_UNSAVED,
   SAVE_FAILED,
   SMART_UPDATES_ITSELF,
+  SYNCED_CREATE_SUBTITLE,
+  SYNCS_ON_CREATE,
   TITLES_ALREADY_SAVED,
+  firstSyncMessage,
   joinNames,
+  keptMessage,
   notSavedMessage,
   personalDeleteDescription,
   serverDeleteDescription,
@@ -42,9 +49,11 @@ import { useListReturnPath } from "@/lib/collections/listReturn";
 import type {
   CollectionDraft,
   CollectionScope,
+  CreateKind,
   EditorSnapshot,
   WireCollection,
 } from "@/lib/collections/scope";
+import type { SyncedDraft, SyncedTab } from "@/lib/collections/synced";
 import { buildLibraryCollectionCatalogHref } from "@/pages/catalogSearchParams";
 
 import { LibrariesLine } from "../fields/LibrariesLine";
@@ -57,6 +66,7 @@ import { EditorHeader, type OpenTarget } from "./EditorHeader";
 import { CollectionPreviewPane } from "./CollectionPreviewPane";
 import { ManualContentsPanel } from "./ManualContentsPanel";
 import { SmartRulesPanel } from "./SmartRulesPanel";
+import { SyncedListPanel } from "./SyncedListPanel";
 import { WhereItShowsPanel } from "./WhereItShowsPanel";
 
 const NO_TITLES: readonly string[] = [];
@@ -154,33 +164,67 @@ function PersonalSmartContents<Raw extends WireCollection>(
   return <SmartContents {...props} libraries={data} />;
 }
 
+/** A personal Synced list matches into the libraries the profile can see. */
+function PersonalSyncedContents(props: Omit<Parameters<typeof SyncedListPanel>[0], "libraries">) {
+  const { data = [] } = useUserLibraries();
+  return <SyncedListPanel {...props} libraries={data} />;
+}
+
+/** Under Name on a new Synced list: whether the pick filled it, or kept what was typed. */
+function syncedNameNote(draft: CollectionDraft): string | undefined {
+  const synced = draft.synced;
+  if (!synced?.list) return undefined;
+  const kept = keptMessage(synced.kept);
+  if (kept) return kept;
+  return draft.name !== "" && draft.name === synced.filled.name ? NAME_FILLED_HELP : undefined;
+}
+
+/** Whether anything in a new synced list's step was picked or typed. */
+function syncedTouched(synced: SyncedDraft | undefined) {
+  return Boolean(
+    synced &&
+    (synced.list ||
+      synced.mdblistLink ||
+      synced.tmdbListLink ||
+      synced.limit !== undefined ||
+      synced.schedule),
+  );
+}
+
 /**
  * The editor page for a Manual or Smart collection, both scopes, create and
- * edit. The same instance carries on from `/new` to `/:id/edit` after Create.
+ * edit, and for creating a Synced list. The same instance carries on from
+ * `/new` to `/:id/edit` after Create; a new Synced list moves to its own edit
+ * page, which still uses the earlier synced editor.
  */
 export function CollectionEditor<Raw extends WireCollection>({
   scope,
   kind: createKind = "manual",
   snapshot,
   libraryId,
+  syncedTab,
   onCreated,
 }: {
   scope: CollectionScope<Raw>;
   /** Create mode: what to create. A saved collection keeps its own kind. */
-  kind?: "manual" | "smart";
+  kind?: CreateKind;
   snapshot?: EditorSnapshot<Raw>;
   /** Create mode: the library the editor was opened from. */
   libraryId?: number | null;
-  /** Create mode: told the new id before the page moves to its edit URL. */
+  /** Create mode, Synced list: the tab the list step opens on. */
+  syncedTab?: SyncedTab;
+  /** Create mode, Manual and Smart: told the new id before the page moves to its edit URL. */
   onCreated?: (id: string) => void;
 }) {
   const navigate = useNavigate();
-  // The page sends Synced lists elsewhere, so a saved collection here is Manual or Smart.
+  // The page sends saved Synced lists elsewhere, so a saved collection here is Manual or Smart.
   const kind = snapshot ? (snapshot.view.kind === "smart" ? "smart" : "manual") : createKind;
   const smart = kind === "smart";
+  const synced = kind === "synced";
   const editor = useCollectionDraft(scope, { snapshot, kind, libraryId });
   const { draft, view } = editor;
-  const created = Boolean(editor.id);
+  // A new Synced list leaves for its edit page, so this editor never edits one.
+  const created = Boolean(editor.id) && !synced;
   const isServer = scope.kind === "server";
   useDocumentTitle(created ? `Edit ${view?.name ?? draft.name}` : "New collection");
   const { data: adminLibraries = [] } = useAdminLibraries({ enabled: isServer });
@@ -204,7 +248,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   // upload then counts as unsaved again.
   const location = useLocation();
   const moving = openEdit !== null && location.pathname !== scope.paths.edit(openEdit);
-  const dirty = editor.isDirty || (!created && staged.length > 0);
+  const dirty = editor.isDirty || (!created && (staged.length > 0 || syncedTouched(draft.synced)));
   useReportUnsavedChanges(!leaving && !moving && dirty);
 
   // Leave only once the clean report has reached the guard.
@@ -216,9 +260,9 @@ export function CollectionEditor<Raw extends WireCollection>({
       navigate(scope.paths.edit(openEdit, { libraryId }), { replace: true });
       // Create unmounts its button; carry on where the contents start.
       if (smart) focusLibrariesLine();
-      else document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();
+      else if (!synced) document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();
     }
-  }, [hasUnsaved, leaving, libraryId, moving, navigate, openEdit, scope, smart]);
+  }, [hasUnsaved, leaving, libraryId, moving, navigate, openEdit, scope, smart, synced]);
 
   const libraryOptions = adminLibraries.map(({ id, name, type }) => ({ id, name, type }));
   const named = (ids: readonly number[]) =>
@@ -229,7 +273,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   const chosenLibraries = named(draft.libraryIds);
   const savedLibraries = named(view?.libraryIds ?? []);
   const untickWarning = useUntickWarning(
-    isServer && !smart ? editor.id : undefined,
+    isServer && kind === "manual" ? editor.id : undefined,
     editor.base.libraryIds,
     draft.libraryIds,
     libraryOptions,
@@ -252,12 +296,21 @@ export function CollectionEditor<Raw extends WireCollection>({
   async function create() {
     const result = await editor.create();
     if (!result) return;
-    onCreated?.(result.id);
+    if (synced) {
+      const { tone, text } = firstSyncMessage(result.sync);
+      const description = result.warnings.length > 0 ? result.warnings.join(" ") : undefined;
+      if (tone === "warning" || description) toast.warning(text, { description });
+      else toast.success(text);
+    } else {
+      onCreated?.(result.id);
+    }
     setOpenEdit(result.id);
   }
 
   const needsLibraries = scope.requireLibraries && draft.libraryIds.length === 0;
-  const canCreate = draft.name.trim() !== "" && !needsLibraries;
+  const needsList = synced && !draft.synced?.list;
+  // A created Synced list keeps this bar until it moves to its edit page; one Create is enough.
+  const canCreate = !editor.id && draft.name.trim() !== "" && !needsLibraries && !needsList;
   const pending = editor.pendingLabels;
   // What the save bar adds after the pending fields, and before Create.
   let afterPending: string | null = TITLES_ALREADY_SAVED;
@@ -268,7 +321,12 @@ export function CollectionEditor<Raw extends WireCollection>({
       : null;
     createHint = NAME_IT_THEN_CREATE;
   }
-  if (needsLibraries) {
+  if (synced) {
+    if (needsList) createHint = PICK_A_LIST_FIRST;
+    else if (draft.name.trim() === "") createHint = NAME_IT_THEN_CREATE;
+    else createHint = SYNCS_ON_CREATE;
+  }
+  if (needsLibraries && !needsList) {
     afterPending = PICK_A_LIBRARY;
     createHint = PICK_LIBRARIES_FIRST;
   }
@@ -322,7 +380,20 @@ export function CollectionEditor<Raw extends WireCollection>({
 
   const previewOffMessage = created ? PICK_A_LIBRARY : PICK_LIBRARIES_FIRST;
   let contents: ReactNode;
-  if (smart && isServer) {
+  if (synced && draft.synced) {
+    const panel = {
+      scopeKind: scope.kind,
+      draft: { ...draft, synced: draft.synced },
+      onChange: editor.setDraft,
+      capabilities,
+      initialTab: syncedTab,
+    };
+    contents = isServer ? (
+      <SyncedListPanel {...panel} libraries={libraryOptions} />
+    ) : (
+      <PersonalSyncedContents {...panel} />
+    );
+  } else if (smart && isServer) {
     contents = (
       <SmartContents
         scope={scope}
@@ -382,7 +453,7 @@ export function CollectionEditor<Raw extends WireCollection>({
       <UnsavedChangesGuard />
       <CollectionEditorShell
         createMode={!created}
-        contentsLabel={smart ? "Rules" : "Titles"}
+        contentsLabel={synced ? "The list" : smart ? "Rules" : "Titles"}
         header={
           <EditorHeader
             back={{ label: "Collections", href: listPath }}
@@ -390,9 +461,11 @@ export function CollectionEditor<Raw extends WireCollection>({
             name={view?.name ?? draft.name}
             created={created}
             shared={view?.personal?.shared}
-            posterUrl={view?.posterUrl}
+            posterUrl={view?.posterUrl ?? draft.synced?.posterUrl}
             meta={
-              view ? (
+              synced ? (
+                <p className="text-muted-foreground text-[14px]">{SYNCED_CREATE_SUBTITLE}</p>
+              ) : view ? (
                 <CollectionMetaLine
                   libraryNames={
                     isServer ? savedLibraries.map((library) => library.name) : undefined
@@ -421,8 +494,13 @@ export function CollectionEditor<Raw extends WireCollection>({
             draft={draft}
             onChange={editor.setDraft}
             showOnly={!isServer && !smart}
+            nameNote={synced ? syncedNameNote(draft) : undefined}
             artworkSlots={capabilities?.artwork === false ? [] : scope.artworkSlots}
-            savedArtwork={{ poster: view?.posterUrl, backdrop: view?.backdropUrl }}
+            savedArtwork={{
+              // A new Synced list starts with its pick's poster.
+              poster: view?.posterUrl ?? draft.synced?.posterUrl,
+              backdrop: view?.backdropUrl,
+            }}
             artworkErrors={editor.artworkErrors}
             onRetryArtwork={() => void editor.save()}
           />
@@ -430,7 +508,7 @@ export function CollectionEditor<Raw extends WireCollection>({
         where={
           <WhereItShowsPanel
             scopeKind={scope.kind}
-            collectionId={editor.id}
+            collectionId={created ? editor.id : undefined}
             draft={draft}
             onChange={editor.setDraft}
             libraries={chosenLibraries}

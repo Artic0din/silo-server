@@ -30,11 +30,11 @@ vi.mock("@/hooks/queries/collectionScope", () => ({
   },
 }));
 vi.mock("@/hooks/queries/collections", () => ({
-  useCollectionCapabilities: () => ({ data: {} }),
+  useCollectionCapabilities: () => ({ data: { import_sources: ["mdblist", "tmdb", "tmdb_list"] } }),
   useUpdateCollection: () => ({}),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
-  useAdminCollectionCapabilities: () => ({ data: {} }),
+  useAdminCollectionCapabilities: () => ({ data: { imports: true } }),
   useUpdateAdminCollection: () => ({}),
 }));
 vi.mock("@/hooks/queries/profiles", () => ({ useProfiles: () => ({ data: [] }) }));
@@ -43,9 +43,6 @@ vi.mock("@/hooks/queries/admin/libraries", () => ({ useAdminLibraries: () => ({ 
 vi.mock("@/hooks/useCurrentProfile", () => ({
   useCurrentProfile: () => ({ profile: { id: "p" }, isLoading: false }),
 }));
-vi.mock("@/components/CollectionTemplateGallery", () => ({
-  CollectionTemplateGallery: () => null,
-}));
 vi.mock("@/components/ImageUploadField", () => ({ ImageUploadField: () => null }));
 vi.mock("@/components/collections/editor/CollectionEditor", () => ({
   CollectionEditor: ({
@@ -53,14 +50,17 @@ vi.mock("@/components/collections/editor/CollectionEditor", () => ({
     kind,
     snapshot,
     libraryId,
+    syncedTab,
   }: {
     scope: CollectionScope;
     kind?: string;
     snapshot?: EditorSnapshot;
     libraryId?: number | null;
+    syncedTab?: string;
   }) => (
     <div
       data-testid="editor"
+      data-tab={syncedTab ?? ""}
       data-kind={snapshot?.view.kind ?? kind}
       data-source={scope.itemSource}
       data-collection={snapshot?.view.id ?? ""}
@@ -97,6 +97,7 @@ function show(admin = false, edit = false) {
 it.each([
   ["Manual", "manual"],
   ["Smart", "smart"],
+  ["Synced list", "synced"],
 ])("opens the editor page when %s is chosen for a new personal collection", (label, kind) => {
   show();
   fireEvent.click(screen.getByRole("link", { name: label }));
@@ -147,6 +148,35 @@ it("opens the Smart editor from the admin Smart card, keeping the library", asyn
   );
   const editor = screen.getByTestId("editor");
   expect(editor).toHaveAttribute("data-kind", "smart");
+  expect(editor).toHaveAttribute("data-library", "7");
+});
+
+it.each([
+  [/Browse Templates/, "/admin/collections/new?type=synced&libraryId=7", ""],
+  [/MDBList Sync from/, "/admin/collections/new?type=synced&source=mdblist&libraryId=7", "mdblist"],
+  [
+    /TMDB Auto-populate/,
+    "/admin/collections/new?type=synced&source=tmdb_chart&libraryId=7",
+    "tmdb_chart",
+  ],
+])("opens the Synced list step from the admin card %s", async (card, url, tab) => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={["/admin/collections/new?libraryId=7"]}>
+        <Routes>
+          <Route element={<CollectionEditorPage scope="server" />}>
+            <Route path="/admin/collections/new" />
+          </Route>
+        </Routes>
+        <Location />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: card }));
+  expect(screen.getByTestId("location")).toHaveTextContent(url);
+  const editor = screen.getByTestId("editor");
+  expect(editor).toHaveAttribute("data-kind", "synced");
+  expect(editor).toHaveAttribute("data-tab", tab);
   expect(editor).toHaveAttribute("data-library", "7");
 });
 

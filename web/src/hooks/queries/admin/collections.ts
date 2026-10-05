@@ -19,9 +19,6 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import { toast } from "sonner";
 import type {
   CreateLibraryCollectionRequest,
-  ImportMDBListCollectionRequest,
-  ImportTMDBCollectionRequest,
-  ImportTMDBListCollectionRequest,
   ImportTraktCollectionRequest,
   UpdateLibraryCollectionRequest,
 } from "@/api/types";
@@ -311,114 +308,6 @@ export function useDeleteAdminCollections() {
   });
 
   return { ...mutation, progress };
-}
-
-export function useImportMDBListCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportMDBListCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/mdblist", {
-        body: adminImportBody(body),
-      }).then(async (result) => ({
-        ...result,
-        ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-      }));
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success(
-        result.sync_run?.status === "warning"
-          ? "MDBList imported with warnings"
-          : "MDBList imported",
-      );
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
-}
-
-export function useImportTMDBCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportTMDBCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/tmdb", { body: adminImportBody(body) }).then(
-        async (result) => ({
-          ...result,
-          ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-        }),
-      );
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success(
-        result.sync_run?.status === "warning"
-          ? "TMDB collection imported with warnings"
-          : "TMDB collection imported",
-      );
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
-}
-
-export function useImportTMDBListCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: ImportTMDBListCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections/import/tmdb-list", {
-        body: adminImportBody(body),
-      }).then(async (result) => ({
-        ...result,
-        ...(await saveAdminArtwork(result.collection, body, poster, backdrop)),
-      }));
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success(
-        result.sync_run?.status === "warning"
-          ? "TMDB list imported with warnings"
-          : "TMDB list imported",
-      );
-      void invalidateAdminCollectionQueries(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    },
-  });
 }
 
 export function useImportTraktCollection() {

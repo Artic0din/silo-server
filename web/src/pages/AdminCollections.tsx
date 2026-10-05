@@ -55,7 +55,6 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { CollectionTemplateGallery } from "@/components/CollectionTemplateGallery";
 import { StarterPacksDialog } from "@/components/collections/StarterPacksDialog";
 import {
   collectionLibraryIds,
@@ -133,7 +132,6 @@ export default function AdminCollections() {
   const activeLibraryId = state.view === "arrange" ? arrangeLibraryId : state.libraryId;
   const listHref = `${location.pathname}${location.search}`;
 
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const starterPacksOpen = searchParams.get("dialog") === STARTER_PACKS_DIALOG;
   // Replace, not push: Back should leave the page, not reopen a closed dialog.
   const setStarterPacksOpen = (open: boolean) =>
@@ -373,12 +371,16 @@ export default function AdminCollections() {
     },
     {
       key: "templates",
-      label: "Browse templates…",
-      help: "Add ready-made synced lists, one at a time or as a set.",
+      label: "Browse templates",
+      help: "Start a synced list from a ready-made pick.",
       icon: Sparkles,
       disabled: !capabilities?.imports,
-      opensDialog: true,
-      onSelect: () => setGalleryOpen(true),
+      returnFocus: false,
+      // Templates are ready-made picks in the editor's Synced list step.
+      onSelect: () =>
+        navigate(SERVER_SCOPE.paths.create({ type: "synced", libraryId: activeLibraryId }), {
+          state: listReturnState(listHref),
+        }),
     },
     {
       key: "delete-all",
@@ -599,13 +601,6 @@ export default function AdminCollections() {
       </CalmPage>
 
       {narrow ? <MobileDockBar more={more} addRow={newCollection} /> : null}
-
-      <CollectionTemplateGallery
-        open={galleryOpen}
-        onOpenChange={setGalleryOpen}
-        libraries={libraryList}
-        initialLibraryId={activeLibraryId}
-      />
 
       {starterPacksOpen ? (
         <StarterPacksDialog

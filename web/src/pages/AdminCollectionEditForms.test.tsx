@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Library, LibraryCollection } from "@/api/types";
 
-import { CollectionEditForm, MDBListImportForm } from "./adminCollectionsShared";
+import { CollectionEditForm } from "./adminCollectionsShared";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/api/v2/request", async () => ({
@@ -178,24 +178,6 @@ describe("legacy Trakt collection editor", () => {
 });
 
 describe("admin MDBList Max Items", () => {
-  it("does not import with a limit sync can never fill", async () => {
-    renderForm(<MDBListImportForm libraries={libraries} initialLibraryId={7} onClose={vi.fn()} />);
-
-    fireEvent.change(screen.getByLabelText("Collection Title"), { target: { value: "Top" } });
-    fireEvent.change(screen.getByLabelText("MDBList JSON URL"), {
-      target: { value: "https://mdblist.com/lists/u/top" },
-    });
-    fireEvent.change(screen.getByLabelText("Max Items"), { target: { value: "501" } });
-    fireEvent.click(screen.getByRole("button", { name: "Import MDBList Collection" }));
-    await act(async () => {});
-    expect(writes).toEqual([]);
-
-    fireEvent.change(screen.getByLabelText("Max Items"), { target: { value: "500" } });
-    fireEvent.click(screen.getByRole("button", { name: "Import MDBList Collection" }));
-    await waitFor(() => expect(writes).toHaveLength(1));
-    expect(writes[0]!.body).toMatchObject({ limit: 500 });
-  });
-
   it("does not save an edited limit sync can never fill", async () => {
     renderForm(
       <CollectionEditForm
