@@ -234,6 +234,34 @@ describe("?add= on admin Home rows", () => {
     expect(mocks.error).not.toHaveBeenCalled();
   });
 
+  it("says a collection deleted since its options were read can't be added", async () => {
+    const client = newClient();
+    const refresh = deferred();
+    collections = [...collections, serverCollection("doomed", "Deleted just now")];
+    // The Home rows options were read while the collection still existed.
+    await client.fetchQuery({
+      queryKey: adminKeys.collections(undefined),
+      queryFn: () => fetchAdminCollections(undefined),
+    });
+    collections = collections.filter((c) => (c as { id: string }).id !== "doomed");
+    // What deleting it runs; the refresh answers after the page is ready.
+    held["GET /api/v2/admin/collections"] = refresh.promise;
+    await SERVER_SCOPE.invalidate(client);
+
+    setup("/admin/home-rows?add=collection:library:doomed", client);
+    const add = await screen.findByRole("button", { name: "Add row" });
+    await waitFor(() => expect(add).toBeEnabled());
+    await act(async () => {});
+    // The stale list still holds it: nothing opens until the refresh answers.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    refresh.resolve();
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith("This collection can't be added here."),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("says the collections didn't load rather than that this one can't be added", async () => {
     failing.add("GET /api/v2/admin/collections");
     setup("/admin/home-rows?add=collection:library:lib-1");

@@ -132,7 +132,8 @@ export function useRowLinks({
     } else if (add) {
       if (!adapter.canEdit) return refuse(PAGE_LOCKED);
       if (!catalog) return catalogFailed ? refuse(NO_KINDS) : undefined;
-      if (collections?.loading) return;
+      // Options read before the collection was made, or deleted, are refreshing.
+      if (collections?.loading || collections?.fetching) return;
       const def = findRecipe(catalog, "collection");
       const option = collections?.options.find(
         (candidate) => candidate.id === add.id && candidate.source === add.source,
@@ -141,8 +142,6 @@ export function useRowLinks({
         const draft = withCollection(draftForPreset(def, def.presets[0]), option);
         return finish(() => onAdd(seedFor(option, draft)));
       }
-      // Options read before the collection was made are refreshing.
-      if (collections?.fetching) return;
       refuse(collections?.failed ? NO_COLLECTIONS : CANT_ADD);
     } else if (edit) {
       const row = adapter.rows.find((candidate) => candidate.id === edit);
