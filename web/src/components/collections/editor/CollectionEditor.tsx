@@ -45,7 +45,7 @@ import {
   serverDeleteDescription,
   titlesReadyToAdd,
 } from "@/lib/collections/copy";
-import { draftRules, type DraftField } from "@/lib/collections/draft";
+import { changedFields, draftRules, type DraftField } from "@/lib/collections/draft";
 import { useListReturnPath } from "@/lib/collections/listReturn";
 import type {
   CollectionDraft,
@@ -76,6 +76,8 @@ const NO_TITLES: readonly string[] = [];
 const PREVIEWED: ReadonlySet<DraftField> = new Set(["rules", "libraryIds", "rawSortConfig"]);
 /** The fields a sync reads; Sync now runs the saved copy, so it waits while they're unsaved. */
 const SYNC_INPUTS: ReadonlySet<DraftField> = new Set(["list", "libraryIds", "limit"]);
+const touchesSync = (fields: readonly DraftField[]) =>
+  fields.some((field) => SYNC_INPUTS.has(field));
 
 /**
  * "3 titles are only in Kids: …" when unticking libraries would drop titles a
@@ -248,8 +250,12 @@ export function CollectionEditor<Raw extends WireCollection>({
   );
   const remove = useScopeDelete(scope, { onDeleted: () => setLeaving(listPath) });
   const syncList = useScopeSync(scope);
-  // How many titles the last sync run here skipped; the collection doesn't carry it.
-  const [skipped, setSkipped] = useState<number>();
+  // How many titles the last sync run here skipped, and the draft it ran
+  // with; the collection doesn't carry the count.
+  const [lastRun, setLastRun] = useState<{ skipped: number; draft: CollectionDraft }>();
+  // A count from other settings than the ones on screen would read as theirs.
+  const skipped =
+    lastRun && !touchesSync(changedFields(lastRun.draft, draft)) ? lastRun.skipped : undefined;
   // Reading the collection again after Sync now, for its status and token.
   const [rereading, setRereading] = useState(false);
   // The server records a sync's status only when the run ends, and Sync now
@@ -260,7 +266,7 @@ export function CollectionEditor<Raw extends WireCollection>({
   // lists from their cards on the Collections page. Sync answers 501 when the
   // server can't import, so it needs the capability.
   const canSync = created && isServer && Boolean(view?.source) && capabilities?.imports === true;
-  const saveFirst = editor.changed.some((field) => SYNC_INPUTS.has(field));
+  const saveFirst = touchesSync(editor.changed);
   // Discards put the list's source card back.
   const [discards, setDiscards] = useState(0);
 
@@ -271,10 +277,11 @@ export function CollectionEditor<Raw extends WireCollection>({
 
   function syncNow() {
     if (!editor.id || syncing || saveFirst) return;
+    const ran = draft;
     syncList.mutate(editor.id, {
-      onSuccess: (run) => setSkipped(run.itemsUnmatched),
+      onSuccess: (run) => setLastRun({ skipped: run.itemsUnmatched, draft: ran }),
       // The last run counted nothing; an earlier run's count would read as its.
-      onError: () => setSkipped(undefined),
+      onError: () => setLastRun(undefined),
       // A sync records its run on the collection, even one that fails: read
       // it for the status and so Save and Delete send the new token.
       onSettled: () => {

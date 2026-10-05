@@ -323,6 +323,22 @@ describe("server Synced list editor", () => {
     );
   });
 
+  it("hides the skipped count while what the sync read is changed", async () => {
+    serverList("mdblist", MDBLIST);
+    v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
+    showPage(SERVER_EDIT);
+    await nameField();
+    const menu = await openMoreActions();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Sync now" }));
+    expect(await within(statusStrip()).findByText("41 titles skipped")).toBeInTheDocument();
+
+    // The 41 came from the saved Max titles, not this one.
+    await setMaxTitles("20");
+    expect(within(statusStrip()).getByText("Not counted yet")).toBeInTheDocument();
+    fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+    expect(await within(statusStrip()).findByText("41 titles skipped")).toBeInTheDocument();
+  });
+
   it("drops the skipped count when a later Sync now fails", async () => {
     serverList("mdblist", MDBLIST);
     v2Recorder.answer("POST /api/v2/admin/collections/{id}/sync", syncRun());
@@ -658,6 +674,22 @@ describe("server Synced list editor", () => {
     fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
     expect(await screen.findByRole("button", { name: "Change link" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "MDBList link" })).toBeNull();
+  });
+
+  it("closes a custom schedule on Discard", async () => {
+    serverList("mdblist", MDBLIST);
+    showPage(SERVER_EDIT);
+    choose(await screen.findByRole("combobox", { name: "Sync schedule" }), "Custom schedule…");
+    fireEvent.change(screen.getByRole("textbox", { name: "Cron schedule" }), {
+      target: { value: "15 4 * * *" },
+    });
+    fireEvent.click(within(saveBar()).getByRole("button", { name: "Discard" }));
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Cron schedule" })).toBeNull(),
+    );
+    expect(screen.getByRole("combobox", { name: "Sync schedule" })).toHaveTextContent(
+      "No automatic sync",
+    );
   });
 
   it("shows a Discover list's rules read-only and saves without its source", async () => {
