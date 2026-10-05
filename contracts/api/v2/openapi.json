@@ -25464,6 +25464,10 @@
           "series_id": {
             "type": "string"
           },
+          "series_poster_thumbhash": {
+            "description": "Episode manifests only: the parent series poster's thumbhash. poster_thumbhash is the episode still.",
+            "type": "string"
+          },
           "series_title": {
             "type": "string"
           },
@@ -25529,6 +25533,10 @@
             "type": "string"
           },
           "poster": {
+            "type": "string"
+          },
+          "series_poster": {
+            "description": "Episode manifests only: the parent series poster. poster is the episode still.",
             "type": "string"
           }
         },
