@@ -3,14 +3,17 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Library, LibraryCollection } from "@/api/types";
+import type { AdminJob, Library, LibraryCollection } from "@/api/types";
 import { PIN_LABEL, pinHelp } from "@/lib/collections/copy";
+import { coreApplied, starterPackBundles } from "@/test/fixtures/starterPacks";
 
 import AdminCollections from "./AdminCollections";
 
 const { state, idle } = vi.hoisted(() => ({
   state: {
     collections: [] as LibraryCollection[],
+    jobs: [] as AdminJob[],
+    bundlesLoaded: true,
     snapshot: vi.fn(),
     prepareDeletes: vi.fn(),
     setVisibility: vi.fn(async () => undefined),
@@ -58,7 +61,13 @@ vi.mock("@/hooks/queries/admin/collections", () => ({
   useDeleteAdminCollections: () => ({ ...idle(), progress: null }),
   useSetAdminCollectionVisibility: () => ({ mutateAsync: state.setVisibility }),
   useSetAdminCollectionPin: idle,
-  useTemplateBundleApplyJobs: () => ({ data: [] }),
+  useTemplateBundleApplyJobs: () => ({ data: state.jobs }),
+}));
+vi.mock("@/lib/collectionTemplates", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/collectionTemplates")>()),
+  useCollectionTemplateBundles: () => ({
+    data: state.bundlesLoaded ? starterPackBundles : undefined,
+  }),
 }));
 vi.mock("@/components/realtimeEventsContext", () => ({ useEventChannel: vi.fn() }));
 vi.mock("@/components/collections/StarterPacksDialog", () => ({
@@ -128,6 +137,8 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  state.jobs = [];
+  state.bundlesLoaded = true;
   cleanup();
   vi.clearAllMocks();
 });
@@ -257,5 +268,76 @@ describe("AdminCollections Arrange actions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add a starter pack" }));
     expect(screen.getByRole("dialog", { name: "Starter packs" })).toBeInTheDocument();
+  });
+
+  it("names the finished starter pack and counts only the lists it shows", () => {
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: coreApplied,
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    expect(screen.getByText("Core Defaults added")).toBeInTheDocument();
+    expect(screen.getByText("Added 3 lists. 1 list couldn't be added.")).toBeInTheDocument();
+  });
+
+  it("says a finished starter pack had problems when nothing new landed", () => {
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: { ...coreApplied, created: [], sync_queued: [] },
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    expect(screen.getByText("Core Defaults finished with problems")).toBeInTheDocument();
+    expect(
+      screen.getByText("Nothing new was added. 1 list couldn't be added."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Starter pack added/)).toBeNull();
+  });
+
+  it("counts a partly added starter pack as added before the packs load", () => {
+    state.bundlesLoaded = false;
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: coreApplied,
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    expect(screen.getByText("Starter pack added")).toBeInTheDocument();
+    expect(screen.queryByText(/finished with problems/)).toBeNull();
+  });
+
+  it("refreshes the collections and Home rows when a starter pack job ends", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    state.jobs = [
+      {
+        id: "job-1",
+        job_type: "template_bundle_apply",
+        status: "completed",
+        requested_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        result_payload: coreApplied,
+      } as unknown as AdminJob,
+    ];
+    renderPage("/admin/collections");
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toContainEqual(["admin", "collections"]);
+    expect(keys).toContainEqual(["sections"]);
+    invalidate.mockRestore();
   });
 });

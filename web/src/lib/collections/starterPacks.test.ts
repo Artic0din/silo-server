@@ -6,6 +6,7 @@ import {
   coreApplied,
   coreAppliedAllFailed,
   coreDryRun,
+  coreDryRunWithHeroes,
   starterPackBundles,
   starterPackLibraries,
 } from "@/test/fixtures/starterPacks";
@@ -14,11 +15,14 @@ import {
   currentHero,
   defaultPackLibraryIds,
   effectiveHeroes,
+  failureReason,
   featuredRequest,
   heroTemplates,
   packAdded,
   packLibraries,
   packPlan,
+  packResultHeading,
+  packResultSummary,
   starterPacksOf,
   templateFitsLibrary,
 } from "./starterPacks";
@@ -136,7 +140,7 @@ describe("starter packs", () => {
           template_title: "Star Wars",
           library_id: "1",
           library_name: "Movies",
-          reason: "TMDB is not configured",
+          reason: "operation_failed",
         },
       ],
     });
@@ -151,7 +155,7 @@ describe("starter packs", () => {
             templateId: "tmdb_franchise_star_wars",
             title: "Star Wars",
             pinned: false,
-            reason: "TMDB is not configured",
+            reason: "something went wrong",
           },
         ],
         notForLibrary: "",
@@ -194,6 +198,47 @@ describe("starter packs", () => {
         core,
       ),
     ).toBe(false);
+  });
+
+  it.each([
+    ["collection_not_available", "its list wasn't added to that library"],
+    ["ineligible_library", "that library can't take this list"],
+    ["template_not_in_bundle", "that list isn't in this pack"],
+    ["library_not_selected", "that library isn't one you picked"],
+    ["template_not_found", "this server doesn't have that list anymore"],
+    ["operation_failed", "something went wrong"],
+    [undefined, "something went wrong"],
+  ])("says why %s failed in words", (code, words) => {
+    expect(failureReason(code)).toBe(words);
+  });
+
+  it("sums up a finished apply from the lists the pack shows", () => {
+    const core = pack("core_defaults");
+    const applied = templateResultFromV2({
+      ...coreApplied,
+      // The franchise placeholder isn't in the pack's list, so it isn't counted.
+      created: [
+        ...coreApplied.created,
+        {
+          template_id: "tmdb_franchise_placeholder",
+          template_title: "TMDB Franchise",
+          library_id: "1",
+          library_name: "Movies",
+        },
+      ],
+      featured: coreDryRunWithHeroes.featured.slice(0, 2),
+    });
+    expect(packResultSummary(applied, core)).toBe(
+      "Added 3 lists. 1 list couldn't be added. Set 2 hero banners.",
+    );
+    expect(packResultSummary(templateResultFromV2(coreAppliedAllFailed), core)).toBe(
+      "Nothing new was added. 2 lists couldn't be added.",
+    );
+    expect(packResultHeading("Core Defaults", true, true)).toBe("Core Defaults added");
+    expect(packResultHeading("Core Defaults", true, false)).toBe(
+      "Core Defaults finished with problems",
+    );
+    expect(packResultHeading("Core Defaults", false, false)).toBe("Core Defaults wasn't added");
   });
 
   it("calls a mixed set of left-out lists just lists", () => {

@@ -75,8 +75,11 @@ templates only, never bundles. The rules the web keeps:
   templates keep their titles and media kinds even when the catalog leaves them out.
 - **One pack at a time.** Each pack is a separate apply with its own dry run and its own result.
   The table comes from `POST .../template-bundles/{bundle_id}/apply` with `dry_run: true`; Add
-  runs the same dry run again, then queues `POST .../apply-job`. After the job ends the dialog
-  stays open, tags the pack Added and checks it again.
+  runs the same dry run again, then queues `POST .../apply-job`. While the job runs, the pack,
+  its libraries and its heroes are locked, so the job matches the table. After the job ends the
+  dialog stays open, tags the pack Added and checks it again. The Collections page, not the
+  dialog, refreshes the collections and Home rows the job changed; the dry run's query key sits
+  outside `["admin", "collections"]` so that refresh doesn't re-run it.
 - **No deletes.** The web always sends `delete_existing: false`. The server option stays for
   other clients.
 - **Heroes are opt-in.** The hero switch is off by default and then the request carries no
