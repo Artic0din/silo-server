@@ -311,7 +311,48 @@ export const ORDER_CHANGED =
 
 export const VIEWER_PREVIEW_LABEL = "What viewers see";
 export const VIEWER_PREVIEW_MINE = "Each viewer's own";
-export const VIEWER_PREVIEW_NOTE = "Hidden collections don't appear.";
+export const VIEWER_PREVIEW_NOTE =
+  "The pin marks a collection kept at the start of its shelf. Hidden collections don't appear.";
+
+// --- Pin (`featured`) ---------------------------------------------------------
+
+export const PIN_LABEL = "Pin to the start of its shelf";
+export const UNPIN_LABEL = "Unpin";
+export const PINNED = "Pinned";
+export const PINNED_BAND = "Pinned to the start";
+
+/** Pin is set on the collection, not per library, so it reaches every library the collection is in. */
+const PIN_EVERY_LIBRARY = " This applies in every library it's in.";
+
+/**
+ * What Pin does, given what the shelf sorts by (null for Your order) and
+ * whether the collection is in more than one library. Pinned collections also
+ * lead the capped Server collections list on every profile's Collections
+ * page, which is all Pin does on a shelf that sorts itself.
+ */
+export function pinHelp(shelfSortedBy: string | null, inSeveralLibraries = false): string {
+  const help =
+    shelfSortedBy === null
+      ? "Shows first on this shelf and in Server collections on the Collections page."
+      : `Shows first in Server collections on the Collections page; this shelf sorts by ${shelfSortedBy}.`;
+  return inSeveralLibraries ? help + PIN_EVERY_LIBRARY : help;
+}
+
+export function unpinHelp(shelfSortedBy: string | null, inSeveralLibraries = false): string {
+  const help =
+    shelfSortedBy === null
+      ? "Stops showing first on this shelf and in Server collections on the Collections page."
+      : "Stops showing first in Server collections on the Collections page.";
+  return inSeveralLibraries ? help + PIN_EVERY_LIBRARY : help;
+}
+
+/**
+ * The phone sheet's Pin switch, which names the collection and its shelf
+ * (null for No heading, which viewers never see as a name).
+ */
+export function pinSwitchLabel(name: string, shelfName: string | null): string {
+  return `Pin ${name} to the start of ${shelfName ?? "the collections with no heading"}`;
+}
 
 export function deleteShelfTitle(name: string): string {
   return `Delete the ${name} shelf?`;

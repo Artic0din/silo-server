@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Info, MinusCircle, Users } from "lucide-react";
+import { Info, MinusCircle, Pin, Users } from "lucide-react";
 
 import type { GroupSortMode, LibraryCollection } from "@/api/types";
 import { Grip, type ListRowProps } from "@/components/calm/ListRow";
@@ -11,9 +11,11 @@ import {
   MY_COLLECTIONS_NO_DROP,
   MY_COLLECTIONS_TAG,
   NO_HEADING_HELP,
+  PINNED_BAND,
 } from "@/lib/collections/copy";
 import {
   SHELF_ORDER_LABEL,
+  pinnedBand,
   shelfCountLine,
   shownCollections,
   type Shelf,
@@ -31,7 +33,12 @@ export interface SortableCardProps {
 /** Drag data, read by the board to tell what moved and where it landed. */
 export type ArrangeDragData =
   | { kind: "shelf"; id: string }
-  | { kind: "collection"; id: string; shelfId: string }
+  /**
+   * `banded`: in its shelf's pinned band, which only pinned collections may
+   * join. `pinned`: the collection is pinned, so it may join a band even when
+   * its own shelf sorts itself and has none.
+   */
+  | { kind: "collection"; id: string; shelfId: string; banded: boolean; pinned: boolean }
   | { kind: "body"; shelfId: string };
 
 const SORT_MODES = Object.keys(SHELF_ORDER_LABEL) as GroupSortMode[];
@@ -39,11 +46,13 @@ const SORT_MODES = Object.keys(SHELF_ORDER_LABEL) as GroupSortMode[];
 function SortableCard({
   collection,
   shelfId,
+  banded,
   disabled,
   children,
 }: {
   collection: LibraryCollection;
   shelfId: string;
+  banded: boolean;
   disabled: boolean;
   children: (props: SortableCardProps) => ReactNode;
 }) {
@@ -58,7 +67,13 @@ function SortableCard({
   } = useSortable({
     id: `col:${collection.id}`,
     disabled,
-    data: { kind: "collection", id: collection.id, shelfId } satisfies ArrangeDragData,
+    data: {
+      kind: "collection",
+      id: collection.id,
+      shelfId,
+      banded,
+      pinned: collection.featured,
+    } satisfies ArrangeDragData,
   });
   return children({
     ref: setNodeRef,
@@ -70,7 +85,8 @@ function SortableCard({
 
 /**
  * One shelf on Arrange: grip, name and count, its Order (saved for viewers)
- * and ⋯, then its collections as cards in the order viewers see them.
+ * and ⋯, then its collections as cards in the order viewers see them. On a
+ * Your order shelf, pinned collections sit in a band at the start.
  * My collections holds each viewer's own collections, so it shows a note
  * instead of cards and refuses server collections while one is dragged.
  * No heading has neither Order nor ⋯.
@@ -120,8 +136,29 @@ export function GroupCard({
     id: `body:${shelf.id}`,
     data: { kind: "body", shelfId: shelf.id } satisfies ArrangeDragData,
   });
+  const bandLabelId = useId();
   const cards = shownCollections(shelf);
+  const bandIds = new Set(pinnedBand(shelf).map((entry) => entry.id));
+  const banded = cards.filter((collection) => bandIds.has(collection.id));
+  const rest = cards.filter((collection) => !bandIds.has(collection.id));
   const cardsDisabled = dragDisabled || !showGrips;
+  const sortableCards = (list: LibraryCollection[]) => (
+    <ol className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
+      {list.map((collection) => (
+        <SortableCard
+          key={collection.id}
+          collection={collection}
+          shelfId={shelf.id}
+          banded={bandIds.has(collection.id)}
+          disabled={cardsDisabled}
+        >
+          {(sortable) =>
+            renderCard(collection, showGrips ? sortable : { ...sortable, handleProps: undefined })
+          }
+        </SortableCard>
+      ))}
+    </ol>
+  );
   // The grip reads "Move shelf Studios".
   const gripName = loose ? "the collections with no heading" : `shelf ${shelf.name}`;
 
@@ -214,23 +251,26 @@ export function GroupCard({
               items={cards.map((collection) => `col:${collection.id}`)}
               strategy={rectSortingStrategy}
             >
-              <ol className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
-                {cards.map((collection) => (
-                  <SortableCard
-                    key={collection.id}
-                    collection={collection}
-                    shelfId={shelf.id}
-                    disabled={cardsDisabled}
+              {banded.length > 0 ? (
+                <div
+                  role="group"
+                  aria-labelledby={bandLabelId}
+                  className={cn(
+                    "border-border/70 bg-muted/20 grid gap-2 rounded-[16px] border p-2",
+                    rest.length > 0 && "mb-2",
+                  )}
+                >
+                  <span
+                    id={bandLabelId}
+                    className="text-muted-foreground flex items-center gap-1.5 px-1 text-[12px]"
                   >
-                    {(sortable) =>
-                      renderCard(
-                        collection,
-                        showGrips ? sortable : { ...sortable, handleProps: undefined },
-                      )
-                    }
-                  </SortableCard>
-                ))}
-              </ol>
+                    <Pin aria-hidden className="size-3" />
+                    {PINNED_BAND}
+                  </span>
+                  {sortableCards(banded)}
+                </div>
+              ) : null}
+              {rest.length > 0 ? sortableCards(rest) : null}
             </SortableContext>
           )}
         </div>

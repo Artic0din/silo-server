@@ -12,10 +12,13 @@ export function ToggleRow({
   checked,
   onCheckedChange,
   disabled = false,
+  switchLabel,
   children,
 }: {
   label: string;
   help: string;
+  /** The switch's own name, when the visible label alone doesn't say what it acts on. */
+  switchLabel?: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -35,6 +38,7 @@ export function ToggleRow({
         </div>
         <Switch
           id={id}
+          aria-label={switchLabel}
           aria-describedby={`${id}-help`}
           checked={checked}
           disabled={disabled}

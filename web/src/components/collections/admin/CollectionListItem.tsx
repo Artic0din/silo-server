@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, Ref } from "react";
-import { Check, EyeOff, Layers, Loader2 } from "lucide-react";
+import { Check, EyeOff, Layers, Loader2, Pin } from "lucide-react";
 
 import type { LibraryCollection } from "@/api/types";
 import { Grip, ListRow, MetaDot, type ListRowProps } from "@/components/calm/ListRow";
@@ -8,7 +8,7 @@ import { PosterArt } from "@/components/calm/PosterTile";
 import type { PeekRequest } from "@/components/calm/usePeekLimiter";
 import { formatRelativeTime } from "@/lib/date";
 import { rowTag, showOnTabsLabel } from "@/lib/collections/adminList";
-import { HIDDEN_FROM_TAB, HIDDEN_TAG, ON_HOME } from "@/lib/collections/copy";
+import { HIDDEN_FROM_TAB, HIDDEN_TAG, ON_HOME, PINNED } from "@/lib/collections/copy";
 import { COLLECTION_KIND_LABEL, collectionKindOf } from "@/lib/collections/types";
 import { cn } from "@/lib/utils";
 
@@ -138,10 +138,21 @@ function ListItem({
   );
 }
 
+/** The pin glyph that marks a pinned collection: pinned state is a glyph, never a tag. */
+export function PinGlyph({ className }: { className?: string }) {
+  return (
+    <span role="img" aria-label={PINNED} title={PINNED} className={cn("inline-flex", className)}>
+      <Pin aria-hidden className="size-full" />
+    </span>
+  );
+}
+
 interface CompactItemProps {
   variant: "compact";
   collection: LibraryCollection;
   visible: boolean;
+  /** Pinned to the start of its shelf, which may run ahead of the saved `featured`. */
+  pinned?: boolean;
   /** The grip, from the sortable shelf. None on phones, where ⋯ moves it instead. */
   handleProps?: ListRowProps["handleProps"];
   menu: ReactNode;
@@ -153,12 +164,14 @@ interface CompactItemProps {
 
 /**
  * One collection on an Arrange shelf: grip, its poster, name and "type · N
- * titles", a Hidden tag when it's off the Collections tab, and ⋯. A hidden
- * collection stays on its shelf, dimmed, because Home rows can still show it.
+ * titles", the pin when it's pinned, a Hidden tag when it's off the
+ * Collections tab, and ⋯. A hidden collection stays on its shelf, dimmed,
+ * because Home rows can still show it.
  */
 function CompactItem({
   collection,
   visible,
+  pinned = false,
   handleProps,
   menu,
   onOpen,
@@ -199,16 +212,17 @@ function CompactItem({
           {titles} title{titles === 1 ? "" : "s"}
         </p>
       </div>
-      {visible ? (
-        <span />
-      ) : (
-        <span
-          className={cn(TAG, "text-muted-foreground ring-border font-medium ring-1 ring-inset")}
-        >
-          <EyeOff aria-hidden className="size-3" />
-          {HIDDEN_TAG}
-        </span>
-      )}
+      <span className="inline-flex items-center gap-2">
+        {pinned ? <PinGlyph className="text-muted-foreground size-3.5" /> : null}
+        {visible ? null : (
+          <span
+            className={cn(TAG, "text-muted-foreground ring-border font-medium ring-1 ring-inset")}
+          >
+            <EyeOff aria-hidden className="size-3" />
+            {HIDDEN_TAG}
+          </span>
+        )}
+      </span>
       {menu}
     </li>
   );

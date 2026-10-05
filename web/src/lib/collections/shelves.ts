@@ -99,6 +99,15 @@ export function boardShelves(
   return slots.map((slot) => slot.shelf);
 }
 
+/**
+ * Pinned (`featured`) collections first, each part keeping its order. The
+ * server lists a library's collections pinned first, and a shelf in Your
+ * order keeps that order.
+ */
+function pinnedFirst<T extends { featured: boolean }>(list: readonly T[]): T[] {
+  return [...list.filter((entry) => entry.featured), ...list.filter((entry) => !entry.featured)];
+}
+
 /** A shelf's collections in the order viewers see them, sorted as the server sorts them. */
 export function shownCollections(shelf: Shelf): LibraryCollection[] {
   const list = [...shelf.collections];
@@ -112,8 +121,30 @@ export function shownCollections(shelf: Shelf): LibraryCollection[] {
     case "most_items":
       return list.sort((a, b) => (b.item_count ?? 0) - (a.item_count ?? 0));
     default:
-      return list;
+      return pinnedFirst(list);
   }
+}
+
+/**
+ * The pinned collections that lead a Your order shelf (No heading included).
+ * A shelf that sorts itself ignores Pin, so it has no band.
+ */
+export function pinnedBand(shelf: Shelf): LibraryCollection[] {
+  return shelf.sortMode === "manual" ? shelf.collections.filter((entry) => entry.featured) : [];
+}
+
+/** The shelves with collection `id` pinned or unpinned, to show a Pin before it saves. */
+export function applyPin(shelves: readonly Shelf[], id: string, pinned: boolean): Shelf[] {
+  return shelves.map((shelf) =>
+    shelf.collections.some((entry) => entry.id === id)
+      ? {
+          ...shelf,
+          collections: shelf.collections.map((entry) =>
+            entry.id === id ? { ...entry, featured: pinned } : entry,
+          ),
+        }
+      : shelf,
+  );
 }
 
 /** What a shelf that orders itself sorts by ("name", "most titles"); null for Your order. */
@@ -142,8 +173,10 @@ export function shelfOf(shelves: readonly Shelf[], collectionId: string): Shelf 
  * Where collection `id` goes when it's dropped on collection `overId` of
  * shelf `shelfId`, or on the shelf itself (`overId` null, also Move to shelf).
  * Within its shelf it takes the place of the card it lands on, as the drag
- * showed; from another shelf it goes before that card, or last. Null when
- * nothing would change or the shelf can't take it.
+ * showed; from another shelf it goes before that card, or last. On a Your
+ * order shelf the pinned band stays first: a card dropped on it lands right
+ * after it, a pinned card stays in it, and the order saved is the order
+ * shown. Null when nothing would change or the shelf can't take it.
  */
 export function planCollectionMove(
   shelves: readonly Shelf[],
@@ -153,20 +186,29 @@ export function planCollectionMove(
 ): CollectionMove | null {
   const target = shelves.find((shelf) => shelf.id === shelfId);
   if (!target || !acceptsCollections(target)) return null;
-  const ids = target.collections.map((entry) => entry.id);
+  const manual = target.sortMode === "manual";
+  const list = manual ? shownCollections(target) : target.collections;
+  const ids = list.map((entry) => entry.id);
   const from = ids.indexOf(id);
+  let next: LibraryCollection[];
   if (from !== -1) {
     // Order within a shelf that sorts itself changes nothing viewers see.
-    if (overId === null || target.sortMode !== "manual") return null;
+    if (overId === null || !manual) return null;
     const to = ids.indexOf(overId);
     if (to === -1 || to === from) return null;
-    return { shelfId, orderedIds: move(ids, from, to) };
+    next = move(list, from, to);
+  } else {
+    const moved = shelves.flatMap((shelf) => shelf.collections).find((entry) => entry.id === id);
+    if (!moved) return null;
+    const at = overId === null ? -1 : ids.indexOf(overId);
+    next = at === -1 ? [...list, moved] : [...list.slice(0, at), moved, ...list.slice(at)];
   }
-  const at = overId === null ? -1 : ids.indexOf(overId);
-  return {
-    shelfId,
-    orderedIds: at === -1 ? [...ids, id] : [...ids.slice(0, at), id, ...ids.slice(at)],
-  };
+  const orderedIds = (manual ? pinnedFirst(next) : next).map((entry) => entry.id);
+  return from !== -1 && sameOrder(orderedIds, ids) ? null : { shelfId, orderedIds };
+}
+
+function sameOrder(a: readonly string[], b: readonly string[]) {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
 /** The shelves as they look once `next` saves. */
