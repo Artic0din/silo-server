@@ -37,6 +37,19 @@ WHERE mi.content_id = sub.series_id
   AND (mi.last_air_date_at IS DISTINCT FROM sub.last_aired
        OR mi.next_air_date_at IS DISTINCT FROM sub.next_airing);
 
+-- Series without any dated episode get no row above. Clear a leftover
+-- last_air_date_at there (for example after an air-date edit removed the
+-- last date, which did not recompute before this migration); with
+-- next_air_date_at NULL the sweep would never revisit it.
+UPDATE public.media_items mi
+SET last_air_date_at = NULL
+WHERE mi.type = 'series'
+  AND mi.last_air_date_at IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM public.episodes e
+      WHERE e.series_id = mi.content_id AND e.air_date IS NOT NULL
+  );
+
 -- A failed nontransactional run can leave an invalid index behind; drop it
 -- concurrently so a retry rebuilds it without a write-blocking DROP INDEX.
 DROP INDEX CONCURRENTLY IF EXISTS public.idx_media_items_next_air_date_at;
