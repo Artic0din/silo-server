@@ -1347,6 +1347,8 @@ export interface Collection {
   include_in_server_collections?: boolean;
   poster_url?: string;
   poster_thumbhash?: string;
+  /** Whether it holds the list's `contains_item` title; only on the profile's own manual collections. */
+  contains?: boolean;
   created_at: string;
   updated_at: string;
 }

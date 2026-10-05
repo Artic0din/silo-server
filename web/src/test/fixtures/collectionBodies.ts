@@ -873,28 +873,42 @@ export const goldens = {
       },
     },
   ] satisfies Writes,
-  /** Add to collection as an acting admin, server manual collection: the admin item route. */
-  addToServerCollection: [
+  /**
+   * What Add to collection lists: the profile's own manual collections, for
+   * an acting admin too. Server collections are no longer offered here;
+   * admins add titles to them from the collection's editor.
+   */
+  addToCollectionChoices: ["Rainy days"],
+  /** What Add to collection reads to fill its list: one list, marked for the title. */
+  addToCollectionReads: [
     {
-      operation: "PUT /api/v2/admin/collections/{id}/items/{item_id}",
-      path: "/api/v2/admin/collections/lc1/items/movie:heat-1995",
+      operation: "GET /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      query: { contains_item: "movie:heat-1995" },
+    },
+  ] satisfies RecordedCall[],
+  /** Add to collection's inline create: the personal manual collection, then the title. */
+  addToNewCollection: [
+    {
+      operation: "POST /api/v2/collections",
+      path: "/api/v2/collections",
+      headers: {},
+      body: {
+        name: "Night in",
+        description: "",
+        is_shared: false,
+        include_in_server_collections: false,
+        collection_type: "manual",
+      },
+    },
+    {
+      operation: "PUT /api/v2/collections/{id}/items/{item_id}",
+      path: "/api/v2/collections/c1/items/movie:heat-1995",
       headers: {},
       body: {
         position: 0,
       },
     },
   ] satisfies Writes,
-  /** What Add to collection lists, by group. */
-  addToCollectionGroups: {
-    profile: [{ group: "My Collections", collections: ["Rainy days"] }],
-    actingAdmin: [
-      { group: "My Collections", collections: ["Rainy days"] },
-      { group: "Movies", collections: ["Oscar Winners · Library"] },
-    ],
-  },
-  /** What Add to collection reads to fill its list. */
-  addToCollectionReads: {
-    profile: ["GET /api/v2/collections"],
-    actingAdmin: ["GET /api/v2/collections", "GET /api/v2/library/{id}/collections"],
-  },
 };
