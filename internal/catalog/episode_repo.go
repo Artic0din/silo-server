@@ -1092,17 +1092,30 @@ func (r *EpisodeRepository) UpdateMetadata(ctx context.Context, contentID string
 		strings.Join(setClauses, ", "), argIdx)
 	args = append(args, contentID)
 
+	// An air-date edit and its series recompute commit together, so a failed
+	// recompute cannot leave the edit persisted with stale series dates.
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin episode metadata update: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
 	var seriesID string
-	if err := r.pool.QueryRow(ctx, query, args...).Scan(&seriesID); err != nil {
+	if err := tx.QueryRow(ctx, query, args...).Scan(&seriesID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrEpisodeNotFound
 		}
 		return fmt.Errorf("updating episode metadata: %w", err)
 	}
 	if upd.AirDate != nil {
-		if _, err := r.pool.Exec(ctx, refreshSeriesAirDatesSQL, []string{seriesID}); err != nil {
+		if _, err := tx.Exec(ctx, refreshSeriesAirDatesSQL, []string{seriesID}); err != nil {
 			return fmt.Errorf("update series air dates: %w", err)
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit episode metadata update: %w", err)
 	}
 	return nil
 }
