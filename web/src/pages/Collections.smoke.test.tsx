@@ -170,6 +170,25 @@ describe("Your collections", () => {
   });
 });
 
+describe("New collection on a narrow screen", () => {
+  // jsdom lays nothing out: the dock's class is what keeps it above the
+  // audiobook or watch bar that plays in the background, as SaveBar's does.
+  it("docks above the background playback bar", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 1023px)",
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    show();
+    const dock = await screen.findByRole("region", { name: "Page actions" });
+    expect(within(dock).getByRole("button", { name: "New collection" })).toBeInTheDocument();
+    expect(dock).toHaveClass("fixed", "bottom-(--playback-bar-clearance,0px)");
+    expect(dock).not.toHaveClass("bottom-0");
+  });
+});
+
 describe("Shared with me", () => {
   it("shows another profile's shared collection as a card with no buttons", async () => {
     show();

@@ -98,6 +98,10 @@ function choose(currentLabel: string, option: string) {
   fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
+function selectShowing(label: string) {
+  return screen.queryAllByRole("combobox").find((element) => element.textContent?.trim() === label);
+}
+
 function lastQuery(onStateChange: ReturnType<typeof renderPanel>) {
   return onStateChange.mock.lastCall?.[0].query_definition;
 }
@@ -236,6 +240,47 @@ describe("CatalogFiltersPanel on a page that keeps filters in the URL", () => {
 
     expect(screen.getByText("IMDb: >= 7.5")).toBeVisible();
     expectGuidedOpen();
+  });
+
+  it("leaves collection order when a sort is picked in the Advanced sheet", () => {
+    render(
+      <UrlBackedPanel
+        initial={{
+          source: "user_collection",
+          collection_id: "col-1",
+          uses_source_order: true,
+          query_definition: ADVANCED_RULES,
+        }}
+      />,
+    );
+    expect(selectShowing("Collection Order")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    choose("Date Added", "Title");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(selectShowing("Collection Order")).toBeUndefined();
+    expect(selectShowing("Title")).toBeDefined();
+  });
+
+  it("keeps collection order when a filter changes in the sheet", () => {
+    render(
+      <UrlBackedPanel
+        initial={{
+          source: "user_collection",
+          collection_id: "col-1",
+          uses_source_order: true,
+          query_definition: createEmptyQueryDefinition(),
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. 7.0"), { target: { value: "7.5" } });
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(screen.getByText("IMDb: >= 7.5")).toBeVisible();
+    expect(selectShowing("Collection Order")).toBeDefined();
   });
 
   it("keeps Guided for genre and content rating values that look like numbers", () => {

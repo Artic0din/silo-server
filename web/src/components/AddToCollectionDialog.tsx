@@ -331,16 +331,20 @@ function CollectionChoice({
   const remove = useRemoveCollectionItem(collection.id);
   const saving = add.isPending || remove.isPending;
 
-  function toggle(next: boolean) {
+  async function toggle(next: boolean) {
     // The box stays focusable while it saves, so a press during the save is ignored here.
     if (saving) return;
     onTick(collection.id, next);
-    const settle = {
-      onSuccess: () => onSaved(collection.id, next),
-      onError: () => onTick(collection.id, !next),
-    };
-    if (next) add.mutate({ collectionId: collection.id, mediaItemId }, settle);
-    else remove.mutate(mediaItemId, settle);
+    // Settled on the promise, not `mutate`'s callbacks: a search can unmount
+    // this row before the save lands, and those callbacks then never run, so
+    // a failed save would keep its tick. The hooks report the failure.
+    try {
+      if (next) await add.mutateAsync({ collectionId: collection.id, mediaItemId });
+      else await remove.mutateAsync(mediaItemId);
+      onSaved(collection.id, next);
+    } catch {
+      onTick(collection.id, !next);
+    }
   }
 
   return (
@@ -355,7 +359,7 @@ function CollectionChoice({
           aria-disabled={saving}
           aria-label={collection.name}
           aria-describedby={metaId}
-          onCheckedChange={(checked) => toggle(checked === true)}
+          onCheckedChange={(checked) => void toggle(checked === true)}
           className="size-[18px] rounded-[5px] aria-disabled:opacity-50"
         />
         {collection.poster_url || collection.poster_thumbhash ? (

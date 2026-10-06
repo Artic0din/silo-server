@@ -14,6 +14,7 @@ import {
 } from "@/components/collections/CollectionGuidedRulesEditor";
 import { isGuidedRepresentable } from "@/components/collections/guidedRepresentable";
 import { useCatalogFilters } from "@/hooks/queries/catalog";
+import { querySortToSelectValue } from "@/lib/collectionSortConfig";
 import type { QuerySortRelevanceScope } from "@/lib/querySortOptions";
 import {
   catalogSourceSupportsSourceOrder,
@@ -125,6 +126,19 @@ export default function CatalogFiltersPanel({
     });
   }
 
+  // The sheet edits the whole definition, and Advanced has its own Sort by.
+  // A sort picked there leaves source order as one picked in the toolbar
+  // does; under source order the URL carries no sort, so it would be lost.
+  function updateDefinition(nextQd: QueryDefinition) {
+    const sortChanged =
+      usesSourceOrder && querySortToSelectValue(nextQd.sort) !== querySortToSelectValue(qd.sort);
+    onStateChange({
+      ...state,
+      ...(sortChanged ? { uses_source_order: false } : null),
+      query_definition: nextQd,
+    });
+  }
+
   // Badge removal and Clear All rebuild the definition through Guided. That
   // loses nothing: badges show only when Guided can show every rule, and
   // Clear All removes them all.
@@ -178,9 +192,7 @@ export default function CatalogFiltersPanel({
           onEditorModeChange={setEditorMode}
           guidedAvailable={guidedAvailable}
           queryDefinition={qd}
-          onQueryDefinitionChange={(nextQd) =>
-            onStateChange({ ...state, query_definition: nextQd })
-          }
+          onQueryDefinitionChange={updateDefinition}
           libraryType={libraryType}
         />
       ) : null}

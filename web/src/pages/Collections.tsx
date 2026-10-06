@@ -168,10 +168,11 @@ export default function Collections() {
         <ServerCollectionsSection />
       </CalmPage>
       {narrow ? (
+        // Docked above whichever background playback bar shows, as SaveBar is.
         <div
           role="region"
           aria-label="Page actions"
-          className="from-background/0 to-background fixed inset-x-0 bottom-0 z-30 bg-gradient-to-b to-30% px-4 pt-[22px] pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+          className="from-background/0 to-background fixed inset-x-0 bottom-(--playback-bar-clearance,0px) z-30 bg-gradient-to-b to-30% px-4 pt-[22px] pb-[max(1.25rem,env(safe-area-inset-bottom))]"
         >
           {newCollection}
         </div>

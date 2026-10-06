@@ -151,6 +151,30 @@ describe("AddToCollectionDialog", () => {
     await waitFor(() => expect(box.getAttribute("aria-checked")).toBe("false"));
   });
 
+  it("puts the tick back when the add fails after a search hid its collection", async () => {
+    const add: { fail?: (error: Error) => void } = {};
+    v2Recorder.answer(
+      "PUT /api/v2/collections/{id}/items/{item_id}",
+      () => new Promise((_, reject) => (add.fail = reject)),
+    );
+    listing(() => [rainyDays, { ...rainyDays, id: "c5", name: "Heist films" }]);
+    show();
+    fireEvent.click(await dialog().findByRole("checkbox", { name: "Rainy days" }));
+    expect(dialog().getByText("In 1 collection")).toBeTruthy();
+    await waitFor(() => expect(add.fail).toBeDefined());
+    const search = dialog().getByRole("searchbox", { name: "Find one of your collections" });
+    fireEvent.change(search, { target: { value: "heist" } });
+    expect(dialog().queryByRole("checkbox", { name: "Rainy days" })).toBeNull();
+
+    await act(async () => add.fail?.(new Error("The server is busy")));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    await waitFor(() => expect(dialog().getByText("Not in a collection yet")).toBeTruthy());
+    fireEvent.change(search, { target: { value: "" } });
+    expect(
+      dialog().getByRole("checkbox", { name: "Rainy days" }).getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
   it("leaves out other profiles' shared collections and collections that fill themselves", async () => {
     listing(() => [
       rainyDays,
