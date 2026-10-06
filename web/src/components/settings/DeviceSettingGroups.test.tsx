@@ -132,6 +132,75 @@ describe("DeviceSettingGroups", () => {
     expect(screen.queryByRole("button", { name: /Use your setting/ })).not.toBeInTheDocument();
   });
 
+  // After "Use your setting" the row must still say where its value now comes
+  // from, or a reset looks like it did nothing.
+  it("names the profile as the source of a value not changed on this device", () => {
+    renderGroups({
+      "playback.audio_language": effective({
+        key: "playback.audio_language",
+        value: "fr",
+        source: "profile",
+        scope: "profile",
+      }),
+    });
+
+    expect(screen.getByText("From your profile")).toBeInTheDocument();
+    expect(screen.queryByText("App default")).not.toBeInTheDocument();
+    expect(screen.queryByText("Changed here")).not.toBeInTheDocument();
+  });
+
+  it("names the other profile when acting for someone in the household", () => {
+    renderGroups(
+      {
+        "playback.audio_language": effective({
+          key: "playback.audio_language",
+          value: "fr",
+          source: "profile",
+          scope: "profile",
+        }),
+      },
+      { ownerLabel: "Sam's" },
+    );
+
+    expect(screen.getByText("From Sam's profile")).toBeInTheDocument();
+  });
+
+  it("names the app default when neither the device nor the profile sets a value", () => {
+    renderGroups({ "player.hdr_enabled": effective({ value: true, source: "default" }) });
+
+    expect(screen.getByText("App default")).toBeInTheDocument();
+    expect(screen.queryByText(/From your profile/)).not.toBeInTheDocument();
+  });
+
+  it("shows only the device badge for a value changed on this device", () => {
+    renderGroups({
+      "playback.audio_language": effective({
+        key: "playback.audio_language",
+        value: "de",
+        source: "profile_device",
+        scope: "profile_device",
+      }),
+    });
+
+    expect(screen.getByText("Changed here")).toBeInTheDocument();
+    expect(screen.queryByText("From your profile")).not.toBeInTheDocument();
+    expect(screen.queryByText("App default")).not.toBeInTheDocument();
+  });
+
+  it("does not repeat the source under a profile-wide value", () => {
+    renderGroups({
+      "ui.title_art": effective({
+        key: "ui.title_art",
+        value: false,
+        source: "profile",
+        scope: "profile",
+      }),
+    });
+
+    expect(screen.getByText(/Set for all devices on this profile/)).toBeInTheDocument();
+    expect(screen.queryByText("From your profile")).not.toBeInTheDocument();
+  });
+
   it("offers the three intro modes and writes the selected device override", async () => {
     const { onChange } = renderGroups({
       "playback.intro_skip_mode": effective({
