@@ -5,7 +5,7 @@
  * the same save bar and layout as every other editor.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -481,6 +481,23 @@ describe("Back", () => {
       "href",
       "/admin/collections?view=list&libraryId=1&type=smart",
     );
+  });
+
+  it("server: still goes back to the list view it was opened from after Create", async () => {
+    const view = "/admin/collections?view=list&libraryId=1&type=smart&q=fox";
+    const router = showPage({
+      pathname: "/admin/collections/new",
+      search: "?type=smart&libraryId=1",
+      state: listReturnState(view),
+    });
+    await rename("Fox classics");
+    fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+    await vi.waitFor(() =>
+      expect(router.state.location.pathname).toBe("/admin/collections/c1/edit"),
+    );
+    // Let the page render at its new address before reading the link.
+    await act(async () => {});
+    expect(screen.getByRole("link", { name: "Collections" })).toHaveAttribute("href", view);
   });
 
   it("server: goes back to the library's List when it wasn't opened from the list", async () => {

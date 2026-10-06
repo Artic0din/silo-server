@@ -4,6 +4,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
+import type { BrowseItem } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SaveBar } from "@/components/SaveBar";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
@@ -113,10 +114,28 @@ const SYNC_INPUTS: ReadonlySet<DraftField> = new Set(["list", "libraryIds", "lim
 const touchesSync = (fields: readonly DraftField[]) =>
   fields.some((field) => SYNC_INPUTS.has(field));
 
+/** Every title a server collection shows in one library, a page at a time. */
+async function collectionTitlesIn(collectionId: string, libraryId: number, signal: AbortSignal) {
+  const state = createCatalogSearchState("library_collection", {
+    collection_id: collectionId,
+    library_id: libraryId,
+    uses_source_order: true,
+  });
+  const titles: BrowseItem[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await fetchCatalogPage(state, 200, 0, { signal }, false, undefined, cursor);
+    titles.push(...page.items);
+    cursor = page.has_more ? page.next_cursor : undefined;
+  } while (cursor);
+  return titles;
+}
+
 /**
  * "3 titles are only in Kids: …" when unticking libraries would drop titles a
  * server collection holds. Reads each saved library's titles only while an
- * untick is pending.
+ * untick is pending, all of them, since a title past the first page of a kept
+ * library still shows.
  */
 function useUntickWarning(
   collectionId: string | undefined,
@@ -126,35 +145,26 @@ function useUntickWarning(
 ) {
   const removed = saved.filter((id) => !chosen.includes(id));
   const pending = Boolean(collectionId) && removed.length > 0;
-  const pages = useQueries({
+  const titlesIn = useQueries({
     queries: saved.map((libraryId) => ({
       queryKey: [...catalogKeys.all, "collectionTitlesIn", collectionId, libraryId],
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        fetchCatalogPage(
-          createCatalogSearchState("library_collection", {
-            collection_id: collectionId,
-            library_id: libraryId,
-            uses_source_order: true,
-          }),
-          200,
-          0,
-          { signal },
-          false,
-        ),
+        collectionTitlesIn(collectionId!, libraryId, signal),
       enabled: pending,
       staleTime: 60 * 1000,
     })),
   });
-  if (!pending) return null;
+  // A kept library not read yet would make every title read as only in the others.
+  if (!pending || titlesIn.some((titles) => !titles.data)) return null;
   const kept = new Set(
     saved
-      .flatMap((libraryId, index) => (chosen.includes(libraryId) ? [pages[index]] : []))
-      .flatMap((page) => page?.data?.items.map((item) => item.content_id) ?? []),
+      .flatMap((libraryId, index) => (chosen.includes(libraryId) ? [titlesIn[index]] : []))
+      .flatMap((titles) => titles?.data?.map((item) => item.content_id) ?? []),
   );
   const onlyRemoved = new Map<string, string>();
   saved.forEach((libraryId, index) => {
     if (chosen.includes(libraryId)) return;
-    for (const item of pages[index]?.data?.items ?? []) {
+    for (const item of titlesIn[index]?.data ?? []) {
       if (!kept.has(item.content_id)) onlyRemoved.set(item.content_id, item.title);
     }
   });
@@ -356,7 +366,11 @@ export function CollectionEditor<Raw extends WireCollection>({
       // Carry the list the editor was opened from, so it can go back there afterwards.
       navigate(detour, { state: listReturnState(listPath) });
     } else if (moving && openEdit) {
-      navigate(scope.paths.edit(openEdit, { libraryId }), { replace: true });
+      // Keep the list the editor was opened from, so Back and Delete still return to it.
+      navigate(scope.paths.edit(openEdit, { libraryId }), {
+        replace: true,
+        state: listReturnState(listPath),
+      });
       // Create unmounts its button; carry on where the contents start.
       if (smart) focusLibrariesLine();
       else if (!newList) document.querySelector<HTMLInputElement>("[data-title-search]")?.focus();

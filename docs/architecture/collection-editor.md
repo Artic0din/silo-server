@@ -77,7 +77,9 @@ ETag, without the editor's draft changing. To keep Save working:
    started from (`mergeDraft`, `web/src/lib/collections/draft.ts`). Per field: changed only on the
    server, the draft takes the server's value; changed only in the draft, the draft keeps it;
    changed to the same value, no conflict; changed differently, the draft keeps its value and the
-   field is a conflict. The fresh copy becomes the new base.
+   field is a conflict. The fresh copy becomes the new base. A conflict waiting for Keep mine or
+   Use theirs stays a conflict on later reads for as long as the draft and the server still
+   differ on that field.
 3. A Save that still answers `412` reads and merges the same way. With no conflicting field it
    retries once with the new ETag and no prompt. With a conflict it stops and shows the banner
    "This collection changed since you opened it." with Keep mine and Use theirs.

@@ -5,6 +5,7 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -868,6 +869,36 @@ describe("Where it shows on a new server collection", () => {
       "LibrariesMovies",
     );
     expect(within(where).queryByRole("link", { name: "Arrange" })).toBeNull();
+  });
+});
+
+describe("unticking a server collection's library", () => {
+  it("names only the titles no kept library shows, reading each library to its last page", async () => {
+    v2Recorder.answer("GET /api/v2/admin/collections/{id}", {
+      ...adminCollection,
+      library_ids: ["1", "2"],
+    });
+    members = [HEAT.content_id, ALIEN.content_id, TOTORO.content_id];
+    const page = (titles: Title[], next?: string) => ({
+      items: titles.map(catalogItem),
+      page: next ? { has_more: true, next_cursor: next } : { has_more: false },
+      effective_sort: { field: "position", order: "asc" },
+    });
+    // Movies shows Heat only on its second page; Kids shows Heat and Totoro.
+    v2Recorder.answer("POST /api/v2/catalog/query", (call: RecordedCall) => {
+      const body = call.body as { library_id?: string; cursor?: string };
+      if (body.library_id === "1") return body.cursor ? page([HEAT]) : page([ALIEN], "next");
+      if (body.library_id === "2") return page([HEAT, TOTORO]);
+      return catalogAnswer(call);
+    });
+    const user = userEvent.setup();
+    showPage("/admin/collections/c1/edit?libraryId=1");
+    await user.click(await screen.findByRole("button", { name: /^Titles from:/ }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Kids" }));
+    await user.keyboard("{Escape}");
+    expect(await screen.findByText(/only in Kids/)).toHaveTextContent(
+      "1 title is only in Kids: My Neighbor Totoro. They'll stop showing when you save.",
+    );
   });
 });
 

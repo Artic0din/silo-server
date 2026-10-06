@@ -6,7 +6,12 @@ import type { QueryDefinition } from "@/api/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import getCollectionOk from "../../../../contracts/api/v2/fixtures/get_collection_ok.json";
-import { PERSONAL_SCOPE, SERVER_SCOPE, type CollectionScope } from "@/lib/collections/scope";
+import {
+  PERSONAL_SCOPE,
+  SERVER_SCOPE,
+  type CollectionDraft,
+  type CollectionScope,
+} from "@/lib/collections/scope";
 import { adminCollectionList, adminSmartCollection } from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import { collectionFromV2 } from "@/api/personalCollections";
@@ -257,6 +262,63 @@ describe("useCollectionDraft create", () => {
     });
     expect(second).toBeNull();
     expect(v2Recorder.callsOf("POST /api/v2/admin/collections")).toHaveLength(1);
+  });
+});
+
+describe("useCollectionDraft editing", () => {
+  async function edit() {
+    const snapshot = await PERSONAL_SCOPE.fetchSnapshot("c1");
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return renderHook(() => useCollectionDraft(PERSONAL_SCOPE, { snapshot, kind: "manual" }), {
+      wrapper,
+    }).result;
+  }
+
+  it("keeps a conflict through a later read until Keep mine or Use theirs", async () => {
+    const result = await edit();
+    act(() => result.current.setDraft((draft) => ({ ...draft, name: "Mine" })));
+    v2Recorder.answer("GET /api/v2/collections/{id}", { ...getCollectionOk, name: "Theirs" });
+    await act(() => result.current.syncWithServer());
+    expect(result.current.conflicts).toEqual(["name"]);
+    // A title write reads the collection again; nothing new changed there.
+    await act(() => result.current.syncWithServer());
+    expect(result.current.conflicts).toEqual(["name"]);
+    expect(result.current.draft.name).toBe("Mine");
+    act(() => result.current.resolveConflicts("mine"));
+    await act(() => result.current.syncWithServer());
+    expect(result.current.conflicts).toEqual([]);
+  });
+
+  it("keeps an image changed while a save ran staged", async () => {
+    const result = await edit();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    v2Recorder.answer("PATCH /api/v2/collections/{id}", () => held.then(() => getCollectionOk));
+    const poster = (sourceUrl: string) => (draft: CollectionDraft) => ({
+      ...draft,
+      artwork: { ...draft.artwork, poster: { sourceUrl } },
+    });
+    act(() => result.current.setDraft(poster("https://images.example/first.png")));
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = result.current.save();
+    });
+    act(() => result.current.setDraft(poster("https://images.example/second.png")));
+    release();
+    await act(async () => {
+      expect(await saving).toBe(true);
+    });
+    expect(v2Recorder.callsOf("PUT /api/v2/collections/{id}/poster")[0]!.form).toEqual({
+      source_url: "https://images.example/first.png",
+    });
+    expect(result.current.draft.artwork).toEqual({
+      poster: { sourceUrl: "https://images.example/second.png" },
+    });
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.artworkErrors).toEqual({});
   });
 });
 

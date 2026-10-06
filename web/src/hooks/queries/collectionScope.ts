@@ -266,8 +266,10 @@ export function isArtworkStaged(slot: ArtworkSlotDraft | undefined): boolean {
   return Boolean(slot?.file || slot?.sourceUrl?.trim() || slot?.remove);
 }
 
+const ARTWORK_SLOTS: readonly ArtworkSlot[] = ["poster", "backdrop"];
+
 function stagedSlots(artwork: ArtworkDraft): ArtworkSlot[] {
-  return (["poster", "backdrop"] as const).filter((slot) => isArtworkStaged(artwork[slot]));
+  return ARTWORK_SLOTS.filter((slot) => isArtworkStaged(artwork[slot]));
 }
 
 function stagedOrNone(itemIds: string[]) {
@@ -377,31 +379,44 @@ export function useCollectionDraft<Raw extends WireCollection>(
     if (run !== syncRun.current) return { conflicts: current.current.conflicts };
     const theirs = scope.toDraft(fresh.view, { kind: initKind });
     const merged = mergeDraft(current.current.base, current.current.draft, theirs);
+    // A conflict still waiting for Keep mine or Use theirs stays one: the new
+    // base already holds their value, so the merge alone would read it as only mine.
+    const unresolved = current.current.conflicts;
+    const conflicts = changedFields(merged.base, merged.draft).filter(
+      (field) => merged.conflicts.includes(field) || unresolved.includes(field),
+    );
     setState((previous) => ({
       ...previous,
       etag: fresh.etag,
       view: fresh.view,
       base: merged.base,
       draft: { ...merged.draft, stagedItems: previous.draft.stagedItems },
-      conflicts: merged.conflicts,
+      conflicts,
     }));
-    return { conflicts: merged.conflicts };
+    return { conflicts };
   }, [initKind, readFresh, scope, setState]);
 
-  /** Keeps the artwork a save couldn't upload staged, with its message. */
+  /**
+   * The artwork a save leaves staged: an image it couldn't upload stays, with
+   * its message, and an image changed while it ran stays as it is now.
+   */
   const keepFailedArtwork = useCallback(
     (saved: CollectionDraft, failedArtwork: ArtworkSlot[], warnings: string[]) => {
+      const now = current.current.draft.artwork;
+      const edited = ARTWORK_SLOTS.filter((slot) => now[slot] !== saved.artwork[slot]);
+      const failed = failedArtwork.filter((slot) => !edited.includes(slot));
       setArtworkErrors(
         Object.fromEntries(
-          failedArtwork.map((slot) => [
+          failed.map((slot) => [
             slot,
             warnings.find((warning) => warning.startsWith(`${slot}:`)) ?? warnings[0] ?? "",
           ]),
         ),
       );
-      return Object.fromEntries(
-        failedArtwork.map((slot) => [slot, saved.artwork[slot]]),
-      ) as ArtworkDraft;
+      return Object.fromEntries([
+        ...failed.map((slot) => [slot, saved.artwork[slot]]),
+        ...edited.flatMap((slot) => (now[slot] ? [[slot, now[slot]]] : [])),
+      ]) as ArtworkDraft;
     },
     [],
   );

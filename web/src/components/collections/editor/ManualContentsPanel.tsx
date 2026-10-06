@@ -560,6 +560,9 @@ export function ManualContentsPanel({
     fullyLoaded && loaded.length > 0
       ? Math.max(...loaded.map((item) => item.position)) + 1
       : Math.max(itemCount, loaded.length);
+  // The position after the last add sent: the server stores what it's given,
+  // so an add picked before the list refreshes goes after the one before it.
+  const claimed = useRef(0);
 
   async function afterWrite() {
     await scope.invalidate(queryClient, collectionId);
@@ -575,8 +578,10 @@ export function ManualContentsPanel({
       return;
     }
     setSaved("saving");
+    const position = Math.max(nextPosition, claimed.current);
+    claimed.current = position + 1;
     try {
-      await putCollectionItem(scope, collectionId, item.content_id, nextPosition);
+      await putCollectionItem(scope, collectionId, item.content_id, position);
       await afterWrite();
     } catch (error) {
       setSaved("idle");
@@ -657,8 +662,12 @@ export function ManualContentsPanel({
 
   function onDragEnd({ active, over }: DragEndEvent) {
     if (!over || active.id === over.id) return;
-    const ids = rows.map((row) => row.id);
-    const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
+    // Titles that couldn't be added aren't in the collection; they stay after the saved ones.
+    const ids = rows.filter((row) => !row.failed).map((row) => row.id);
+    const from = ids.indexOf(String(active.id));
+    if (from < 0) return;
+    const to = ids.indexOf(String(over.id));
+    const next = arrayMove(ids, from, to < 0 ? ids.length - 1 : to);
     if (!collectionId) {
       onStagedChange(next);
       return;
