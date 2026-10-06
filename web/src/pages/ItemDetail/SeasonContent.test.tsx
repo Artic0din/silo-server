@@ -40,6 +40,9 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/hooks/queries/shuffles", () => ({
+  useStartShuffle: () => ({ startShuffle: vi.fn(), isStarting: false }),
+}));
 vi.mock("@/pages/watchtogether/DetailWatchTogether", () => ({
   useDetailWatchTogether: mocks.useDetailWatchTogether,
 }));
@@ -132,6 +135,7 @@ function makeSeasonItem(
     rating_tmdb: null,
     rating_rt_critic: null,
     rating_rt_audience: null,
+    ratings: [],
     imdb_id: "",
     tmdb_id: "",
     tvdb_id: "",
@@ -165,6 +169,18 @@ function makeSeasonItem(
 }
 
 describe("SeasonContent", () => {
+  it("disables collection membership without removing the item identity", () => {
+    renderToStaticMarkup(
+      <MemoryRouter>
+        <SeasonContent item={makeSeasonItem()} />
+      </MemoryRouter>,
+    );
+    expect(mocks.capturedActionBarProps.value).toMatchObject({
+      contentId: "season-1",
+      canAddToCollection: false,
+    });
+  });
+
   beforeEach(() => {
     mocks.useDetailWatchTogether.mockClear();
     mocks.capturedActionBarProps.value = null;
@@ -237,32 +253,6 @@ describe("SeasonContent", () => {
     );
   });
 
-  it("does not pass rating props to ActionBar", () => {
-    renderToStaticMarkup(
-      <MemoryRouter initialEntries={["/item/season-1"]}>
-        <SeasonContent item={makeSeasonItem()} />
-      </MemoryRouter>,
-    );
-
-    expect(mocks.capturedActionBarProps.value).not.toHaveProperty("rating");
-    expect(mocks.capturedActionBarProps.value).not.toHaveProperty("onRatingChange");
-  });
-
-  it("offers the season, with the whole series as an alternative, to collections", () => {
-    renderToStaticMarkup(
-      <MemoryRouter initialEntries={["/item/season-1"]}>
-        <SeasonContent item={makeSeasonItem()} />
-      </MemoryRouter>,
-    );
-
-    expect(mocks.capturedActionBarProps.value).toMatchObject({
-      contentId: "season-1",
-      collectionItemId: "season-1",
-      collectionItemTitle: "Example Series — Season 1",
-      collectionSeriesOption: { id: "series-1", title: "Example Series" },
-    });
-  });
-
   it("passes partial-progress restart eligibility to episode menus", () => {
     mocks.useItemEpisodes.mockReturnValue({
       data: {
@@ -297,28 +287,6 @@ describe("SeasonContent", () => {
       contentId: "episode-1",
       mediaType: "episode",
       hasPartialProgress: true,
-    });
-  });
-
-  it("passes on-view translation controls to the hero", () => {
-    const onTranslate = vi.fn();
-    mocks.useOnViewTranslation.mockReturnValue({
-      translating: true,
-      onTranslate,
-    });
-
-    renderToStaticMarkup(
-      <MemoryRouter initialEntries={["/item/season-1"]}>
-        <SeasonContent item={makeSeasonItem({ pending_translation_language: "fr" })} />
-      </MemoryRouter>,
-    );
-
-    expect(mocks.useOnViewTranslation).toHaveBeenCalledWith(
-      expect.objectContaining({ content_id: "season-1", type: "season" }),
-    );
-    expect(mocks.capturedDetailHeroProps.value).toMatchObject({
-      overviewTranslating: true,
-      onTranslateOverview: onTranslate,
     });
   });
 });

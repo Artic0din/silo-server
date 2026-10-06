@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import type { ItemDetail } from "@/api/types";
+import { useStartShuffle } from "@/hooks/queries/shuffles";
 import { useRefreshItemMetadata } from "@/hooks/queries/items";
 import { useSimilarItems } from "@/hooks/queries/recommendations";
 import { useItemEpisodes, useSeasons } from "@/hooks/queries/episodes";
+import { useLibraryCapabilities } from "@/hooks/queries/admin/libraries";
 import { useAmbientColor } from "@/hooks/useAmbientColor";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsActingAdmin } from "@/hooks/useIsActingAdmin";
@@ -32,6 +34,7 @@ import MediaUserActionBar from "./components/MediaUserActionBar";
 import { SeasonCarouselSkeleton, RecommendationGridSkeleton } from "./components/SectionSkeletons";
 import { getSeasonDisplayTitle, resolveSeriesPrimaryAction } from "./itemDetailLayout";
 import { canCurateMetadata as canCurateMetadataForUser } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
 
 export default function SeriesContent({
   item,
@@ -43,9 +46,13 @@ export default function SeriesContent({
   const { translating: overviewTranslating, onTranslate: onTranslateOverview } =
     useOnViewTranslation(item);
   const navigate = useNavigate();
+  const { startShuffle } = useStartShuffle();
   useAmbientColor(item.backdrop_thumbhash);
   const { user } = useAuth();
   const isAdmin = useIsActingAdmin();
+  const capabilities = useLibraryCapabilities(isAdmin).data;
+  const canManageTrickplay =
+    capabilities?.trickplay === true && capabilities.trickplay_supported === true;
   const { profile: currentProfile } = useCurrentProfile();
   const canCurateMetadata = canCurateMetadataForUser(user, currentProfile);
 
@@ -134,13 +141,7 @@ export default function SeriesContent({
                 episodeCount={episodeCount || undefined}
               />
             }
-            scoreRow={
-              <ScoreRow
-                ratingImdb={item.rating_imdb}
-                ratingRtCritic={item.rating_rt_critic}
-                ratingRtAudience={item.rating_rt_audience}
-              />
-            }
+            scoreRow={<ScoreRow ratings={item.ratings} />}
             overview={item.overview}
             overviewTranslating={overviewTranslating}
             onTranslateOverview={onTranslateOverview}
@@ -152,7 +153,6 @@ export default function SeriesContent({
                 compactMobile
                 item={item}
                 contentId={item.content_id}
-                collectionItemId={item.content_id}
                 watchTogether={watchTogether.menu}
                 playHref={primaryAction.href}
                 playLabel={primaryAction.label}
@@ -169,11 +169,17 @@ export default function SeriesContent({
                 }
                 isRefreshing={refreshMetadataMutation.isPending}
                 isAdmin={isAdmin}
+                canManageTrickplay={canManageTrickplay}
                 canCurateMetadata={canCurateMetadata}
                 onEditMetadata={canCurateMetadata ? () => setEditOpen(true) : undefined}
                 onMatchItem={canCurateMetadata ? () => setMatchOpen(true) : undefined}
                 onSplitItem={canCurateMetadata ? () => setSplitOpen(true) : undefined}
                 onRequestSeasons={canRequestSeasons ? () => setRequestSeasonsOpen(true) : undefined}
+                onShuffle={
+                  episodeCount > 1
+                    ? () => startShuffle({ kind: "series", id: item.content_id })
+                    : undefined
+                }
               />
             }
           />
@@ -188,7 +194,10 @@ export default function SeriesContent({
 
           {(seasonsLoading || seasons.length > 0) && (
             <div
-              className="page-shell series-detail-navigation"
+              className={cn(
+                "page-shell series-detail-navigation",
+                !singleSeason && "series-detail-rail",
+              )}
               role="region"
               aria-label="Seasons and episodes"
             >

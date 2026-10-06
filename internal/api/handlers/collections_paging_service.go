@@ -115,21 +115,6 @@ func (h *CollectionHandler) PersonalCollectionItemsPage(ctx context.Context, use
 	for _, i := range visible {
 		allowed[i.ContentID] = i.Title
 	}
-	missing := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if _, ok := allowed[id]; !ok {
-			missing = append(missing, id)
-		}
-	}
-	if len(missing) > 0 {
-		seasons, err := catalog.NewItemRepository(h.Executor.Pool).GetVisibleSeasonsWithAccess(ctx, missing, access)
-		if err != nil {
-			return out, collectionPageError(err)
-		}
-		for _, s := range seasons {
-			allowed[s.SeasonID] = s.DisplayTitle()
-		}
-	}
 	for _, i := range page.Items {
 		if title, ok := allowed[i.MediaItemID]; ok {
 			out.Items = append(out.Items, PersonalCollectionItemView{CollectionID: i.CollectionID, MediaItemID: i.MediaItemID, Title: title, Position: i.Position, AddedAt: i.AddedAt})
@@ -198,6 +183,7 @@ func (h *LibraryCollectionHandler) LibraryCollectionItemsPage(ctx context.Contex
 		for _, item := range page.Items {
 			out.Items = append(out.Items, h.itemListResponseOf(ctx, item))
 		}
+		h.setListingLogos(ctx, out.Items, page.Items, access)
 		out.Revision = witness
 		out.HasMore = page.HasMore
 		out.Query = page.Next
@@ -228,6 +214,7 @@ func (h *LibraryCollectionHandler) LibraryCollectionItemsPage(ctx context.Contex
 			out.Items = append(out.Items, v)
 		}
 	}
+	h.setListingLogos(ctx, out.Items, items, access)
 	if _, err = h.repo.ListItemsPage(ctx, id, userstore.CollectionItemsPageOptions{Limit: 1, Revision: page.Revision}); err != nil {
 		return out, collectionPageError(err)
 	}
