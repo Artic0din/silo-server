@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Scissors,
   RotateCcw,
+  Shuffle,
   Tags,
   UsersRound,
   Hand,
@@ -228,6 +229,8 @@ export interface ActionBarProps {
   onSearchSubtitles?: () => void;
   /** Opens the season picker to request seasons the library is missing. */
   onRequestSeasons?: () => void;
+  /** Shuffles this series' or season's episodes. */
+  onShuffle?: () => void;
   rating?: number | null;
   onRatingChange?: (rating: number | null) => void;
   qualityPreference?: string | null;
@@ -289,6 +292,7 @@ export default function ActionBar({
   onDownload,
   onSearchSubtitles,
   onRequestSeasons,
+  onShuffle,
   rating,
   onRatingChange,
   audioSelectionMode = "auto",
@@ -567,7 +571,12 @@ export default function ActionBar({
     items[nextIndex]?.focus({ preventScroll: true });
   };
   const hasOverflowActions = Boolean(
-    restartHref || onToggleWatchlist || onDownload || onSearchSubtitles || onRequestSeasons,
+    restartHref ||
+    onShuffle ||
+    onToggleWatchlist ||
+    onDownload ||
+    onSearchSubtitles ||
+    onRequestSeasons,
   );
   const hasAdminActions = Boolean(isAdmin && (contentId || onRedetectMarkers));
   const hasMetadataActions = Boolean(
@@ -797,6 +806,12 @@ export default function ActionBar({
                     </div>
                   )}
                 </div>
+              )}
+              {onShuffle && (
+                <DetailOverflowMenuItem closeMenu={closeOverflowMenu} onAction={onShuffle}>
+                  <Shuffle className="size-4" />
+                  Shuffle
+                </DetailOverflowMenuItem>
               )}
               {restartHref && (
                 <DetailOverflowMenuItem

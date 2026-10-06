@@ -25,11 +25,14 @@ export function AccessTab({
   user,
   editor,
   manageable,
+  policyManageable,
   available,
 }: {
   user: AdminUser;
   editor: AdminUserEditor | undefined;
   manageable: boolean;
+  /** Whether the viewer may change libraries, limits, downloads and requests. */
+  policyManageable: boolean;
   available: boolean;
 }) {
   const groups = useAccessGroups().data ?? [];
@@ -51,16 +54,25 @@ export function AccessTab({
     ),
   };
 
+  const policy = { ...props, manageable: policyManageable };
+
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-4">
-        <SignInCard {...props} />
-        <LibraryAccessCard {...props} />
-        <DownloadsPolicyCard {...props} />
-      </div>
-      <div className="flex min-w-0 flex-col gap-4">
-        <PlaybackCard {...props} />
-        <RequestsCard {...props} />
+    <div className="space-y-4">
+      {manageable && !policyManageable ? (
+        <p role="note" className="text-muted-foreground text-sm">
+          Only the server owner can change an admin&apos;s access and limits.
+        </p>
+      ) : null}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-4">
+          <SignInCard {...props} />
+          <LibraryAccessCard {...policy} />
+          <DownloadsPolicyCard {...policy} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-4">
+          <PlaybackCard {...policy} />
+          <RequestsCard {...policy} />
+        </div>
       </div>
     </div>
   );
