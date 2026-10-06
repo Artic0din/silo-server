@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import LibraryMultiSelect from "@/components/LibraryMultiSelect";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -294,6 +294,9 @@ function enabledHolidays(config: Config): string[] {
 
 function HolidayChecklist({ config, onChange }: FieldProps) {
   const id = useId();
+  // The name box being typed in, as typed: the draft gets it trimmed, so a
+  // space typed between words would otherwise vanish before the next word.
+  const [typed, setTyped] = useState<{ key: string; text: string } | null>(null);
   const enabled = new Set(enabledHolidays(config));
   const titles: Record<string, string> = {};
   if (config.theme_titles && typeof config.theme_titles === "object") {
@@ -350,10 +353,12 @@ function HolidayChecklist({ config, onChange }: FieldProps) {
                   aria-label={`Row name during ${holiday.label}`}
                   placeholder={`Name in season (defaults to "${holiday.label}")`}
                   className="h-8 text-[13px]"
-                  value={titles[holiday.key] ?? ""}
-                  onChange={(event) =>
-                    commit(enabled, { ...titles, [holiday.key]: event.target.value })
-                  }
+                  value={typed?.key === holiday.key ? typed.text : (titles[holiday.key] ?? "")}
+                  onChange={(event) => {
+                    setTyped({ key: holiday.key, text: event.target.value });
+                    commit(enabled, { ...titles, [holiday.key]: event.target.value });
+                  }}
+                  onBlur={() => setTyped(null)}
                 />
               ) : null}
             </div>

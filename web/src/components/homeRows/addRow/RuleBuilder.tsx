@@ -333,6 +333,7 @@ export function RuleSortField({
           sort={value.sort.field}
           order={value.sort.order}
           allowPersonalizedSorts={allowPersonalized}
+          sortRelevanceScope={querySortScopeForMediaScope(value.media_scope)}
           onChange={(next) =>
             onChange({
               ...value,

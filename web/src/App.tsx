@@ -336,6 +336,8 @@ export function QueryCacheManager() {
       qc.removeQueries({ queryKey: ["libraryPlaybackPreferences"] });
       qc.removeQueries({ queryKey: ["progress"] });
       qc.removeQueries({ queryKey: ["sections"] });
+      // Home rows poster peeks (lib/homeRows/peek) show rows as the profile sees them.
+      qc.removeQueries({ queryKey: ["home-row-peek"] });
       qc.removeQueries({ queryKey: ["calendar"] });
       qc.removeQueries({ queryKey: ["requests"] });
       qc.removeQueries({ queryKey: ["notifications"] });

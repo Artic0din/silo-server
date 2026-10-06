@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -256,6 +256,23 @@ describe("Add row form", () => {
     });
   });
 
+  it("leaves a dialog opened after it alone when an add finishes after it closed", async () => {
+    let finish!: (value: { newIds: string[] }) => void;
+    create.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    const { trigger, dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Short & sweet" }));
+    const form = await screen.findByRole("dialog", { name: "Short & sweet" });
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await userEvent.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "Add a row to Home" })).toBeInTheDocument();
+    await act(async () => finish({ newIds: ["n"] }));
+    expect(screen.getByRole("dialog", { name: "Add a row to Home" })).toBeInTheDocument();
+  });
+
   it("keeps rarely changed settings under More options with a summary", async () => {
     const { dialog } = await open();
     await userEvent.click(within(dialog).getByRole("button", { name: "Short & sweet" }));
@@ -305,6 +322,20 @@ describe("Add row form", () => {
     expect(within(form).getByRole("radio", { name: /Holidays/ })).toBeChecked();
     expect(within(form).getByText("Pick at least one holiday.")).toBeInTheDocument();
     expect(within(form).getByRole("button", { name: "Add row" })).toBeDisabled();
+  });
+
+  it("keeps the spaces typed in a holiday's name and saves it trimmed", async () => {
+    const { dialog } = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Seasonal picks" }));
+    const form = await screen.findByRole("dialog", { name: "Seasonal picks" });
+    const name = within(form).getByRole("textbox", { name: "Row name during Christmas" });
+    await userEvent.type(name, " Christmas movies ");
+    expect(name).toHaveValue(" Christmas movies ");
+    await userEvent.tab();
+    expect(name).toHaveValue("Christmas movies");
+    await userEvent.click(within(form).getByRole("button", { name: "Add row" }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0].config.theme_titles).toEqual({ christmas: "Christmas movies" });
   });
 });
 

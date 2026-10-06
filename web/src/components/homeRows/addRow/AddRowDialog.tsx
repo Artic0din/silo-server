@@ -125,12 +125,12 @@ export function AddRowDialog({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstStep = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Moving between steps puts focus where the new step starts.
   useEffect(() => {
@@ -237,11 +237,15 @@ export function AddRowDialog({
     };
     void run(async () => {
       try {
+        // Closed while saving: the page may have opened another dialog since,
+        // which this one's onSaved and onClose would act on.
         if (session) {
           await adapter.save(session, finished);
+          if (!mounted.current) return;
           onSaved([]);
         } else {
           const { newIds } = await adapter.create(finished);
+          if (!mounted.current) return;
           onSaved(newIds);
         }
         onClose();

@@ -301,6 +301,21 @@ describe("RuleBuilder", () => {
     choose(screen.getByRole("combobox", { name: "Direction" }), "Ascending");
     expect(latest!.sort).toEqual({ field: "date_viewed", order: "asc" });
   });
+
+  it("offers only the orders the row's kind of title supports", () => {
+    render(
+      <Harness
+        initial={query({ media_scope: "ebook", sort: { field: "author", order: "asc" } })}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Sort by" }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+    expect(screen.getByRole("option", { name: "Author" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Narrator" })).toBeNull();
+  });
 });
 
 describe("RuleBuilder in a Smart collection", () => {
