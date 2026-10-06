@@ -339,7 +339,7 @@ function DeviceDetail({
               onClick={() => {
                 if (
                   !window.confirm(
-                    `Use ${ownerLabel} profile's settings on ${device.device_name}? This removes the ${changedCount} ${changedCount === 1 ? "setting" : "settings"} changed on this device.`,
+                    `Use ${ownerLabel} profile settings on ${device.device_name}? This removes the ${changedCount} ${changedCount === 1 ? "setting" : "settings"} changed on this device. Settings that only apply to devices go back to the app default.`,
                   )
                 ) {
                   return;
@@ -347,7 +347,7 @@ function DeviceDetail({
                 clearDevice.mutate(
                   { deviceId: device.device_id, profileId: targetProfileId },
                   {
-                    onSuccess: () => toast.success("Now using profile settings on this device"),
+                    onSuccess: () => toast.success("Removed the changes on this device"),
                     onError: (error) =>
                       toast.error(error instanceof Error ? error.message : "Couldn't clear"),
                   },

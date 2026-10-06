@@ -232,13 +232,13 @@ describe("DeviceSettings capability discovery", () => {
       await user.click(screen.getByRole("button", { name: "Use profile settings" }));
 
       expect(window.confirm).toHaveBeenCalledWith(
-        "Use your profile's settings on Living Room TV? This removes the 3 settings changed on this device.",
+        "Use your profile settings on Living Room TV? This removes the 3 settings changed on this device. Settings that only apply to devices go back to the app default.",
       );
       expect(mocks.clearDevice).toHaveBeenCalledWith(
         { deviceId: "living-room", profileId: undefined },
         expect.anything(),
       );
-      expect(mocks.toastSuccess).toHaveBeenCalledWith("Now using profile settings on this device");
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Removed the changes on this device");
     });
 
     it("names the other profile and the singular when acting for someone else", async () => {
@@ -261,7 +261,7 @@ describe("DeviceSettings capability discovery", () => {
       await user.click(screen.getByRole("button", { name: "Use profile settings" }));
 
       expect(window.confirm).toHaveBeenCalledWith(
-        "Use Sam's profile's settings on Sam's iPad? This removes the 1 setting changed on this device.",
+        "Use Sam's profile settings on Sam's iPad? This removes the 1 setting changed on this device. Settings that only apply to devices go back to the app default.",
       );
       expect(mocks.clearDevice).toHaveBeenCalledWith(
         { deviceId: "living-room", profileId: "profile-2" },
