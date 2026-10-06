@@ -88,6 +88,7 @@ func TestApplySectionLibraryScopeToQueryRejectsDisjointScope(t *testing.T) {
 		{name: "overlap", query: []int{1, 2}, libraryIDs: []int{2, 3}, want: []int{2}, ok: true},
 		{name: "disjoint", query: []int{1}, libraryIDs: []int{2}, ok: false},
 		{name: "empty scope", query: []int{1}, libraryIDs: []int{}, ok: false},
+		{name: "empty scope, unscoped query", libraryIDs: []int{}, ok: false},
 		{name: "library page", query: []int{1}, libraryID: &library, want: []int{9}, ok: true},
 	}
 	for _, tt := range tests {

@@ -2580,13 +2580,17 @@ func (f *Fetcher) fetchFiltered(ctx context.Context, s ResolvedSection, libraryI
 }
 
 // applySectionLibraryScopeToQuery limits def to the section's library scope.
-// It reports false when the scope shares no library with the query's own,
-// since an empty def.LibraryIDs would mean every library instead.
+// It reports false when the scope is empty (non-nil) or shares no library
+// with the query's own, since an empty def.LibraryIDs would mean every
+// library instead.
 func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int, libraryIDs []int) (catalog.QueryDefinition, bool) {
 	switch {
 	case libraryID != nil:
 		def.LibraryIDs = []int{*libraryID}
 	case libraryIDs != nil:
+		if len(libraryIDs) == 0 {
+			return def, false
+		}
 		if len(def.LibraryIDs) == 0 {
 			def.LibraryIDs = append([]int(nil), libraryIDs...)
 		} else {

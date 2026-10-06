@@ -208,8 +208,8 @@ func TestPersonalCollectionCollagesDB(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.Collection.PosterURL != "" || got.Collection.PosterIsCollage {
-			t.Fatalf("editor poster = %q (collage %v), want none", got.Collection.PosterURL, got.Collection.PosterIsCollage)
+		if got.Collection.PosterURL != "" || got.Collection.PosterIsCollage || got.Collection.PosterThumbhash != "" {
+			t.Fatalf("editor poster = %q (collage %v, thumbhash %q), want none", got.Collection.PosterURL, got.Collection.PosterIsCollage, got.Collection.PosterThumbhash)
 		}
 	})
 

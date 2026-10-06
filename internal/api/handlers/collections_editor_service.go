@@ -65,7 +65,12 @@ func (h *CollectionHandler) PersonalCollectionEditor(ctx context.Context, userID
 	}
 	// This is the canonical editor representation. Presigned URLs are displayed
 	// from the collection listing and never participate in a strong validator,
-	// so the editor carries no poster of any kind.
+	// so the editor carries no poster of any kind. A collage's thumbhash goes
+	// too: the collage is built in the background and per viewer, so it
+	// changes without a revision.
+	if view.PosterIsCollage {
+		view.PosterThumbhash = ""
+	}
 	view.PosterURL, view.PosterIsCollage = "", false
 	out.Collection = view
 	out.Revision = rev
