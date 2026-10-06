@@ -1,34 +1,29 @@
 import { fetchAdminItemOrderSnapshot } from "@/api/adminCollections";
-import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   isCapturedProfileAuthorityActive,
   isProfileRequestContextCurrent,
   type ProfileRequestContextSnapshot,
 } from "@/api/client";
+import {
+  collectionsFromV2,
+  fetchCollectionEditSnapshot,
+  fetchItemOrderSnapshot,
+  serverCollectionsFromV2,
+} from "@/api/personalCollections";
 import type {
   CollectionCapabilitiesResponse,
-  CollectionSortConfig,
   CollectionsListResponse,
-  CreateCollectionRequest,
-  UpdateCollectionRequest,
+  CollectionSortConfig,
 } from "@/api/types";
 import { requiredETag } from "@/api/v2/etag";
 import { v2, V2ProblemError } from "@/api/v2/request";
-import {
-  fetchCollectionEditSnapshot,
-  fetchItemOrderSnapshot,
-  collectionCreateToV2,
-  collectionsFromV2,
-  collectionUpdateToV2,
-  saveCollectionPoster,
-  serverCollectionsFromV2,
-} from "@/api/personalCollections";
 import { PERSONAL_SCOPE } from "@/lib/collections/scope";
-import { catalogKeys, collectionKeys } from "./keys";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { toast } from "sonner";
-import { invalidateAdminCollectionQueries } from "./collectionSurfaceRefresh";
 import { putCollectionItem, useScopeDelete } from "./collectionScope";
+import { invalidateAdminCollectionQueries } from "./collectionSurfaceRefresh";
+import { catalogKeys, collectionKeys } from "./keys";
 
 const collectionMutationMessage = PERSONAL_SCOPE.errorMessage;
 
@@ -102,66 +97,6 @@ export function useCollectionItemOrderSnapshot(
     queryFn: () =>
       source === "user" ? fetchItemOrderSnapshot(id) : fetchAdminItemOrderSnapshot(id),
     enabled,
-  });
-}
-
-export function useCreateCollection() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({ body, poster }: { body: CreateCollectionRequest; poster?: File | null }) =>
-      v2("POST /api/v2/collections", { body: collectionCreateToV2(body) }).then((collection) =>
-        saveCollectionPoster(collection, poster),
-      ),
-    onSuccess: ({ posterError }) => {
-      toast.success("Collection created");
-      if (posterError) toast.error(`Collection saved, but poster upload failed: ${posterError}`);
-      return PERSONAL_SCOPE.invalidate(queryClient);
-    },
-    onError: (err) => {
-      toast.error(collectionMutationMessage(err, "Failed to save"));
-      if (err instanceof V2ProblemError && err.status === 412)
-        void PERSONAL_SCOPE.invalidate(queryClient);
-    },
-  });
-}
-
-export function useUpdateCollection() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      id,
-      body,
-      poster,
-      removePoster,
-      etag,
-    }: {
-      id: string;
-      etag: string;
-      body: UpdateCollectionRequest;
-      poster?: File | null;
-      /** A poster removal staged in the editor; a new file or URL in the same save wins. */
-      removePoster?: boolean;
-    }) =>
-      v2("PATCH /api/v2/collections/{id}", {
-        path: { id },
-        headers: { "If-Match": requiredETag(etag) },
-        body: collectionUpdateToV2(body),
-      }).then((collection) =>
-        saveCollectionPoster(collection, poster, body.poster_source_url, removePoster),
-      ),
-    onSuccess: ({ posterError }, { id }) => {
-      toast.success("Collection updated");
-      if (posterError)
-        toast.error(`Collection saved, but the poster wasn't updated: ${posterError}`);
-      return PERSONAL_SCOPE.invalidate(queryClient, id);
-    },
-    onError: (err) => {
-      toast.error(collectionMutationMessage(err, "Failed to save"));
-      if (err instanceof V2ProblemError && err.status === 412)
-        void PERSONAL_SCOPE.invalidate(queryClient);
-    },
   });
 }
 

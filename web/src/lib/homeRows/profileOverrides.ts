@@ -256,25 +256,6 @@ export function canMutateSectionSettings(
   );
 }
 
-export function shouldRestoreSelectionState(
-  currentSelectionValue: string,
-  selectionValueAtSave: string,
-): boolean {
-  return currentSelectionValue === selectionValueAtSave;
-}
-
-export function shouldRestoreLatestSaveFailure(
-  currentSelectionValue: string,
-  selectionValueAtSave: string,
-  latestAttemptId: number,
-  failedAttemptId: number,
-): boolean {
-  return (
-    shouldRestoreSelectionState(currentSelectionValue, selectionValueAtSave) &&
-    latestAttemptId === failedAttemptId
-  );
-}
-
 /**
  * A permission denial carries its cause in the detail: the custom-sections
  * refusal and the demo-mode gate both answer 403 permission_denied.

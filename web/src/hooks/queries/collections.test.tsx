@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProfileRequestContextSnapshot } from "@/api/client";
-import { V2ProblemError } from "@/api/v2/request";
 import type { Collection, CollectionsListResponse } from "@/api/types";
 import {
   useAddItemToCollection,
@@ -12,7 +11,6 @@ import {
   useReorderCollectionItems,
   useReorderCollections,
   useSetCollectionSortPreference,
-  useUpdateCollection,
 } from "./collections";
 import { collectionKeys, libraryCollectionKeys } from "./keys";
 
@@ -194,45 +192,6 @@ describe("useSetCollectionSortPreference", () => {
   });
 });
 
-describe("guarded collection editing", () => {
-  it("sends the observed version once and keeps a 412 from becoming an automatic overwrite", async () => {
-    const client = new QueryClient({ defaultOptions: { mutations: { retry: 3, retryDelay: 0 } } });
-    const invalidate = vi.spyOn(client, "invalidateQueries");
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-    const { result } = renderHook(() => useUpdateCollection(), { wrapper });
-    const conflict = new V2ProblemError(
-      "updateCollection",
-      {
-        type: "https://example.invalid/problems/precondition_failed",
-        title: "Precondition failed",
-        status: 412,
-        detail: "Changed",
-        instance: "request-test",
-      },
-      null,
-      '"newer"',
-    );
-    apiWithProfileRequestContextMock.mockReset().mockRejectedValue(conflict);
-    await act(async () => {
-      await expect(
-        result.current.mutateAsync({ id: "c", etag: '"observed"', body: { name: "My draft" } }),
-      ).rejects.toBe(conflict);
-    });
-    expect(apiWithProfileRequestContextMock).toHaveBeenCalledTimes(1);
-    expect(apiWithProfileRequestContextMock).toHaveBeenCalledWith(
-      "PATCH /api/v2/collections/{id}",
-      expect.objectContaining({
-        headers: { "If-Match": '"observed"' },
-        body: expect.objectContaining({ name: "My draft" }),
-      }),
-    );
-    expect(errorToast).toHaveBeenCalledWith(expect.stringContaining("Reload"));
-    expect(invalidate).toHaveBeenCalled();
-  });
-});
-
 describe("reordering personal collections", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -313,14 +272,6 @@ describe("personal collection writes refresh library Collections tabs", () => {
       () => {
         const m = useReorderCollections();
         return () => m.mutateAsync({ orderedIds: ["c"], etag: '"order"' });
-      },
-    ],
-    [
-      "saving a poster removal",
-      () => {
-        const m = useUpdateCollection();
-        return () =>
-          m.mutateAsync({ id: "c", etag: '"c"', body: { name: "Films" }, removePoster: true });
       },
     ],
   ];

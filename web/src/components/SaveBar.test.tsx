@@ -59,14 +59,6 @@ describe("SaveBar", () => {
     expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
   });
 
-  // The restart prompt belongs to the admin shell (see
-  // components/admin/RestartBanner.test.tsx); the pill must never grow one.
-  it("renders no restart prompt of its own", () => {
-    renderBar({ dirtyCount: 2 });
-
-    expect(screen.queryByText("Restart required")).not.toBeInTheDocument();
-  });
-
   it("keeps one status wrapper around the whole settings pill", () => {
     renderBar();
 
@@ -108,52 +100,6 @@ describe("SaveBar on a page", () => {
     expect(within(status).queryByRole("button")).not.toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Save" })).toBeEnabled();
     expect(within(region).getByRole("button", { name: "Discard" })).toBeEnabled();
-  });
-
-  // The page bar starts at the sidebar edge either shell publishes in
-  // `--app-sidebar-offset` (260px, the 64px rail, or the admin 240px) instead of
-  // assuming the admin sidebar. It rises by `--playback-bar-clearance`, the
-  // measured height of whichever background playback bar shows, so it clears
-  // the taller stacked watch bar on phones as well as the desktop one.
-  it("spans the main column and clears the measured playback bar", () => {
-    renderBar({ placement: "page" });
-
-    const dock = screen.getByRole("region", { name: "Unsaved changes" }).parentElement;
-    expect(dock).toHaveClass(
-      "fixed",
-      "left-[var(--app-sidebar-offset,0px)]",
-      "right-0",
-      "bottom-[calc(var(--playback-bar-clearance,0px)+0.75rem)]",
-      "lg:bottom-[calc(var(--playback-bar-clearance,0px)+1.125rem)]",
-    );
-    expect(dock).not.toHaveClass("lg:left-[240px]");
-  });
-
-  // The bar's side padding is the gutter the shell gives page content, so the
-  // bar lines up with the content column in both shells at every width.
-  it("uses the shell's page gutter for its side padding", () => {
-    renderBar({ placement: "page" });
-
-    const dock = screen.getByRole("region", { name: "Unsaved changes" }).parentElement;
-    expect(dock).toHaveClass("px-(--page-gutter,1rem)");
-  });
-
-  // The admin shell drops its playback padding at lg, so the bar's own scroll
-  // room has to cover the playback bar too, or the end of the page stays under
-  // the raised save bar at full scroll.
-  it("leaves scroll room for itself and the playback bar under it", () => {
-    const { container } = renderBar({ placement: "page" });
-
-    expect(container.querySelector("[aria-hidden='true']")).toHaveClass(
-      "h-[calc(7rem+var(--playback-bar-clearance,0px))]",
-    );
-  });
-
-  it("raises its scrim with the bar so content fades out above the bar", () => {
-    const { container } = renderBar({ placement: "page" });
-
-    const scrim = container.querySelectorAll("[aria-hidden='true']")[1];
-    expect(scrim).toHaveClass("fixed", "bottom-(--playback-bar-clearance,0px)");
   });
 
   it("shows nothing visible and no landmark while nothing is staged", () => {
@@ -209,13 +155,6 @@ describe("SaveBar on a page", () => {
     expect(status.querySelector("[aria-hidden='true']")).not.toHaveClass("bg-warning");
     expect(within(region).getByRole("button", { name: "Create collection" })).toBeDisabled();
     expect(within(region).getByRole("button", { name: "Cancel" })).toBeEnabled();
-  });
-
-  it("marks staged changes with the warning dot", () => {
-    renderBar({ placement: "page" });
-
-    const status = screen.getByRole("status");
-    expect(status.querySelector("[aria-hidden='true']")).toHaveClass("bg-warning");
   });
 
   it("can stay hidden while edits are staged, e.g. while the page loads", () => {

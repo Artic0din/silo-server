@@ -4,10 +4,13 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useDeleteCollection } from "@/hooks/queries/collections";
+import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import getCollectionOk from "../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import getLibraryCollectionsOk from "../../../contracts/api/v2/fixtures/get_library_collections_ok.json";
-import { useDeleteCollection, useUpdateCollection } from "@/hooks/queries/collections";
-import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
+
+import { useCollectionDraft } from "@/hooks/queries/collectionScope";
+import { PERSONAL_SCOPE } from "@/lib/collections/scope";
 
 import LibraryCollections from "./LibraryCollections";
 
@@ -90,7 +93,10 @@ beforeEach(() => {
 
 describe("a library's Collections tab after a personal collection changes", () => {
   it("shows the new name once the owner saves an edit", async () => {
-    const update = renderTabWith(useUpdateCollection);
+    const snapshot = await PERSONAL_SCOPE.fetchSnapshot("c1");
+    const update = renderTabWith(() =>
+      useCollectionDraft(PERSONAL_SCOPE, { snapshot, kind: "manual" }),
+    );
     expect(await findCard("Rainy days")).toBeTruthy();
     const readsBefore = tabReads();
 
@@ -98,13 +104,10 @@ describe("a library's Collections tab after a personal collection changes", () =
       tabCollection = { title: "Rainy evenings" };
       return { ...getCollectionOk, name: "Rainy evenings", include_in_server_collections: true };
     });
-    await act(() =>
-      update.current.mutateAsync({
-        id: "c1",
-        etag: v2Recorder.etag(COLLECTION_PATH),
-        body: { name: "Rainy evenings", include_in_server_collections: true },
-      }),
-    );
+    act(() => update.current.setDraft((draft) => ({ ...draft, name: "Rainy evenings" })));
+    await act(async () => {
+      expect(await update.current.save()).toBe(true);
+    });
 
     expect(await findCard("Rainy evenings")).toBeTruthy();
     expect(card("Rainy days")).toBeNull();

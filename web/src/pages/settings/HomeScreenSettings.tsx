@@ -1,5 +1,28 @@
-/* eslint-disable react-refresh/only-export-components */
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { ActionMenuItem } from "@/components/calm/ActionMenu";
+import type { PageMoreMenuItem } from "@/components/calm/PageMoreMenu";
+import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
+import { HideWatchedCard } from "@/components/homeRows/HideWatchedCard";
+import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
+import { RemoveRowDialog } from "@/components/homeRows/RemoveRowDialog";
+import { ResetProfileDialog } from "@/components/homeRows/ResetProfileDialog";
+import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
+import { useRowFocus } from "@/components/homeRows/useRowFocus";
+import { useRowDialog, useRowLinks } from "@/components/homeRows/useRowLinks";
+import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer";
+import { Button } from "@/components/ui/button";
+import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
+import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
+import { useUserLibraries } from "@/hooks/queries/libraries";
+import {
+  useEffectiveSettings,
+  useSetSettingValue,
+  type SettingIdentity,
+} from "@/hooks/queries/settingValues";
+import { useOptionalAuth } from "@/hooks/useAuth";
+import { collectionKind, profilePageName, type CollectionSummary } from "@/lib/homeRows/describe";
+import { pageLabel } from "@/lib/homeRows/pages";
+import type { HomeRow } from "@/lib/homeRows/types";
+import { SETTING_KEYS } from "@/lib/settingsContract";
 import {
   CircleMinus,
   Download,
@@ -11,44 +34,8 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { HideWatchedCard } from "@/components/homeRows/HideWatchedCard";
-import { HomeRowsPage, type SharedRowMenuItems } from "@/components/homeRows/HomeRowsPage";
-import type { PageMoreMenuItem } from "@/components/calm/PageMoreMenu";
-import { RemoveRowDialog } from "@/components/homeRows/RemoveRowDialog";
-import { ResetProfileDialog } from "@/components/homeRows/ResetProfileDialog";
-import type { ActionMenuItem } from "@/components/calm/ActionMenu";
-import { AddRowDialog } from "@/components/homeRows/addRow/AddRowDialog";
-import { useNewRowHighlight } from "@/components/homeRows/useNewRowHighlight";
-import { useRowFocus } from "@/components/homeRows/useRowFocus";
-import { useRowDialog, useRowLinks } from "@/components/homeRows/useRowLinks";
-import { HomeLayoutImportDialog } from "@/components/sections/HomeLayoutTransfer";
-import { useHomeLayoutExport } from "@/hooks/queries/homeRows/useHomeLayoutExport";
-import { useProfileHomeRowsAdapter } from "@/hooks/queries/homeRows/useProfileHomeRowsAdapter";
-import { useUserLibraries } from "@/hooks/queries/libraries";
-import { useOptionalAuth } from "@/hooks/useAuth";
-import {
-  useEffectiveSettings,
-  useSetSettingValue,
-  type SettingIdentity,
-} from "@/hooks/queries/settingValues";
-import { collectionKind, profilePageName, type CollectionSummary } from "@/lib/homeRows/describe";
-import { pageLabel } from "@/lib/homeRows/pages";
-import type { HomeRow } from "@/lib/homeRows/types";
-import { SETTING_KEYS } from "@/lib/settingsContract";
-
-export { buildProfileGallerySection } from "@/lib/homeRows/payloads";
-export {
-  applySectionDeletion,
-  buildSectionOverrides,
-  canMutateSectionSettings,
-  createOverrideIdSource,
-  hydrateRemovedSystemSections,
-  sectionSaveErrorMessage,
-  shouldRestoreLatestSaveFailure,
-  shouldRestoreSelectionState,
-} from "@/lib/homeRows/profileOverrides";
 
 const PROFILE_SCOPE: SettingIdentity = { scope: "profile" };
 const HOME_PREFERENCE_KEYS = [SETTING_KEYS.HOME_HIDE_WATCHED_ITEMS] as const;

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SettingsSectionEntry } from "@/api/types";
-import {
-  buildGalleryAddPayload,
-  buildProfileGallerySection,
-  buildProfileRowCreate,
-  buildProfileRowUpdate,
-} from "./payloads";
+import { buildProfileRowCreate, buildProfileRowUpdate } from "./payloads";
 import type { RowDraft } from "./rowDraft";
 
 function draft(overrides: Partial<RowDraft> = {}): RowDraft {
@@ -38,21 +33,20 @@ function entry(overrides: Partial<SettingsSectionEntry> = {}): SettingsSectionEn
 }
 
 describe("buildProfileRowCreate", () => {
-  it("adds the row the gallery added, as this profile's own row at the given position", () => {
+  it("creates a profile-owned row at the requested position", () => {
     const created = buildProfileRowCreate(draft(), "Trending This Week", 5);
-    const gallery = buildProfileGallerySection(
-      buildGalleryAddPayload({
-        sectionType: "trending_on_server",
-        title: "Trending This Week",
-        itemLimit: 20,
-        featured: false,
-        enabled: true,
-        config: { window: "7d" },
-      }),
-      5,
-    );
-    expect(created).toEqual({ ...gallery, id: created.id });
-    expect(created).toMatchObject({ is_custom: true, hidden: false, position: 5 });
+    expect(created).toEqual({
+      id: expect.any(String),
+      section_type: "trending_on_server",
+      title: "Trending This Week",
+      item_limit: 20,
+      featured: false,
+      config: { window: "7d" },
+      is_custom: true,
+      customized: true,
+      hidden: false,
+      position: 5,
+    });
   });
 });
 

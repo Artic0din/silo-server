@@ -4,13 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   COLLECTION_FIELD_OPTIONS,
-  COLLECTION_SORT_OPTIONS,
-  getCollectionSortOptions,
   getCollectionFieldOption,
+  getCollectionSortOptions,
 } from "@/components/collections/collectionBuilderFields";
 
-import FilterRuleEditor from "./FilterRuleEditor";
-import { getFilterRuleFieldOptions } from "./FilterRuleEditor";
+import FilterRuleEditor, { getFilterRuleFieldOptions } from "./FilterRuleEditor";
 
 vi.mock("@/hooks/queries/ratingsCapability", () => ({
   useShownRatingSources: () => new Set(["imdb", "tmdb"]),
@@ -54,8 +52,8 @@ describe("FilterRuleEditor", () => {
         "in_watchlist",
       ]),
     );
-    expect(COLLECTION_SORT_OPTIONS.map((sort) => sort.value)).toContain("rating_imdb");
-    expect(COLLECTION_SORT_OPTIONS.map((sort) => sort.value)).not.toContain("rating");
+    expect(getCollectionSortOptions().map((sort) => sort.value)).toContain("rating_imdb");
+    expect(getCollectionSortOptions().map((sort) => sort.value)).not.toContain("rating");
     expect(getCollectionSortOptions(false).map((sort) => sort.value)).not.toContain("progress");
   });
 

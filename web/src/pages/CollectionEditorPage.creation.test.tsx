@@ -1,10 +1,10 @@
+import type { LibraryCollection } from "@/api/types";
+import { V2ProblemError } from "@/api/v2/request";
+import type { CollectionScope, EditorSnapshot } from "@/lib/collections/scope";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, expect, it, vi } from "vitest";
-import type { LibraryCollection } from "@/api/types";
-import { V2ProblemError } from "@/api/v2/request";
-import type { CollectionScope, EditorSnapshot } from "@/lib/collections/scope";
 import CollectionEditorPage from "./CollectionEditorPage";
 
 const mocks = vi.hoisted(() => ({
@@ -28,11 +28,9 @@ vi.mock("@/hooks/queries/collectionScope", () => ({
 }));
 vi.mock("@/hooks/queries/collections", () => ({
   useCollectionCapabilities: () => ({ data: { import_sources: ["mdblist", "tmdb", "tmdb_list"] } }),
-  useUpdateCollection: () => ({}),
 }));
 vi.mock("@/hooks/queries/admin/collections", () => ({
   useAdminCollectionCapabilities: () => ({ data: { imports: true } }),
-  useUpdateAdminCollection: () => ({}),
 }));
 vi.mock("@/hooks/queries/profiles", () => ({ useProfiles: () => ({ data: [] }) }));
 vi.mock("@/hooks/queries/libraries", () => ({ useUserLibraries: () => ({ data: [] }) }));

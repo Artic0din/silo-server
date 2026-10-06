@@ -1,35 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { v2 } from "@/api/v2/request";
-import { requiredETag } from "@/api/v2/etag";
 import {
-  fetchAdminGroups,
-  fetchAdminCollections,
   adminGroupFromV2,
   adminMutationMessage,
+  fetchAdminCollections,
+  fetchAdminGroups,
 } from "@/api/adminCollections";
-import { invalidateAdminCollectionQueries } from "../collectionSurfaceRefresh";
 import type { GroupSortMode } from "@/api/types";
+import { requiredETag } from "@/api/v2/etag";
+import { v2 } from "@/api/v2/request";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { invalidateAdminCollectionQueries } from "../collectionSurfaceRefresh";
 import { adminKeys } from "../keys";
 
 const ADMIN_STALE_TIME = 30_000;
-
-// ----- Queries -----
-
-export function useCollectionGroups(libraryId: number | undefined) {
-  return useQuery({
-    queryKey:
-      libraryId !== undefined
-        ? adminKeys.collectionGroups(libraryId)
-        : ["admin", "collection-groups-board", "none"],
-    queryFn: async () => {
-      const res = await fetchAdminGroups(libraryId!);
-      return res.groups;
-    },
-    staleTime: ADMIN_STALE_TIME,
-    enabled: typeof libraryId === "number" && libraryId > 0,
-  });
-}
 
 /**
  * Combined board: groups + their collections (resolved client-side from

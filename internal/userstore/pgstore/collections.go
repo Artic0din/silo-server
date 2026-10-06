@@ -448,262 +448,47 @@ func (s *PostgresUserStore) reorderCollections(ctx context.Context, profileID st
 	return tx.Commit(ctx)
 }
 
-// ListCollectionGroups returns the user's explicit group rows. Collections
-// with nil group_id fall into an implicit Ungrouped bucket and are not
-// represented in this table.
-func (s *PostgresUserStore) ListCollectionGroups(ctx context.Context) ([]userstore.CollectionGroup, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, slug, default_sort_mode, sort_order, created_at, updated_at
-		FROM user_collection_groups
-		WHERE user_id = $1
-		ORDER BY sort_order ASC, name ASC, id ASC
-	`, s.userID)
-	if err != nil {
-		return nil, fmt.Errorf("listing user collection groups: %w", err)
-	}
-	defer rows.Close()
+// Personal collections are flat. Keep the UserStore methods for the frozen
+// bridge contract; handlers reject group operations through CollectionFeatures.
+var errPersonalCollectionGroupsUnsupported = errors.New("personal collection groups are not supported")
 
-	var groups []userstore.CollectionGroup
-	for rows.Next() {
-		var g userstore.CollectionGroup
-		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&g.ID, &g.Name, &g.Slug, &g.DefaultSortMode, &g.SortOrder, &createdAt, &updatedAt); err != nil {
-			return nil, fmt.Errorf("scanning user collection group: %w", err)
-		}
-		g.CreatedAt = timeToString(createdAt)
-		g.UpdatedAt = timeToString(updatedAt)
-		groups = append(groups, g)
-	}
-	return groups, rows.Err()
+func (s *PostgresUserStore) ListCollectionGroups(context.Context) ([]userstore.CollectionGroup, error) {
+	return nil, errPersonalCollectionGroupsUnsupported
 }
 
-func (s *PostgresUserStore) getCollectionGroup(ctx context.Context, id string) (*userstore.CollectionGroup, error) {
-	var g userstore.CollectionGroup
-	var createdAt, updatedAt time.Time
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, slug, default_sort_mode, sort_order, created_at, updated_at
-		FROM user_collection_groups
-		WHERE user_id = $1 AND id = $2
-	`, s.userID, id).Scan(&g.ID, &g.Name, &g.Slug, &g.DefaultSortMode, &g.SortOrder, &createdAt, &updatedAt)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("user collection group not found")
-		}
-		return nil, fmt.Errorf("getting user collection group: %w", err)
-	}
-	g.CreatedAt = timeToString(createdAt)
-	g.UpdatedAt = timeToString(updatedAt)
-	return &g, nil
-}
-
-func (s *PostgresUserStore) EnsureCollectionGroup(ctx context.Context, id string) error {
+func (s *PostgresUserStore) EnsureCollectionGroup(_ context.Context, id string) error {
 	if id == "" {
 		return nil
 	}
-	var exists bool
-	if err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM user_collection_groups WHERE user_id = $1 AND id = $2
-		)
-	`, s.userID, id).Scan(&exists); err != nil {
-		return fmt.Errorf("checking user collection group: %w", err)
-	}
-	if !exists {
-		return userstore.ErrCollectionGroupNotFound
-	}
-	return nil
+	return errPersonalCollectionGroupsUnsupported
 }
 
-func (s *PostgresUserStore) CreateCollectionGroup(ctx context.Context, name, slug string, defaultSortMode userstore.GroupSortMode) (*userstore.CollectionGroup, error) {
-	if name == "" {
-		return nil, fmt.Errorf("group name cannot be empty")
-	}
-	if slug == "" {
-		slug = collectionutil.SlugifyGroupSlug(name)
-	}
-	if defaultSortMode == "" {
-		defaultSortMode = userstore.GroupSortManual
-	}
-	id := "ucg_" + generateUUID()
-	var g userstore.CollectionGroup
-	var createdAt, updatedAt time.Time
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO user_collection_groups (
-			user_id, label, title, id, name, slug, default_sort_mode, sort_order
-		)
-		SELECT $1, $2, $3, $4, $3, $2, $5,
-		       COALESCE((SELECT MAX(sort_order) + 1 FROM user_collection_groups WHERE user_id = $1), 0)
-		RETURNING id, name, slug, default_sort_mode, sort_order, created_at, updated_at
-	`, s.userID, slug, name, id, defaultSortMode).Scan(&g.ID, &g.Name, &g.Slug, &g.DefaultSortMode, &g.SortOrder, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("creating user collection group: %w", err)
-	}
-	g.CreatedAt = timeToString(createdAt)
-	g.UpdatedAt = timeToString(updatedAt)
-	return &g, nil
+func (s *PostgresUserStore) CreateCollectionGroup(context.Context, string, string, userstore.GroupSortMode) (*userstore.CollectionGroup, error) {
+	return nil, errPersonalCollectionGroupsUnsupported
 }
 
-func (s *PostgresUserStore) UpdateCollectionGroup(ctx context.Context, id string, name *string, slug *string, defaultSortMode *userstore.GroupSortMode) (*userstore.CollectionGroup, error) {
-	return s.updateCollectionGroup(ctx, id, name, slug, defaultSortMode, nil)
-}
-func (s *PostgresUserStore) UpdateCollectionGroupIfRevision(ctx context.Context, id string, name *string, slug *string, defaultSortMode *userstore.GroupSortMode, expected int64) (*userstore.CollectionGroup, error) {
-	var group *userstore.CollectionGroup
-	err := s.runCollectionMutation(ctx, "", expected, func() error {
-		var err error
-		group, err = s.updateCollectionGroup(ctx, id, name, slug, defaultSortMode, &expected)
-		return err
-	})
-	return group, err
-}
-func (s *PostgresUserStore) updateCollectionGroup(ctx context.Context, id string, name *string, slug *string, defaultSortMode *userstore.GroupSortMode, expected *int64) (*userstore.CollectionGroup, error) {
-	sets := []string{}
-	args := []any{s.userID, id}
-	add := func(column string, value any) {
-		args = append(args, value)
-		sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
-	}
-	if name != nil {
-		add("name", *name)
-		add("title", *name)
-	}
-	if slug != nil {
-		add("slug", *slug)
-		add("label", *slug)
-	}
-	if defaultSortMode != nil {
-		add("default_sort_mode", *defaultSortMode)
-	}
-	if len(sets) == 0 && expected == nil {
-		return s.getCollectionGroup(ctx, id)
-	}
-	tx, err := s.pool.BeginTx(ctx, collectionMutationTxOptions(expected))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.checkCollectionOrderRevision(ctx, tx, expected); err != nil {
-		return nil, err
-	}
-	add("updated_at", nowUTC())
-	query := fmt.Sprintf(`
-		UPDATE user_collection_groups
-		SET %s
-		WHERE user_id = $1 AND id = $2
-		RETURNING id, name, slug, default_sort_mode, sort_order, created_at, updated_at
-	`, strings.Join(sets, ", "))
-	var g userstore.CollectionGroup
-	var createdAt, updatedAt time.Time
-	err = tx.QueryRow(ctx, query, args...).Scan(&g.ID, &g.Name, &g.Slug, &g.DefaultSortMode, &g.SortOrder, &createdAt, &updatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("user collection group not found")
-		}
-		return nil, fmt.Errorf("updating user collection group: %w", err)
-	}
-	g.CreatedAt = timeToString(createdAt)
-	g.UpdatedAt = timeToString(updatedAt)
-	if err := s.finishCollectionOrderRevision(ctx, tx, expected); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &g, nil
+func (s *PostgresUserStore) UpdateCollectionGroup(context.Context, string, *string, *string, *userstore.GroupSortMode) (*userstore.CollectionGroup, error) {
+	return nil, errPersonalCollectionGroupsUnsupported
 }
 
-func (s *PostgresUserStore) DeleteCollectionGroup(ctx context.Context, id string) error {
-	return s.deleteCollectionGroup(ctx, id, nil)
-}
-func (s *PostgresUserStore) DeleteCollectionGroupIfRevision(ctx context.Context, id string, expected int64) error {
-	return s.runCollectionMutation(ctx, "", expected, func() error { return s.deleteCollectionGroup(ctx, id, &expected) })
-}
-func (s *PostgresUserStore) deleteCollectionGroup(ctx context.Context, id string, expected *int64) error {
-	tx, err := s.pool.BeginTx(ctx, collectionMutationTxOptions(expected))
-	if err != nil {
-		return fmt.Errorf("beginning user collection group delete: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	if err := s.checkCollectionOrderRevision(ctx, tx, expected); err != nil {
-		return err
-	}
-
-	// Group updates take this row before their aggregate trigger. Take it before
-	// clearing member parents too, so mixed update/delete cannot invert the order.
-	// NO KEY UPDATE keeps foreign-key checks on concurrent parent assignments compatible.
-	var groupExists string
-	if err := tx.QueryRow(ctx, `SELECT id FROM user_collection_groups WHERE user_id=$1 AND id=$2 FOR NO KEY UPDATE`, s.userID, id).Scan(&groupExists); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return userstore.ErrCollectionGroupNotFound
-		}
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE user_personal_collections
-		SET group_id = NULL, updated_at = $3
-		WHERE user_id = $1 AND group_id = $2
-	`, s.userID, id, nowUTC()); err != nil {
-		return fmt.Errorf("clearing group_id on collections: %w", err)
-	}
-	tag, err := tx.Exec(ctx, `
-		DELETE FROM user_collection_groups WHERE user_id = $1 AND id = $2
-	`, s.userID, id)
-	if err != nil {
-		return fmt.Errorf("deleting user collection group: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("user collection group not found")
-	}
-	if err := s.finishCollectionOrderRevision(ctx, tx, expected); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+func (s *PostgresUserStore) UpdateCollectionGroupIfRevision(context.Context, string, *string, *string, *userstore.GroupSortMode, int64) (*userstore.CollectionGroup, error) {
+	return nil, errPersonalCollectionGroupsUnsupported
 }
 
-func (s *PostgresUserStore) ReorderCollectionGroups(ctx context.Context, orderedIDs []string) error {
-	return s.reorderCollectionGroups(ctx, orderedIDs, nil)
+func (s *PostgresUserStore) DeleteCollectionGroup(context.Context, string) error {
+	return errPersonalCollectionGroupsUnsupported
 }
-func (s *PostgresUserStore) ReorderCollectionGroupsIfRevision(ctx context.Context, orderedIDs []string, expected int64) error {
-	return s.runCollectionMutation(ctx, "", expected, func() error { return s.reorderCollectionGroups(ctx, orderedIDs, &expected) })
+
+func (s *PostgresUserStore) DeleteCollectionGroupIfRevision(context.Context, string, int64) error {
+	return errPersonalCollectionGroupsUnsupported
 }
-func (s *PostgresUserStore) reorderCollectionGroups(ctx context.Context, orderedIDs []string, expected *int64) error {
-	if collectionutil.HasDuplicateOrderedIDs(orderedIDs) {
-		return fmt.Errorf("ordered_ids contains duplicates")
-	}
 
-	tx, err := s.pool.BeginTx(ctx, collectionMutationTxOptions(expected))
-	if err != nil {
-		return fmt.Errorf("beginning user collection groups reorder: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	if err := s.checkCollectionOrderRevision(ctx, tx, expected); err != nil {
-		return err
-	}
+func (s *PostgresUserStore) ReorderCollectionGroups(context.Context, []string) error {
+	return errPersonalCollectionGroupsUnsupported
+}
 
-	var updated, total int
-	if err := tx.QueryRow(ctx, `
-		WITH supplied AS (
-		  SELECT id, pos FROM unnest($1::text[]) WITH ORDINALITY AS u(id, pos)
-		),
-		upd AS (
-		  UPDATE user_collection_groups g
-		  SET sort_order = supplied.pos - 1, updated_at = $3
-		  FROM supplied
-		  WHERE g.user_id = $2 AND g.id = supplied.id
-		  RETURNING 1
-		)
-		SELECT (SELECT count(*) FROM upd),
-		       (SELECT count(*) FROM user_collection_groups WHERE user_id = $2)
-	`, orderedIDs, s.userID, nowUTC()).Scan(&updated, &total); err != nil {
-		return fmt.Errorf("reordering user collection groups: %w", err)
-	}
-	if updated != len(orderedIDs) || updated != total {
-		return collectionutil.ErrOrderedIDsMismatch
-	}
-	if err := s.finishCollectionOrderRevision(ctx, tx, expected); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+func (s *PostgresUserStore) ReorderCollectionGroupsIfRevision(context.Context, []string, int64) error {
+	return errPersonalCollectionGroupsUnsupported
 }
 
 func (s *PostgresUserStore) RemoveCollectionItem(ctx context.Context, collectionID, mediaItemID string) error {

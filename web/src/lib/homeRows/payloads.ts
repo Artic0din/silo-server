@@ -1,11 +1,10 @@
+import type { BulkCreateAdminSections } from "@/api/adminSections";
 import {
-  queryDefinitionFromSectionConfig,
   queryDefinitionToSectionConfig,
   type PageSectionConfig,
   type QueryDefinition,
   type SettingsSectionEntry,
 } from "@/api/types";
-import type { BulkCreateAdminSections } from "@/api/adminSections";
 import type { CollectionOption } from "@/hooks/queries/useAllUserCollections";
 import {
   finalizeSectionLibraryFilter,
@@ -110,27 +109,6 @@ export function buildProfileGallerySection(
   };
 }
 
-function preserveGeneratedSectionMetadata(
-  existingConfig: Record<string, unknown> | undefined,
-  nextConfig: Record<string, unknown>,
-): Record<string, unknown> {
-  if (!existingConfig) {
-    return nextConfig;
-  }
-
-  const merged = { ...nextConfig };
-  if (typeof existingConfig.generated_source === "string" && existingConfig.generated_source) {
-    merged.generated_source = existingConfig.generated_source;
-  }
-  if (
-    typeof existingConfig.filter_library_id === "number" &&
-    Number.isInteger(existingConfig.filter_library_id)
-  ) {
-    merged.filter_library_id = existingConfig.filter_library_id;
-  }
-  return merged;
-}
-
 /**
  * The collection a collection row's config points at, or "" for none. Admin
  * rows read only `library_collection_id`: the admin endpoint rejects a row
@@ -204,131 +182,6 @@ export function withQueryDefinition(
   return { ...rest, ...queryDefinitionToSectionConfig(query) };
 }
 
-export interface BuildProfileSectionSaveEntryInput {
-  section: SettingsSectionEntry | null;
-  sectionType: string;
-  title: string;
-  itemLimit: number;
-  featured: boolean;
-  queryDefinition: QueryDefinition;
-  selectedCollectionId: string;
-  recipeParams?: Record<string, unknown>;
-  collections?: CollectionOption[];
-}
-
-export function buildProfileSectionSaveEntry({
-  section,
-  sectionType,
-  title,
-  itemLimit,
-  featured,
-  queryDefinition,
-  selectedCollectionId,
-  recipeParams,
-  collections,
-}: BuildProfileSectionSaveEntryInput): SettingsSectionEntry {
-  let config: Record<string, unknown>;
-  if (sectionType === "collection") {
-    const selected = collections?.find((collection) => collection.id === selectedCollectionId);
-    config = collectionRowConfig(
-      section?.section_type === "collection" ? section.config : undefined,
-      selectedCollectionId,
-      selected?.source === "user" ? "user_collection_id" : "library_collection_id",
-      "profile",
-    );
-  } else if (FILTER_SECTION_TYPES.has(sectionType)) {
-    config = preserveGeneratedSectionMetadata(
-      section?.config,
-      queryDefinitionToSectionConfig(queryDefinition),
-    );
-  } else if (recipeParams && LIBRARY_FILTER_SECTION_TYPES.has(sectionType)) {
-    // The params start from the section config and the library picker owns the
-    // filter keys, so restoring the old filter_library_id would widen the selection.
-    config = finalizeSectionLibraryFilter(recipeParams);
-  } else {
-    config = preserveGeneratedSectionMetadata(section?.config, recipeParams ?? {});
-  }
-
-  return {
-    id: section?.id ?? randomUUID(),
-    section_type: sectionType,
-    title: title || rowKindLabel(sectionType),
-    featured,
-    item_limit: itemLimit,
-    hidden: section?.hidden ?? false,
-    is_custom: section?.is_custom ?? true,
-    customized: section?.customized ?? false,
-    position: section?.position ?? 0,
-    config,
-  };
-}
-
-export interface BuildAdminSectionPayloadInput {
-  section: PageSectionConfig | null;
-  scope: string;
-  currentLibraryId: number | null;
-  sectionType: string;
-  title: string;
-  itemLimit: number;
-  featured: boolean;
-  enabled: boolean;
-  queryDefinition: QueryDefinition;
-  selectedCollectionId: string;
-  recipeParams?: Record<string, unknown>;
-  collections?: CollectionOption[];
-}
-
-export function buildAdminSectionPayload({
-  section,
-  scope,
-  currentLibraryId,
-  sectionType,
-  title,
-  itemLimit,
-  featured,
-  enabled,
-  queryDefinition,
-  selectedCollectionId,
-  recipeParams,
-}: BuildAdminSectionPayloadInput): Partial<PageSectionConfig> & { id?: string } {
-  const base = section?.section_type === sectionType ? { ...section.config } : {};
-  let config: Record<string, unknown>;
-  if (sectionType === "collection") {
-    // Admin rows pick library collections only.
-    config = collectionRowConfig(
-      section?.section_type === "collection" ? base : undefined,
-      selectedCollectionId,
-      "library_collection_id",
-      "admin",
-    );
-  } else if (FILTER_SECTION_TYPES.has(sectionType)) {
-    config = withQueryDefinition(base, queryDefinition);
-  } else if (recipeParams && LIBRARY_FILTER_SECTION_TYPES.has(sectionType)) {
-    // The library picker owns the filter keys; keeping the old ones from base
-    // would re-add a replaced filter_library_id.
-    delete base.filter_library_id;
-    delete base.filter_library_ids;
-    delete base.library_ids;
-    config = finalizeSectionLibraryFilter({ ...base, ...recipeParams });
-  } else {
-    config = { ...base, ...recipeParams };
-  }
-
-  const safeTitle = title.trim() || rowKindLabel(sectionType);
-
-  return {
-    ...(section ? { id: section.id } : {}),
-    scope,
-    ...(scope === "library" && currentLibraryId != null ? { library_id: currentLibraryId } : {}),
-    title: safeTitle,
-    section_type: sectionType,
-    item_limit: itemLimit,
-    featured,
-    enabled,
-    config,
-  };
-}
-
 /** Where a new single row goes: after every row on the page (0 on an empty page). */
 export function nextAppendPosition(positions: readonly number[]): number {
   return positions.length === 0 ? 0 : Math.max(...positions) + 1;
@@ -394,11 +247,17 @@ const FORM_OWNED_CONFIG_TYPES: ReadonlySet<string> = new Set([
   ...FILTER_SECTION_TYPES,
 ]);
 
+function rowUpdateConfig(draft: RowDraft): Record<string, unknown> {
+  if (FORM_OWNED_CONFIG_TYPES.has(draft.sectionType)) return draft.config;
+  return LIBRARY_FILTER_SECTION_TYPES.has(draft.sectionType)
+    ? finalizeSectionLibraryFilter(draft.config)
+    : { ...draft.config };
+}
+
 /**
  * The update request for a row saved from Edit row: the row editor's bytes.
- * The draft's config already starts from the stored config, so the builder
- * gets no base to merge back: a key the user's variant change removed stays
- * removed. Collection and rule rows send the draft's config as it is, so an
+ * The draft starts from the stored config; keys removed by a variant change
+ * stay removed. Collection and rule rows send the draft's config as it is, so an
  * untouched one saves exactly as stored. `enabled` comes from the version
  * being saved over.
  */
@@ -407,22 +266,19 @@ export function buildRowUpdateRequest(
   draft: RowDraft,
   title: string,
 ): Partial<PageSectionConfig> & { id?: string } {
-  const request = buildAdminSectionPayload({
-    section: { ...section, config: {} },
+  return {
+    id: section.id,
     scope: section.scope,
-    currentLibraryId: section.library_id,
-    sectionType: draft.sectionType,
-    title,
-    itemLimit: draft.itemLimit,
+    ...(section.scope === "library" && section.library_id != null
+      ? { library_id: section.library_id }
+      : {}),
+    title: title.trim() || rowKindLabel(draft.sectionType),
+    section_type: draft.sectionType,
+    item_limit: draft.itemLimit,
     featured: draft.hero,
     enabled: section.enabled,
-    queryDefinition: queryDefinitionFromSectionConfig(draft.config),
-    selectedCollectionId: "",
-    recipeParams: draft.config,
-  });
-  return FORM_OWNED_CONFIG_TYPES.has(draft.sectionType)
-    ? { ...request, config: draft.config }
-    : request;
+    config: rowUpdateConfig(draft),
+  };
 }
 
 /** A row added on Settings > Home Screen, as this profile's own. */
@@ -445,9 +301,8 @@ export function buildProfileRowCreate(
 }
 
 /**
- * A row saved from Edit row on Settings > Home Screen, built like the old
- * editor built it. A config the user didn't change stays the stored object,
- * so a rename never stores (and pins) the row's config; collection and rule
+ * A row saved from Edit row on Settings > Home Screen. A config the user
+ * didn't change stays the stored object, so a rename never stores (and pins) the row's config; collection and rule
  * rows send the draft's config as it is.
  */
 export function buildProfileRowUpdate(
@@ -455,24 +310,22 @@ export function buildProfileRowUpdate(
   draft: RowDraft,
   title: string,
 ): SettingsSectionEntry {
-  const entry = buildProfileSectionSaveEntry({
-    section: { ...section, config: {} },
-    sectionType: draft.sectionType,
-    title,
-    itemLimit: draft.itemLimit,
-    featured: draft.hero,
-    queryDefinition: queryDefinitionFromSectionConfig(draft.config),
-    selectedCollectionId: "",
-    recipeParams: draft.config,
-  });
-  let { config } = entry;
-  if (
+  const config =
     draft.sectionType === section.section_type &&
     stableJson(draft.config) === stableJson(section.config ?? {})
-  ) {
-    config = section.config;
-  } else if (FORM_OWNED_CONFIG_TYPES.has(draft.sectionType)) {
-    config = draft.config;
-  }
-  return { ...entry, default_title: section.default_title, config };
+      ? section.config
+      : rowUpdateConfig(draft);
+  return {
+    id: section.id,
+    section_type: draft.sectionType,
+    title: title || rowKindLabel(draft.sectionType),
+    featured: draft.hero,
+    item_limit: draft.itemLimit,
+    hidden: section.hidden ?? false,
+    is_custom: section.is_custom ?? true,
+    customized: section.customized ?? false,
+    position: section.position ?? 0,
+    default_title: section.default_title,
+    config,
+  };
 }

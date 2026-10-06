@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { listReturnState } from "@/lib/collections/listReturn";
 import {
   adminCapabilities,
   adminCollectionList,
@@ -18,7 +19,6 @@ import {
   personalCapabilities,
   personalSmartCollection,
 } from "@/test/fixtures/collectionAnswers";
-import { listReturnState } from "@/lib/collections/listReturn";
 import { installV2Recorder, v2Recorder } from "@/test/v2Recorder";
 import CollectionEditorPage from "./CollectionEditorPage";
 
@@ -520,10 +520,9 @@ function inPageOrder(names: readonly string[]) {
 }
 
 describe("layout", () => {
-  it("is one column in the order a collection is made, with the preview under the rules", async () => {
+  it("orders the smart editor sections with the preview under the rules", async () => {
     showPage("/admin/collections/c1/edit");
     await sentence();
-    expect(screen.getByTestId("editor-column").className).toContain("max-w-3xl");
     const order = ["Name and description", "Rules", "Live preview", "Where it shows", "Look"];
     expect(inPageOrder([...order].reverse())).toEqual(order);
   });

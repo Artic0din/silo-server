@@ -5,14 +5,13 @@ import { V2ProblemError } from "@/api/v2/request";
 
 import {
   applySectionDeletion,
-  canMutateSectionSettings,
   buildSectionOverrides,
+  canMutateSectionSettings,
   createOverrideIdSource,
-  buildProfileGallerySection,
   hydrateRemovedSystemSections,
   sectionSaveErrorMessage,
-  shouldRestoreLatestSaveFailure,
-} from "./HomeScreenSettings";
+} from "@/lib/homeRows/profileOverrides";
+import { buildProfileGallerySection } from "@/lib/homeRows/payloads";
 
 function makeSection(overrides: Partial<SettingsSectionEntry> = {}): SettingsSectionEntry {
   return {
@@ -231,12 +230,6 @@ describe("HomeScreenSettings helpers", () => {
         { isSuccess: true, isError: false },
       ),
     ).toBe(true);
-  });
-
-  it("only restores rollback state for the latest save attempt in the current selection", () => {
-    expect(shouldRestoreLatestSaveFailure("library:1", "library:1", 3, 3)).toBe(true);
-    expect(shouldRestoreLatestSaveFailure("library:1", "library:1", 4, 3)).toBe(false);
-    expect(shouldRestoreLatestSaveFailure("library:2", "library:1", 3, 3)).toBe(false);
   });
 });
 

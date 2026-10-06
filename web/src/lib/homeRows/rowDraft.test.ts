@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createAdminSection, updateAdminSection } from "@/api/adminSections";
 import {
   queryDefinitionFromSectionConfig,
   type PageSectionConfig,
   type QueryDefinition,
 } from "@/api/types";
-import { createAdminSection, updateAdminSection } from "@/api/adminSections";
-import golden from "./payloads.golden.json";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRowCreateRequest, buildRowUpdateRequest, nextAppendPosition } from "./payloads";
+import golden from "./payloads.golden.json";
 import { everyPreset, recipeCatalogFixture } from "./recipeCatalogFixture.test-support";
 import {
   canSaveDraft,
@@ -87,7 +87,7 @@ describe("adding a row", () => {
     for (const { def, preset } of everyPreset()) {
       for (const [pageName, page] of PAGES) {
         const key = `${def.type}/${preset.key}/${pageName}`;
-        if (!(key in adminCreate)) continue;
+        expect(adminCreate, `missing preset: ${key}`).toHaveProperty(key);
         // Start from the family's first preset and pick this one, as a chip or
         // radio does, so the variant switch is part of what is checked.
         let draft = draftForPreset(def, def.presets[0]);
@@ -388,7 +388,7 @@ describe("rule rows", () => {
     expect(draft.config).toMatchObject({ library_ids: [], match: "all", groups: [] });
   });
 
-  it("saves an untouched rule or legacy genre row exactly as stored", async () => {
+  it("preserves rule and legacy row config on a rename", async () => {
     const configs: Array<[string, Record<string, unknown>]> = [
       [
         "genre",
@@ -401,6 +401,13 @@ describe("rule rows", () => {
         },
       ],
       ["custom_filter", { ...rules, limit: 40, generated_source: "home" }],
+      [
+        "collection",
+        { library_collection_id: "lib-trakt", source_provider: "trakt", source_preset: "trending" },
+      ],
+      ["trending_discover", { source: "trakt", window: "week" }],
+      ["award_winners", { award_type: "oscar" }],
+      ["admin_curated_list", { item_ids: ["movie:a", "movie:b"] }],
       [
         "custom_filter",
         {

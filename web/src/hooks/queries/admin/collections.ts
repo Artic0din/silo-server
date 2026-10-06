@@ -1,30 +1,25 @@
-import { useAdminTaskJobs } from "@/hooks/queries/admin/taskJobs";
-import { v2, V2ProblemError } from "@/api/v2/request";
-import { adminJobFromV2 } from "@/api/v2/libraries";
-import { requiredETag } from "@/api/v2/etag";
 import {
+  adminMutationMessage,
   fetchAdminCollections,
   fetchAdminCollectionSnapshot,
-  fetchAdminGroups,
-  adminCreateBody,
-  adminUpdateBody,
-  saveAdminArtwork,
-  adminMutationMessage,
   templateApplyBody,
   templateResultFromV2,
 } from "@/api/adminCollections";
-import { useState } from "react";
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import type { CreateLibraryCollectionRequest, UpdateLibraryCollectionRequest } from "@/api/types";
+import { requiredETag } from "@/api/v2/etag";
+import { adminJobFromV2 } from "@/api/v2/libraries";
+import { v2, V2ProblemError } from "@/api/v2/request";
+import { useAdminTaskJobs } from "@/hooks/queries/admin/taskJobs";
 import type {
   ApplyCollectionTemplateBundleJobRequest,
   ApplyCollectionTemplateBundleRequest,
 } from "@/lib/collectionTemplates";
 import { SERVER_SCOPE } from "@/lib/collections/scope";
-import { adminKeys } from "../keys";
-import { invalidateAdminCollectionQueries } from "../collectionSurfaceRefresh";
+import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "sonner";
 import { runBulkDelete, type BulkDeleteProgress } from "../bulkDelete";
+import { invalidateAdminCollectionQueries } from "../collectionSurfaceRefresh";
+import { adminKeys } from "../keys";
 
 const ADMIN_STALE_TIME = 30_000;
 
@@ -36,12 +31,6 @@ export function useAdminCollectionCapabilities(enabled = true) {
     staleTime: Infinity,
   });
 }
-function showArtworkErrors(result: { artworkErrors: string[] }) {
-  if (result.artworkErrors.length)
-    toast.warning("Collection saved, but artwork could not be saved", {
-      description: result.artworkErrors.join(". "),
-    });
-}
 
 export function useAdminCollections(libraryId?: number) {
   return useQuery({
@@ -49,44 +38,6 @@ export function useAdminCollections(libraryId?: number) {
     queryFn: () => fetchAdminCollections(libraryId),
     select: (data) => data.collections,
     staleTime: ADMIN_STALE_TIME,
-  });
-}
-
-export function useAdminCollectionGroups(libraryId?: number) {
-  return useQuery({
-    queryKey: adminKeys.collectionGroups(libraryId),
-    queryFn: () => fetchAdminGroups(libraryId!).then((data) => data.groups),
-    staleTime: ADMIN_STALE_TIME,
-    enabled: libraryId !== undefined,
-  });
-}
-
-export function useCreateAdminCollection() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      body,
-      poster,
-      backdrop,
-    }: {
-      body: CreateLibraryCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-    }) => {
-      return v2("POST /api/v2/admin/collections", { body: adminCreateBody(body) }).then((value) =>
-        saveAdminArtwork(value, body, poster, backdrop),
-      );
-    },
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success("Collection created");
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to save");
-    },
   });
 }
 
@@ -177,42 +128,6 @@ export function useTemplateBundleApplyJobs() {
         )
       : listed.data,
   };
-}
-
-export function useUpdateAdminCollection() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: ({
-      id,
-      etag,
-      body,
-      poster,
-      backdrop,
-      removeArtwork,
-    }: {
-      id: string;
-      etag: string;
-      body: UpdateLibraryCollectionRequest;
-      poster?: File | null;
-      backdrop?: File | null;
-      removeArtwork?: ("poster" | "backdrop")[];
-    }) =>
-      v2("PATCH /api/v2/admin/collections/{id}", {
-        path: { id },
-        headers: { "If-Match": requiredETag(etag) },
-        body: adminUpdateBody(body),
-      }).then((value) => saveAdminArtwork(value, body, poster, backdrop, removeArtwork)),
-    onSuccess: (result) => {
-      showArtworkErrors(result);
-      toast.success("Collection saved");
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
-    onError: (error) => {
-      toast.error(SERVER_SCOPE.errorMessage(error, "Failed to save"));
-      void SERVER_SCOPE.invalidate(queryClient);
-    },
-  });
 }
 
 /**

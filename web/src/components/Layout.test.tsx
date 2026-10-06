@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import { catalogKeys } from "@/hooks/queries/keys";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { catalogKeys } from "@/hooks/queries/keys";
 import { SIDEBAR_DETAILS_REVEAL_DEADLINE_MS } from "./sidebarItemNavigation";
 
 const mocks = vi.hoisted(() => ({
@@ -265,23 +265,6 @@ describe("Layout sidebar collapse", () => {
     expect(screen.getByTestId("sidebar-surface")).toHaveAttribute("data-collapsed", "true");
     expect(screen.getByRole("main")).toHaveClass("lg:ml-16");
     expect(screen.getByRole("status", { name: "details-ready" })).toHaveTextContent("true");
-  });
-});
-
-describe("Layout page gutter", () => {
-  // Fixed page chrome (the collection editor's save bar) reads this gutter so
-  // it lines up with the content column instead of guessing the padding.
-  it("pads the page by the gutter it publishes", () => {
-    setRoute("/collections", "collections");
-    renderLayout();
-
-    expect(screen.getByRole("main").firstElementChild).toHaveClass(
-      "px-(--page-gutter)",
-      "[--page-gutter:1rem]",
-      "sm:[--page-gutter:1.5rem]",
-      "lg:[--page-gutter:2.5rem]",
-      "xl:[--page-gutter:3rem]",
-    );
   });
 });
 

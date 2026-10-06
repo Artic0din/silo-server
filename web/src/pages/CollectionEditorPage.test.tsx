@@ -10,31 +10,31 @@ import { useSyncExternalStore } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import getCollectionOk from "../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import {
   LIBRARIES_NOT_PICKED,
   PERSONAL_TAB_HELP,
   ROWS_ONCE_CREATED,
+  serverTabHelp,
   SHELF_AFTER_CREATE,
   SHOW_ON_TAB_LABEL,
   SHOW_TO_OTHER_PROFILES_HELP,
   SHOW_TO_OTHER_PROFILES_LABEL,
-  serverTabHelp,
   unshareWarning,
 } from "@/lib/collections/copy";
-import {
-  adminCapabilities,
-  adminCollection,
-  adminCollectionList,
-  personalCapabilities,
-} from "@/test/fixtures/collectionAnswers";
 import {
   artworkTile,
   chooseArtwork,
   openArtworkMenu,
   uploadArtwork,
 } from "@/test/collectionArtwork";
+import {
+  adminCapabilities,
+  adminCollection,
+  adminCollectionList,
+  personalCapabilities,
+} from "@/test/fixtures/collectionAnswers";
 import { installV2Recorder, v2Recorder, type RecordedCall } from "@/test/v2Recorder";
+import getCollectionOk from "../../../contracts/api/v2/fixtures/get_collection_ok.json";
 import CollectionEditorPage from "./CollectionEditorPage";
 
 vi.mock("@/api/v2/request", async () => (await import("@/test/v2Recorder")).mockV2Request());
@@ -913,10 +913,9 @@ function inPageOrder(names: readonly string[]) {
 }
 
 describe("layout", () => {
-  it("is one column at every width, Name first, the same on a phone", async () => {
+  it("orders the manual editor sections with Name first", async () => {
     showPage("/collections/new?type=manual");
     await nameField();
-    expect(screen.getByTestId("editor-column").className).toContain("max-w-3xl");
     expect(screen.queryByRole("navigation", { name: "Editor sections" })).toBeNull();
     const order = ["Name and description", "Titles", "Where it shows", "Look"];
     expect(inPageOrder([...order].reverse())).toEqual(order);

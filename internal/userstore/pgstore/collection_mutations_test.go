@@ -25,7 +25,7 @@ func TestCollectionCASConcurrentPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	for _, operation := range []string{"update", "delete", "items", "collections", "group_update", "group_delete", "groups"} {
+	for _, operation := range []string{"update", "delete", "items", "collections"} {
 		t.Run(operation, func(t *testing.T) {
 			ctx := t.Context()
 			var uid int
@@ -47,15 +47,11 @@ func TestCollectionCASConcurrentPostgres(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			g, err := s.CreateCollectionGroup(ctx, "group", "group", "manual")
-			if err != nil {
-				t.Fatal(err)
-			}
 			revision, err := s.CollectionRevision(ctx, c.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if operation == "collections" || operation == "group_update" || operation == "group_delete" || operation == "groups" {
+			if operation == "collections" {
 				revision, err = s.CollectionOrderRevision(ctx)
 				if err != nil {
 					t.Fatal(err)
@@ -72,13 +68,8 @@ func TestCollectionCASConcurrentPostgres(t *testing.T) {
 					return store.ReorderCollectionItemsIfRevision(ctx, c.ID, []string{"b", "a"}, revision)
 				case "collections":
 					return store.ReorderCollectionsIfRevision(ctx, "owner", []string{c.ID}, revision)
-				case "group_update":
-					_, err := store.UpdateCollectionGroupIfRevision(ctx, g.ID, new("updated"), nil, nil, revision)
-					return err
-				case "group_delete":
-					return store.DeleteCollectionGroupIfRevision(ctx, g.ID, revision)
 				default:
-					return store.ReorderCollectionGroupsIfRevision(ctx, []string{g.ID}, revision)
+					panic("unknown collection operation: " + operation)
 				}
 			}
 			start := make(chan struct{})
