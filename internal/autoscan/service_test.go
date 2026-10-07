@@ -11,6 +11,8 @@ import (
 
 	"github.com/Silo-Server/silo-server/internal/models"
 	"github.com/Silo-Server/silo-server/internal/scantrigger"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type fakeStore struct {
@@ -1140,18 +1142,23 @@ func TestPollOnceReleasesClaimOnEnqueueFailure(t *testing.T) {
 }
 
 func TestPollOncePollsConnectionlessSource(t *testing.T) {
-	// A connection is OPTIONAL: a source with no bound connection is still polled
-	// (the provider gets an empty connection it may ignore — e.g. a filesystem
-	// watcher). Whether the plugin needs credentials is the plugin's concern.
+	// A source whose descriptor does not require a connection is still polled
+	// with none bound: the provider gets an empty connection it ignores (the
+	// CephFS filesystem watcher).
 	store := &fakeStore{
 		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
 		sources: []Source{{
-			ID: "s1", PluginID: "silo.autoscan.arr", CapabilityID: "arr", ConnectionID: nil, Enabled: true,
+			ID: "s1", PluginID: cephFSPluginID, CapabilityID: cephFSCapabilityID, ConnectionID: nil, Enabled: true,
 		}},
 	}
-	prov := &fakeProvider{paths: map[string][]string{"arr": {"/mnt/media/Show/S01/E01.mkv"}}, nextMarker: "m1"}
+	prov := &fakeProvider{paths: map[string][]string{cephFSCapabilityID: {"/mnt/media/Show/S01/E01.mkv"}}, nextMarker: "m1"}
 	q := &recordingQueuer{}
-	svc := newService(store, prov, q, allowSuppressor{})
+	lister := fakeLister{sources: []DiscoveredSource{{
+		PluginID:     cephFSPluginID,
+		CapabilityID: cephFSCapabilityID,
+		Descriptor:   ApplyCompatibilityDescriptor(cephFSPluginID, cephFSCapabilityID, DescriptorFromMetadata(nil)),
+	}}}
+	svc := NewService(store, prov, passthroughConnRes{}, fakeResolver{}, q, allowSuppressor{}, lister)
 	if err := svc.PollOnce(context.Background()); err != nil {
 		t.Fatalf("PollOnce: %v", err)
 	}
@@ -1320,5 +1327,108 @@ func TestPollOnceRecordsScanSourceResolutionFailure(t *testing.T) {
 	}
 	if store.events[1].Status != EventStatusError || !strings.Contains(store.events[1].ErrorMessage, "not installed") {
 		t.Fatalf("failed source event = %+v", store.events[1])
+	}
+}
+
+func arrSourceWithoutConnection() Source {
+	return Source{ID: "s1", PluginID: arrPluginID, CapabilityID: arrCapabilityID, Enabled: true}
+}
+
+func arrLister(connection ConnectionRequirement) fakeLister {
+	return fakeLister{sources: []DiscoveredSource{{
+		PluginID:     arrPluginID,
+		CapabilityID: arrCapabilityID,
+		Descriptor:   ScanSourceDescriptor{DeliveryModes: []string{DeliveryModePoll}, Connection: connection},
+	}}}
+}
+
+// A source whose descriptor requires a server must not reach the plugin with
+// none bound: the poll can only fail, and the operator needs to be told what to
+// change rather than shown a transport error.
+func TestPollOnceSkipsPluginWhenRequiredConnectionMissing(t *testing.T) {
+	marker := "m0"
+	src := arrSourceWithoutConnection()
+	src.Marker = &marker
+	store := &fakeStore{
+		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+		sources:  []Source{src},
+	}
+	prov := &fakeProvider{nextMarker: "m1"}
+	svc := NewService(store, prov, passthroughConnRes{}, fakeResolver{}, &recordingQueuer{}, allowSuppressor{}, arrLister(ConnectionRequired))
+
+	if err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if prov.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", prov.calls)
+	}
+	if got := store.recorded["s1"]; got != missingConnectionMessage {
+		t.Fatalf("recorded error = %q, want %q", got, missingConnectionMessage)
+	}
+	if len(store.events) != 1 {
+		t.Fatalf("finished events = %+v, want one", store.events)
+	}
+	event := store.events[0]
+	if event.Status != EventStatusError || event.ErrorMessage != missingConnectionMessage || event.MarkerAfter != marker {
+		t.Fatalf("event = %+v, want error holding marker %q", event, marker)
+	}
+	if _, ok := store.advanced["s1"]; ok {
+		t.Fatal("marker must not advance when the poll was skipped")
+	}
+}
+
+func TestPollOnceCallsPluginWhenConnectionOptional(t *testing.T) {
+	store := &fakeStore{
+		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+		sources:  []Source{arrSourceWithoutConnection()},
+	}
+	prov := &fakeProvider{nextMarker: "m1"}
+	svc := NewService(store, prov, passthroughConnRes{}, fakeResolver{}, &recordingQueuer{}, allowSuppressor{}, arrLister(ConnectionOptional))
+
+	if err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if prov.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", prov.calls)
+	}
+}
+
+// A listing failure must not stop sources from polling; the plugin still gets
+// to report its own error.
+func TestPollOnceCallsPluginWhenDescriptorsUnavailable(t *testing.T) {
+	store := &fakeStore{
+		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+		sources:  []Source{arrSourceWithoutConnection()},
+	}
+	prov := &fakeProvider{nextMarker: "m1"}
+	svc := NewService(store, prov, passthroughConnRes{}, fakeResolver{}, &recordingQueuer{}, allowSuppressor{}, fakeLister{err: errors.New("installation store unavailable")})
+
+	if err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if prov.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", prov.calls)
+	}
+}
+
+func TestPollOnceRecordsPluginErrorWithoutTransportFraming(t *testing.T) {
+	src := arrSourceWithoutConnection()
+	src.ConnectionID = strptr("c1")
+	store := &fakeStore{
+		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+		sources:  []Source{src},
+	}
+	prov := &fakeProvider{err: status.Error(codes.Unknown, "arr: history request failed: 401 Unauthorized")}
+	svc := newService(store, prov, &recordingQueuer{}, allowSuppressor{})
+
+	if err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	const want = "arr: history request failed: 401 Unauthorized"
+	if got := store.recorded["s1"]; got != want {
+		t.Fatalf("recorded error = %q, want %q", got, want)
+	}
+	if len(store.events) != 1 || store.events[0].ErrorMessage != want {
+		t.Fatalf("events = %+v, want error message %q", store.events, want)
 	}
 }

@@ -175,6 +175,10 @@ func (s *Service) poll(ctx context.Context, ignoreIntervals bool) error {
 	}
 	ttl := time.Duration(settings.DebounceSeconds) * time.Second
 	now := time.Now()
+	// Descriptors are only needed for sources with no bound connection, so the
+	// installed-plugin listing is read at most once per cycle and only then.
+	var requirements map[sourceIdentity]ConnectionRequirement
+	requirementsLoaded := false
 
 	for _, src := range sources {
 		// Webhook sources are fed by IngestChanges when the provider POSTs to
@@ -203,26 +207,30 @@ func (s *Service) poll(ctx context.Context, ignoreIntervals bool) error {
 		if !started {
 			continue
 		}
-		// A connection is OPTIONAL. Server-based providers (Sonarr/Radarr) bind a
-		// connection and the resolved {base_url, api_key} is handed to the plugin.
-		// Other providers (e.g. a filesystem/CephFS watcher) need none and get an
-		// empty connection they ignore. If a plugin requires a connection it didn't
-		// get, it returns an error that is RecordError'd below — so the operator
-		// still sees "needs attention" without the host assuming every source is
-		// credential-based.
+		// Whether a connection is needed comes from the source's descriptor.
+		// Server-based providers (Sonarr/Radarr) bind a connection and the
+		// resolved {base_url, api_key} is handed to the plugin. Other providers
+		// (e.g. a filesystem/CephFS watcher) need none and get an empty
+		// connection they ignore. A source whose descriptor requires a
+		// connection but has none bound is not sent to the plugin: the call can
+		// only fail, and the host can say what to fix more plainly than the
+		// plugin's error would.
+		if src.ConnectionID == nil {
+			if !requirementsLoaded {
+				requirements = s.connectionRequirements(ctx)
+				requirementsLoaded = true
+			}
+			if requirements[sourceIdentity{src.PluginID, src.CapabilityID}] == ConnectionRequired {
+				s.failPoll(ctx, src, eventID, marker, missingConnectionMessage)
+				continue
+			}
+		}
 		var conn ResolvedConnection
 		if src.ConnectionID != nil {
 			resolved, cerr := s.resolveConnection(ctx, *src.ConnectionID)
 			if cerr != nil {
 				slog.WarnContext(ctx, "autoscan: resolve connection failed", "component", "autoscan", "source_id", src.ID, "err", cerr)
-				if rerr := s.store.RecordError(ctx, src.ID, cerr.Error()); rerr != nil {
-					slog.WarnContext(ctx, "autoscan: record error failed", "component", "autoscan", "source_id", src.ID, "err", rerr)
-				}
-				s.finishEvent(ctx, eventID, EventFinish{
-					Status:       EventStatusError,
-					ErrorMessage: cerr.Error(),
-					MarkerAfter:  marker,
-				})
+				s.failPoll(ctx, src, eventID, marker, cerr.Error())
 				continue
 			}
 			conn = resolved
@@ -230,14 +238,7 @@ func (s *Service) poll(ctx context.Context, ignoreIntervals bool) error {
 		changes, next, perr := s.provider.PollChanges(ctx, src.PluginID, src.CapabilityID, marker, conn, src.SourceConfig)
 		if perr != nil {
 			slog.WarnContext(ctx, "autoscan: poll changes failed", "component", "autoscan", "source_id", src.ID, "err", perr)
-			if rerr := s.store.RecordError(ctx, src.ID, perr.Error()); rerr != nil {
-				slog.WarnContext(ctx, "autoscan: record error failed", "component", "autoscan", "source_id", src.ID, "err", rerr)
-			}
-			s.finishEvent(ctx, eventID, EventFinish{
-				Status:       EventStatusError,
-				ErrorMessage: perr.Error(),
-				MarkerAfter:  marker,
-			})
+			s.failPoll(ctx, src, eventID, marker, pollErrorMessage(perr))
 			continue // do NOT advance marker
 		}
 
@@ -252,6 +253,54 @@ func (s *Service) poll(ctx context.Context, ignoreIntervals bool) error {
 		})
 	}
 	return nil
+}
+
+// missingConnectionMessage is recorded for a poll source whose descriptor
+// requires a connection when none is bound. It is written for the operator,
+// who sees it on the source row and in poll activity.
+const missingConnectionMessage = "No server selected. Edit the source and choose a server."
+
+// failPoll records a poll that ended before the provider returned changes: the
+// source's last_error and the event both carry msg, and the marker is held so
+// the next poll re-reads the same window.
+func (s *Service) failPoll(ctx context.Context, src Source, eventID int64, marker, msg string) {
+	if rerr := s.store.RecordError(ctx, src.ID, msg); rerr != nil {
+		slog.WarnContext(ctx, "autoscan: record error failed", "component", "autoscan", "source_id", src.ID, "err", rerr)
+	}
+	s.finishEvent(ctx, eventID, EventFinish{
+		Status:       EventStatusError,
+		ErrorMessage: msg,
+		MarkerAfter:  marker,
+	})
+}
+
+// sourceIdentity is the (plugin, capability) pair a source is created against.
+type sourceIdentity struct {
+	pluginID     string
+	capabilityID string
+}
+
+// connectionRequirements maps each discoverable scan-source identity to its
+// resolved descriptor's connection requirement. It reads the same normalized
+// descriptors as the source write check (ListAvailableScanSources), so a
+// source the write path accepted is judged the same way here. A missing lister
+// or a listing failure yields nil, which leaves every source to the plugin's
+// own judgement: a transient listing fault must not stop otherwise working
+// sources polling.
+func (s *Service) connectionRequirements(ctx context.Context) map[sourceIdentity]ConnectionRequirement {
+	if s.lister == nil {
+		return nil
+	}
+	discovered, err := s.ListAvailableScanSources(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "autoscan: list scan sources for connection requirements failed", "component", "autoscan", "err", err)
+		return nil
+	}
+	out := make(map[sourceIdentity]ConnectionRequirement, len(discovered))
+	for _, d := range discovered {
+		out[sourceIdentity{d.PluginID, d.CapabilityID}] = d.Descriptor.Connection
+	}
+	return out
 }
 
 // consumeOptions parameterizes the shared consume path for its two callers.

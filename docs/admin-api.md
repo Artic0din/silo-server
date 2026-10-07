@@ -2190,6 +2190,10 @@ read reuses discovery and its defaults without invoking a provider or reading
 stored source configuration. Descriptor fields, setup form controls, options,
 conditions, validation and manifest defaults retain their existing meanings;
 `default_value` is a plugin-defined JSON extension value, not a stored secret.
+First-party plugins whose manifests predate descriptors get a host compatibility
+descriptor (`internal/autoscan/compat.go`): the CephFS watcher needs no connection,
+and the Sonarr/Radarr poller (`silo.autoscan.arr`) requires a `sonarr` or `radarr`
+connection. Any field the manifest declares itself wins over the compatibility value.
 
 Each page enumerates the full current discovery list, sorts by `(plugin_id,
 capability_id)`, and returns at most `limit` entries (default 50, maximum 200).
@@ -2555,6 +2559,31 @@ Configuration keys/values, connection and label are normalized as in the bridge.
 Webhook mode is restricted to the built-in identity, with auto/sonarr/radarr provider
 validation. Creation does not create a webhook endpoint. Update returns existing
 webhook state with v2 callback URL projection; reveal failures can omit the URL.
+
+An enabled poll source whose resolved setup descriptor has `connection: required`
+must name a connection: create or update without one returns422 with a `required`
+error at `body.connection_id`. A disabled source may be saved without one, so a
+source stored before this check can still be switched off; enabling it then needs
+a server. When the descriptor cannot be resolved (the plugin is no longer
+installed, or discovery fails during an update) the write is not blocked. The
+frozen v1 source routes do not apply this check.
+
+At poll time, a source whose descriptor requires a connection and has none bound
+is not sent to its plugin; the source and its activity event record "No server
+selected. Edit the source and choose a server." An error a plugin returns over
+gRPC is stored as the status description (the plugin's own text) without the
+`rpc error: code = ... desc =` framing, whatever code the plugin chose. When the
+description is empty, `DeadlineExceeded` stores "Plugin timed out.", `Canceled`
+"Poll canceled.", `Unimplemented` "Plugin does not support polling for changes."
+and any other code `Plugin error: <code>`. Failures the host side produces carry
+transport detail rather than operator-useful text and get a fixed host message:
+the host's call deadline passing stores "Plugin timed out.", a canceled poll
+"Poll canceled.", and every `Unavailable` status "Plugin unavailable.", because
+grpc-go returns that code when the plugin process is gone and it cannot be told
+apart from a plugin-chosen one. A plugin reporting an unreachable upstream server
+should use another code. Failures in host code before the call, such as a
+disabled or stopped plugin, are stored as the host's error text. The full error
+is logged on the server.
 
 Missing source or connection returns404; invalid configuration422; missing dependency503;
 private failures500 with uncertain completion. Both operations are non_retryable.
