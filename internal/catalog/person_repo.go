@@ -648,7 +648,11 @@ func personCreditVisibleSQL(personIDExpr string, types []string, scope personCre
 		*argIdx = *argIdx + 1
 	}
 	if scope.ContentID != "" {
-		conditions = append(conditions, fmt.Sprintf("(mi.content_id = $%d OR access_item.content_id = $%d)", *argIdx, *argIdx))
+		// The credits on the item and, for a series, on its episodes: the
+		// same rows as matching the credited or the access item. Resolving
+		// them up front lets the lookup start from item_people's content_id
+		// index instead of joining every credit to its access item first.
+		conditions = append(conditions, fmt.Sprintf("ip.content_id = ANY(ARRAY(SELECT $%d::text UNION ALL SELECT scope_e.content_id FROM episodes scope_e WHERE scope_e.series_id = $%d))", *argIdx, *argIdx))
 		*args = append(*args, scope.ContentID)
 		*argIdx = *argIdx + 1
 	}
