@@ -6986,6 +6986,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v2/direct-download/links": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Authorize one original file for the selected profile and return a short-lived direct-download URL that a browser navigation can open without headers. */
+    post: operations["createDirectDownloadLink"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v2/docs": {
     parameters: {
       query?: never;
@@ -20734,6 +20751,24 @@ export interface components {
        */
       manifest: string;
     };
+    DirectDownloadLink: {
+      /**
+       * Format: date-time
+       * @description Latest time a request with this link is accepted. A transfer that started in time may run past it.
+       */
+      expires_at: string;
+      /** @description The same link for /api/v2/direct-download-proxy; use it only when the download capability reports proxy_delivery. */
+      proxy_url: string;
+      /** @description Server-relative GET/HEAD URL for /api/v2/direct-download that carries the link token as dl. Treat it as a secret until it expires. */
+      url: string;
+    };
+    DirectDownloadLinkBody: {
+      /**
+       * @description Media file to download, as a canonical positive decimal string.
+       * @example 1
+       */
+      file_id: string;
+    };
     DiscoverBrand: {
       /** @example Marvel Studios */
       display_name: string;
@@ -20842,6 +20877,7 @@ export interface components {
       bounded_manifests: boolean;
       bounded_subscription_sync: boolean;
       bulk_quality: boolean;
+      direct_download_links: boolean;
       download_allowed: boolean;
       enabled: boolean;
       file_delivery: boolean;
@@ -91947,9 +91983,11 @@ export interface operations {
   getDirectDownload: {
     parameters: {
       query: {
+        /** @description Direct-download link token from POST /api/v2/direct-download/links, used in place of any other credential. It authorizes only the file_id it was minted for, as the profile that minted it, while its login session stays valid; it is refused with 401 once expired and 403 for another file. Any X-Profile-Id or X-Profile-Token header is ignored. Do not combine with token. */
+        dl?: string;
         file_id: string;
         format?: "" | "original";
-        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority. */
+        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority, so on an account with a PIN-protected or access-restricted profile it needs X-Profile-Id like any other account credential; browsers use dl instead. */
         token?: string;
       };
       header?: {
@@ -91959,7 +91997,7 @@ export interface operations {
         "If-Range"?: string;
         "If-Unmodified-Since"?: string;
         Range?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -92146,9 +92184,11 @@ export interface operations {
   headDirectDownload: {
     parameters: {
       query: {
+        /** @description Direct-download link token from POST /api/v2/direct-download/links, used in place of any other credential. It authorizes only the file_id it was minted for, as the profile that minted it, while its login session stays valid; it is refused with 401 once expired and 403 for another file. Any X-Profile-Id or X-Profile-Token header is ignored. Do not combine with token. */
+        dl?: string;
         file_id: string;
         format?: "" | "original";
-        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority. */
+        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority, so on an account with a PIN-protected or access-restricted profile it needs X-Profile-Id like any other account credential; browsers use dl instead. */
         token?: string;
       };
       header?: {
@@ -92158,7 +92198,7 @@ export interface operations {
         "If-Range"?: string;
         "If-Unmodified-Since"?: string;
         Range?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -92301,9 +92341,11 @@ export interface operations {
   getDirectDownloadProxy: {
     parameters: {
       query: {
+        /** @description Direct-download link token from POST /api/v2/direct-download/links, used in place of any other credential. It authorizes only the file_id it was minted for, as the profile that minted it, while its login session stays valid; it is refused with 401 once expired and 403 for another file. Any X-Profile-Id or X-Profile-Token header is ignored. Do not combine with token. */
+        dl?: string;
         file_id: string;
         format?: "" | "original";
-        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority. */
+        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority, so on an account with a PIN-protected or access-restricted profile it needs X-Profile-Id like any other account credential; browsers use dl instead. */
         token?: string;
       };
       header?: {
@@ -92313,7 +92355,7 @@ export interface operations {
         "If-Range"?: string;
         "If-Unmodified-Since"?: string;
         Range?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -92508,9 +92550,11 @@ export interface operations {
   headDirectDownloadProxy: {
     parameters: {
       query: {
+        /** @description Direct-download link token from POST /api/v2/direct-download/links, used in place of any other credential. It authorizes only the file_id it was minted for, as the profile that minted it, while its login session stays valid; it is refused with 401 once expired and 403 for another file. Any X-Profile-Id or X-Profile-Token header is ignored. Do not combine with token. */
+        dl?: string;
         file_id: string;
         format?: "" | "original";
-        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority. */
+        /** @description Existing account bearer fallback for browser navigation without authorization headers. Does not grant profile or file authority, so on an account with a PIN-protected or access-restricted profile it needs X-Profile-Id like any other account credential; browsers use dl instead. */
         token?: string;
       };
       header?: {
@@ -92520,7 +92564,7 @@ export interface operations {
         "If-Range"?: string;
         "If-Unmodified-Since"?: string;
         Range?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -92624,6 +92668,143 @@ export interface operations {
       416: {
         headers: {
           "Content-Range"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  createDirectDownloadLink: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The household profile acting for this request; it must belong to the authenticated account. */
+        "X-Profile-Id": string;
+        /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
+        "X-Profile-Token"?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DirectDownloadLinkBody"];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DirectDownloadLink"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Acceptable */
+      406: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Request Timeout */
+      408: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unsupported Media Type */
+      415: {
+        headers: {
           [name: string]: unknown;
         };
         content: {
@@ -104248,7 +104429,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -104358,7 +104539,7 @@ export interface operations {
       query?: never;
       header?: {
         "User-Agent"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -104499,7 +104680,7 @@ export interface operations {
       query?: never;
       header?: {
         "User-Agent"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -104609,7 +104790,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -104719,7 +104900,7 @@ export interface operations {
       query?: never;
       header?: {
         "User-Agent"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -122328,7 +122509,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -122437,7 +122618,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -122546,7 +122727,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -122658,7 +122839,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -122773,7 +122954,7 @@ export interface operations {
         "If-Match": string;
         /** @description Optional second precondition, evaluated after If-Match succeeds: "*" or any tag matching the current representation is 412 precondition_failed with the current ETag. */
         "If-None-Match"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -122940,7 +123121,7 @@ export interface operations {
         media_file_id: string;
       };
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -123046,7 +123227,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -123155,7 +123336,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -123500,7 +123681,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -123774,7 +123955,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124043,7 +124224,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124184,7 +124365,7 @@ export interface operations {
         "If-Match": string;
         /** @description Optional second precondition, evaluated after If-Match succeeds: "*" or any tag matching the current representation is 412 precondition_failed with the current ETag. */
         "If-None-Match"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124314,7 +124495,7 @@ export interface operations {
         /** @description Optional first precondition, evaluated before If-None-Match: a tag that does not match the current representation is 412 precondition_failed. */
         "If-Match"?: string;
         "If-None-Match"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124445,7 +124626,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124555,7 +124736,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124668,7 +124849,7 @@ export interface operations {
         "If-Match": string;
         /** @description Optional second precondition, evaluated after If-Match succeeds: "*" or any tag matching the current representation is 412 precondition_failed with the current ETag. */
         "If-None-Match"?: string;
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -124962,7 +125143,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -130522,7 +130703,7 @@ export interface operations {
         library_id?: string;
       };
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
@@ -130636,7 +130817,7 @@ export interface operations {
         file_id: string;
       };
       header?: {
-        /** @description Optional. When present, it must name a profile of the authenticated account. */
+        /** @description Optional while no profile on the authenticated account is PIN-protected or access-restricted (content-rating, advisory-age or library limits). Otherwise it is required: a request without it, or with an empty value, is refused with 422 validation_failed at header.x-profile-id; API keys are exempt. When present, it must name a profile of the authenticated account. */
         "X-Profile-Id"?: string;
         /** @description Verification proof for a PIN-locked profile, issued by POST /api/v2/profiles/{id}/verify-pin; required only when the declared profile is locked */
         "X-Profile-Token"?: string;
