@@ -2522,6 +2522,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		v2deps.AdminUsers = adminHandler
 		v2deps.AdminPlaybackHistory = adminHandler
 		v2deps.AdminAccounts = adminHandler
+		v2deps.AdminLoginSessions = adminHandler
 		v2deps.AdminDevices = adminHandler
 		if adminHandler.AdminDevicesAvailable() {
 			v2deps.AdminAccountDevices = adminHandler
