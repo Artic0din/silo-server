@@ -2853,6 +2853,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 	}
 	if sectionHandler != nil {
 		v2deps.ProfileSections = sectionHandler
+		v2deps.AdminProfileSections = sectionHandler
 	}
 	if sectionSettingsHandler != nil {
 		v2deps.SectionFlags = sectionSettingsHandler
