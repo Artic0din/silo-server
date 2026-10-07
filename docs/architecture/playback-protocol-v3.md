@@ -379,13 +379,16 @@ Both can answer these errors:
 | `500` | `internal_error` | The server could not load the account or profile, or (stop only) could not stop a remux running on a transcode node |
 
 The session and ownership checks come before the progress body is read, so a
-malformed body for an ended session answers `404`. `replan`, progress, stop,
-and the control socket see only the sessions held in memory by the API process
-that answers, for every attempt, so a deployment with several API replicas
-needs session affinity for them; the reconstruction in §4.1 covers media
-requests only. These bodies, and the control socket frames below, have no JSON
-Schema under `docs/design/schemas/playback-v3/`; this section is their
-contract.
+malformed body for an ended session answers `404`. `replan`, this progress
+call, stop, and the control socket see only the sessions held in memory by the
+API process that answers, for every attempt, so a deployment with several API
+replicas needs session affinity for them; the reconstruction in §4.1 covers
+media requests only. The sequenced `/api/v2` progress call records an
+`applied` or `replayed` sample on any replica, but only the replica that holds
+the session counts it as activity, and that replica still ends the session when
+its own window runs out, so v2 progress needs the same affinity. These bodies,
+and the control socket frames below, have no JSON Schema under
+`docs/design/schemas/playback-v3/`; this section is their contract.
 
 **Control socket.** `GET /playback/sessions/{session_id}/control/ws` (auth, no
 profile) is optional. It adds to progress reports and does not replace them: it
