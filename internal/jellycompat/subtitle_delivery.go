@@ -24,7 +24,20 @@ const (
 // (copied video without the MPEG-TS remux, and encoded HEVC) keep the source
 // clock in tfdt, so their map needs no shift. The container decision is the
 // one the transcode itself makes from the same recipe fields.
-func compatSubtitleSegmentPTSOffset90k(source PlaybackMediaSource, file *models.MediaFile) int64 {
+//
+// Direct play and progressive remux have no HLS segments and keep the source
+// clock. Subtitle DeliveryUrls can be fetched before any route starts, so until
+// one has, a source that can be transcoded is assumed to play over HLS.
+func compatSubtitleSegmentPTSOffset90k(playMethod string, source PlaybackMediaSource, file *models.MediaFile) int64 {
+	switch playMethod {
+	case string(playback.PlayTranscode):
+	case "":
+		if !source.SupportsTranscoding {
+			return 0
+		}
+	default:
+		return 0
+	}
 	sourceVideoCodec, _, _ := playback.SourceVideoTranscodeFacts(file)
 	opts := playback.TranscodeOpts{
 		SourceVideoCodec: sourceVideoCodec,

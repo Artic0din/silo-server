@@ -1556,7 +1556,7 @@ func (h *PlaybackHandler) HandleSubtitleStream(w http.ResponseWriter, r *http.Re
 	// a missing subtitle then record an outcome on a real session, which is
 	// correct: they are failures by an already-authorized principal.
 	attachCompatStream(r.Context(), session, playSession, source.FileID)
-	segmentPTSOffset := compatSubtitleSegmentPTSOffset90k(*source, file)
+	segmentPTSOffset := compatSubtitleSegmentPTSOffset90k(playSession.UpstreamPlayMethod, *source, file)
 
 	routeIndex := chiURLParam(r, "routeIndex")
 	trackIndex, parseErr := strconv.Atoi(routeIndex)

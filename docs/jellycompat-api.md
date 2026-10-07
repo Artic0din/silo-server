@@ -354,7 +354,8 @@ copied MPEG-2 video) carry the muxer's shift of twice `-max_delay` (10 s): with
 `CopyTimestamps=true` the map is `MPEGTS:900000`, as in Jellyfin, and otherwise
 the start position plus that shift. fMP4 segments (`remux-v1`, `remux-dv-v1`,
 `hevc-v1`, and other copied-video routes) keep the source clock, so the map is
-`MPEGTS:0` or the start position. JSON track events apply the same clipping and timestamp
+`MPEGTS:0` or the start position. Direct play and progressive remux have no
+HLS segments and get the same map as fMP4. JSON track events apply the same clipping and timestamp
 rebasing; an empty timing window returns `TrackEvents: []`. Raw ASS requests requiring conversion or time-window rewriting
 return 406. There is no fallback-font service, external/downloaded subtitle
 burn-in, or subtitle HLS playlist implementation. Changing a subtitle filter

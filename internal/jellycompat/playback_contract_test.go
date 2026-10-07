@@ -253,7 +253,8 @@ func TestSubtitleTimeMapHasNoShiftForFMP4Segments(t *testing.T) {
 }
 
 // The subtitle route reads the segment container from the play session's
-// source: MPEG-TS sessions get the muxer shift, fMP4 sessions do not.
+// source: MPEG-TS sessions get the muxer shift, fMP4 sessions do not. Direct
+// play and progressive remux have no HLS segments, so they get no shift either.
 func TestHandleSubtitleStreamTimeMapFollowsSegmentContainer(t *testing.T) {
 	subtitlePath := filepath.Join(t.TempDir(), "movie.en.vtt")
 	if err := os.WriteFile(subtitlePath, []byte("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n"), 0o600); err != nil {
@@ -262,7 +263,9 @@ func TestHandleSubtitleStreamTimeMapFollowsSegmentContainer(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		videoCodec string
+		playMethod string
 		source     PlaybackMediaSource
+		notHLS     bool
 		want       string
 	}{
 		{name: "h264 transcode", videoCodec: "h264", source: PlaybackMediaSource{}, want: "MPEGTS:900000"},
@@ -272,6 +275,10 @@ func TestHandleSubtitleStreamTimeMapFollowsSegmentContainer(t *testing.T) {
 		{name: "copy video with audio transcode", videoCodec: "h264", source: PlaybackMediaSource{HLSRemux: true, TranscodeAudio: true}, want: "MPEGTS:0"},
 		{name: "remux-dv-v1", videoCodec: "hevc", source: PlaybackMediaSource{HLSRemux: true, DVStripToHDR10: true}, want: "MPEGTS:0"},
 		{name: "hevc-v1", videoCodec: "h264", source: PlaybackMediaSource{TargetVideoCodec: "hevc"}, want: "MPEGTS:0"},
+		{name: "started h264 transcode", videoCodec: "h264", playMethod: "transcode", want: "MPEGTS:900000"},
+		{name: "direct play", videoCodec: "h264", playMethod: "direct", want: "MPEGTS:0"},
+		{name: "progressive remux", videoCodec: "h264", playMethod: "remux", want: "MPEGTS:0"},
+		{name: "not started without transcoding", videoCodec: "h264", notHLS: true, want: "MPEGTS:0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			file := &models.MediaFile{
@@ -279,9 +286,9 @@ func TestHandleSubtitleStreamTimeMapFollowsSegmentContainer(t *testing.T) {
 				ExternalSubtitles: []models.ExternalSubtitle{{Path: subtitlePath, Language: "eng", Format: "vtt"}},
 			}
 			source := tc.source
-			source.ID, source.FileID = "source-42", file.ID
+			source.ID, source.FileID, source.SupportsTranscoding = "source-42", file.ID, !tc.notHLS
 			store := NewPlaybackSessionStore(time.Hour, nil)
-			store.Put(PlaybackSession{ID: "play-1", CompatToken: "token-1", RouteItemID: "item-1", MediaSources: []PlaybackMediaSource{source}})
+			store.Put(PlaybackSession{ID: "play-1", CompatToken: "token-1", RouteItemID: "item-1", UpstreamPlayMethod: tc.playMethod, MediaSources: []PlaybackMediaSource{source}})
 			handler := &PlaybackHandler{playbackStore: store, fileResolver: testCompatFileResolver{file: file}}
 
 			request := httptest.NewRequest("GET", "/subtitle?PlaySessionId=play-1&CopyTimestamps=true&AddVttTimeMap=true", nil)
