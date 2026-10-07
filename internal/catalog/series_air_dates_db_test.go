@@ -199,4 +199,75 @@ func TestSeriesAirDatesFollowEpisodesAndCalendarDB(t *testing.T) {
 		}
 		assertAirDates(t, seriesID, nil, nil)
 	})
+
+	t.Run("sweep keeps a concurrent episode write's dates", func(t *testing.T) {
+		seriesID, seasonID := seedSeries(t, "concurrent")
+		eps := episodes(seriesID, seasonID, day(-7), day(0))
+		if err := repo.BulkUpsert(ctx, seriesID, eps); err != nil {
+			t.Fatalf("BulkUpsert: %v", err)
+		}
+		// Due: computed a day earlier, when today's episode was in the future.
+		if _, err := pool.Exec(ctx,
+			`UPDATE media_items SET last_air_date_at = $2, next_air_date_at = $3 WHERE content_id = $1`,
+			seriesID, day(-7), day(0),
+		); err != nil {
+			t.Fatalf("stage due series: %v", err)
+		}
+
+		// An episode write moves today's episode to tomorrow and recomputes
+		// the series, as UpdateMetadata does, but has not committed yet.
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin episode write: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, `UPDATE episodes SET air_date = $2 WHERE content_id = $1`, eps[1].ContentID, day(1)); err != nil {
+			t.Fatalf("move episode: %v", err)
+		}
+		if _, err := tx.Exec(ctx, refreshSeriesAirDatesSQL, []string{seriesID}); err != nil {
+			t.Fatalf("recompute series in episode write: %v", err)
+		}
+
+		swept := make(chan error, 1)
+		go func() {
+			_, _, err := repo.RefreshDueSeriesAirDates(ctx, 500)
+			swept <- err
+		}()
+		sweepWaiting := func() bool {
+			var waiting bool
+			if err := pool.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM pg_stat_activity
+					WHERE wait_event_type = 'Lock' AND query LIKE '%next_airing%' AND pid <> pg_backend_pid()
+				)`).Scan(&waiting); err != nil {
+				t.Fatalf("check sweep lock wait: %v", err)
+			}
+			return waiting
+		}
+		// Let the sweep either finish or block on the series row before the
+		// write commits; a sweep that blocks must not apply its older view.
+		var sweepErr error
+		sweepDone := false
+		deadline := time.Now().Add(10 * time.Second)
+		for !sweepDone && !sweepWaiting() {
+			if time.Now().After(deadline) {
+				t.Fatal("sweep neither finished nor blocked on the series row")
+			}
+			select {
+			case sweepErr = <-swept:
+				sweepDone = true
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("commit episode write: %v", err)
+		}
+		if !sweepDone {
+			sweepErr = <-swept
+		}
+		if sweepErr != nil {
+			t.Fatalf("RefreshDueSeriesAirDates: %v", sweepErr)
+		}
+		assertAirDates(t, seriesID, day(-7), day(1))
+	})
 }

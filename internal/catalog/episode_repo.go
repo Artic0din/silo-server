@@ -84,9 +84,11 @@ const refreshSeriesAirDatesSQL = `
 	  AND (mi.last_air_date_at IS DISTINCT FROM sub.last_aired
 		   OR mi.next_air_date_at IS DISTINCT FROM sub.next_airing)`
 
-// dueSeriesAirDatesSQL selects up to $1 series whose next known episode has
+// dueSeriesAirDatesSQL claims up to $1 series whose next known episode has
 // aired since their air-date columns were last computed. It reads the partial
-// index idx_media_items_next_air_date_at.
+// index idx_media_items_next_air_date_at. SKIP LOCKED passes over series an
+// episode write is recomputing, and lets sweeps on several nodes split the
+// due set instead of waiting on each other.
 const dueSeriesAirDatesSQL = `
 	SELECT COALESCE(array_agg(content_id), '{}')
 	FROM (
@@ -97,6 +99,7 @@ const dueSeriesAirDatesSQL = `
 		  AND next_air_date_at <= CURRENT_DATE
 		ORDER BY next_air_date_at, content_id
 		LIMIT $1
+		FOR UPDATE SKIP LOCKED
 	) due`
 
 // RefreshDueSeriesAirDates recomputes the air-date columns for up to limit
@@ -104,20 +107,35 @@ const dueSeriesAirDatesSQL = `
 // due in this batch and how many rows changed. Each refreshed series moves
 // its next_air_date_at past today (or to NULL), so repeated calls drain the
 // due set.
+//
+// The series rows are locked before the recompute runs as its own statement,
+// so its snapshot includes every episode write that committed for them. A
+// recompute that instead waited on a row an episode write held would apply
+// its older aggregate over the write's result.
 func (r *EpisodeRepository) RefreshDueSeriesAirDates(ctx context.Context, limit int) (due, updated int, err error) {
 	if limit <= 0 {
 		return 0, 0, nil
 	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("begin series air date refresh: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 	var seriesIDs []string
-	if err := r.pool.QueryRow(ctx, dueSeriesAirDatesSQL, limit).Scan(&seriesIDs); err != nil {
+	if err := tx.QueryRow(ctx, dueSeriesAirDatesSQL, limit).Scan(&seriesIDs); err != nil {
 		return 0, 0, fmt.Errorf("select series with aired next episode: %w", err)
 	}
 	if len(seriesIDs) == 0 {
 		return 0, 0, nil
 	}
-	tag, err := r.pool.Exec(ctx, refreshSeriesAirDatesSQL, seriesIDs)
+	tag, err := tx.Exec(ctx, refreshSeriesAirDatesSQL, seriesIDs)
 	if err != nil {
 		return len(seriesIDs), 0, fmt.Errorf("refresh series air dates: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return len(seriesIDs), 0, fmt.Errorf("commit series air date refresh: %w", err)
 	}
 	return len(seriesIDs), int(tag.RowsAffected()), nil
 }
