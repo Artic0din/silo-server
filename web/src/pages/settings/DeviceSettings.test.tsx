@@ -29,6 +29,9 @@ const mocks = vi.hoisted(() => ({
   useEffectiveSettings: vi.fn(),
   useStoredSettingValues: vi.fn(),
   deviceSettingGroupsProps: vi.fn(),
+  clearDevice: vi.fn(),
+  toastSuccess: vi.fn(),
+  isActingAdmin: false,
   capabilities: {
     data: undefined as SettingsCapabilities | undefined,
     isLoading: false,
@@ -42,8 +45,12 @@ vi.mock("@/hooks/queries/devices", () => ({
     data: options?.household ? mocks.householdDevices : mocks.ownDevices,
     isLoading: false,
   }),
-  useClearDeviceSettings: () => ({ mutate: vi.fn(), isPending: false }),
+  useClearDeviceSettings: () => ({ mutate: mocks.clearDevice, isPending: false }),
   useForgetDevice: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: (...args: unknown[]) => mocks.toastSuccess(...args), error: vi.fn() },
 }));
 
 vi.mock("@/hooks/queries/settingValues", async (importOriginal) => {
@@ -66,7 +73,7 @@ vi.mock("@/hooks/useCurrentProfile", () => ({
 }));
 
 vi.mock("@/hooks/useIsActingAdmin", () => ({
-  useIsActingAdmin: () => false,
+  useIsActingAdmin: () => mocks.isActingAdmin,
 }));
 
 vi.mock("@/components/settings/DeviceList", async (importOriginal) => ({
@@ -107,6 +114,9 @@ describe("DeviceSettings capability discovery", () => {
     mocks.useStoredSettingValues.mockReset();
     mocks.useStoredSettingValues.mockReturnValue({ data: undefined });
     mocks.deviceSettingGroupsProps.mockReset();
+    mocks.clearDevice.mockReset();
+    mocks.toastSuccess.mockReset();
+    mocks.isActingAdmin = false;
     mocks.capabilities.data = undefined;
     mocks.capabilities.isLoading = false;
     mocks.capabilities.isError = true;
@@ -213,6 +223,81 @@ describe("DeviceSettings capability discovery", () => {
     expect(mocks.deviceSettingGroupsProps).toHaveBeenLastCalledWith(
       expect.objectContaining({ storedOnDevice: { "ui.title_art": false } }),
     );
+  });
+
+  describe("using profile settings on a device", () => {
+    beforeEach(() => {
+      mocks.capabilities.data = compatibleCapabilities;
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+    });
+
+    it("confirms in plain words and clears the device's own values", async () => {
+      const user = userEvent.setup();
+      mocks.ownDevices = [device({ changed_count: 3 })];
+      mocks.clearDevice.mockImplementation((_vars, options: { onSuccess?: () => void }) =>
+        options.onSuccess?.(),
+      );
+
+      render(<DeviceSettings />);
+
+      expect(screen.queryByRole("button", { name: "Clear all changes" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Use profile settings" }));
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        "Use your profile settings on Living Room TV? This removes the 3 settings changed on this device. Settings that only apply to devices go back to the app default.",
+      );
+      expect(mocks.clearDevice).toHaveBeenCalledWith(
+        { deviceId: "living-room", profileId: undefined },
+        expect.anything(),
+      );
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Removed the changes on this device");
+    });
+
+    it("names the other profile and the singular when acting for someone else", async () => {
+      const user = userEvent.setup();
+      mocks.isActingAdmin = true;
+      const samsIpad = device({
+        device_name: "Sam's iPad",
+        device_platform: "iPadOS",
+        profile_id: "profile-2",
+        profile_name: "Sam",
+        is_current_device: false,
+        changed_count: 1,
+      });
+      mocks.ownDevices = [samsIpad];
+      mocks.householdDevices = [samsIpad];
+
+      render(<DeviceSettings />);
+
+      await user.click(screen.getByRole("button", { name: "Use profile settings" }));
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        "Use Sam's profile settings on Sam's iPad? This removes the 1 setting changed on this device. Settings that only apply to devices go back to the app default.",
+      );
+      expect(mocks.clearDevice).toHaveBeenCalledWith(
+        { deviceId: "living-room", profileId: "profile-2" },
+        expect.anything(),
+      );
+    });
+
+    it("keeps everything when the confirmation is declined", async () => {
+      const user = userEvent.setup();
+      vi.mocked(window.confirm).mockReturnValue(false);
+      mocks.ownDevices = [device({ changed_count: 2 })];
+
+      render(<DeviceSettings />);
+      await user.click(screen.getByRole("button", { name: "Use profile settings" }));
+
+      expect(mocks.clearDevice).not.toHaveBeenCalled();
+    });
+
+    it("offers nothing to reset on a device with no changes", () => {
+      render(<DeviceSettings />);
+
+      expect(
+        screen.queryByRole("button", { name: "Use profile settings" }),
+      ).not.toBeInTheDocument();
+    });
   });
 });
 

@@ -134,6 +134,12 @@ function DeviceSettingRow({
   const changedHere = effective?.scope === "profile_device" || retainedHere;
   const locked = effective?.constraint_kind === "locked";
   const constrained = Boolean(effective?.constrained);
+  // Where an unchanged row's value comes from. Skipped when the profile-wide
+  // note already says so, and under a household limit, where the value shown
+  // is the limit's (the badge names it) while `source` still names the choice
+  // the limit capped.
+  const inheritedFrom =
+    changedHere || profileWide || constrained ? null : sourceLabel(effective, ownerLabel);
   const value = effective?.value ?? definition.defaultValue;
   const inlineControl = controlKindFor(definition) === "switch";
 
@@ -159,6 +165,9 @@ function DeviceSettingRow({
               <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold tracking-[0.04em] text-amber-300 uppercase">
                 Changed here
               </span>
+            ) : null}
+            {inheritedFrom ? (
+              <span className="text-muted-foreground text-xs">{inheritedFrom}</span>
             ) : null}
             {constrained ? (
               <span className="border-info/30 bg-info/10 text-info inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold tracking-[0.04em] uppercase">
@@ -211,6 +220,24 @@ function DeviceSettingRow({
       </div>
     </div>
   );
+}
+
+/**
+ * Names where a value not stored on this device comes from.
+ *
+ * Asked for one device without a library or series, the server can only
+ * answer from the profile or the default for the keys this screen shows.
+ * Anything else it might name is left unlabelled rather than guessed at.
+ */
+function sourceLabel(effective: EffectiveSetting | undefined, ownerLabel: string): string | null {
+  switch (effective?.source) {
+    case "profile":
+      return `From ${ownerLabel} profile`;
+    case "default":
+      return "App default";
+    default:
+      return null;
+  }
 }
 
 function retainedValueLabel(settingKey: SettingKey, value: unknown): string {
