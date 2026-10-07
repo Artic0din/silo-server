@@ -260,6 +260,7 @@ const (
 // permission-gated operation that does not run the household profile gate,
 // with the reason it may keep account scope.
 var householdGateExemptOperations = map[string]string{
+	"createPersonalAPIKey":             exemptAccount,
 	"applyAdminItemMatch":              exemptAdminCuration,
 	"cancelAdminMetadataTranslation":   exemptAdminCuration,
 	"listAdminMetadataTranslationJobs": exemptAdminCuration,

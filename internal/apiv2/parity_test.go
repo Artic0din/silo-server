@@ -204,9 +204,9 @@ func parityDeps(demo bool) Dependencies {
 		Auth:             fakeAuth(users),
 		ViewerAccess:     apimw.NewViewerAccessMiddleware(fakeResolver{}),
 		HouseholdProfile: apimw.NewHouseholdProfileGate(fakeHouseholds{}).Require,
-		ActingAdmin:      apimw.RequireActingAdmin(primary),
+		ActingAdmin:      apimw.RequireActingAdmin(primary, nil),
 		PermissionGates: map[string]func(http.Handler) http.Handler{
-			"marker_edit": apimw.NewPermissionMiddleware(fakeUsers{users}, nil, primary).RequireMarkerEdit,
+			"marker_edit": apimw.NewPermissionMiddleware(fakeUsers{users}, nil, primary, nil).RequireMarkerEdit,
 		},
 		DemoSettings: fakeSettings{demo: demo},
 	}

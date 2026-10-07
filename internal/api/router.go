@@ -412,6 +412,10 @@ func newChiRouter(deps Dependencies) chi.Router {
 	// acting-admin profile policy, degrading admin routes to the plain
 	// role check.
 	var checkPrimaryProfile apimw.PrimaryProfileChecker
+	// Reports whether a household has a PIN-protected or access-limited
+	// profile, which withholds admin powers from a profile-less admin
+	// request. Wired with checkPrimaryProfile; nil disables that check.
+	var householdRequiresProfile apimw.HouseholdProfileRequirement
 	// lookupProfile resolves a profile for the given user, returning nil when it
 	// does not exist. Shared by the acting-admin primary check and the
 	// diagnostics profile-attribution validator so both read profile state
@@ -436,6 +440,17 @@ func newChiRouter(deps Dependencies) chi.Router {
 			}
 			return profile.IsPrimary, true, nil
 		}
+		householdRequiresProfile = func(ctx context.Context, userID int) (bool, error) {
+			store, err := userStores.ForUser(ctx, userID)
+			if err != nil {
+				return false, err
+			}
+			profiles, err := store.ListProfiles(ctx)
+			if err != nil {
+				return false, err
+			}
+			return access.HouseholdRequiresProfile(profiles), nil
+		}
 	}
 
 	var permissionPDP apimw.PermissionDecider
@@ -447,10 +462,10 @@ func newChiRouter(deps Dependencies) chi.Router {
 	// account's primary household profile.
 	var requireActingAdmin func(http.Handler) http.Handler
 	if deps.PolicySystem != nil {
-		requireActingAdmin = apimw.NewPolicyActingAdminMiddleware(permissionPDP, checkPrimaryProfile)
+		requireActingAdmin = apimw.NewPolicyActingAdminMiddleware(permissionPDP, checkPrimaryProfile, householdRequiresProfile)
 	} else {
 		// Legacy gate: proxy/test wiring without a policy system. Production integrated/api modes always take the policy path. Removed with the legacy cleanup phase.
-		requireActingAdmin = apimw.RequireActingAdmin(checkPrimaryProfile)
+		requireActingAdmin = apimw.RequireActingAdmin(checkPrimaryProfile, householdRequiresProfile)
 	}
 
 	// Health handler advertises the server's identity so multi-server
@@ -619,6 +634,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 					userRepo,
 					metadataLibraries,
 					checkPrimaryProfile,
+					householdRequiresProfile,
 					permissionPDP,
 					accessGroupStore,
 				).RequireMetadataCurationForItem
@@ -628,6 +644,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 					userRepo,
 					metadataLibraries,
 					checkPrimaryProfile,
+					householdRequiresProfile,
 					accessGroupStore,
 				).RequireMetadataCurationForItem
 			}
@@ -637,6 +654,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 				userRepo,
 				nil, // marker gate does not resolve target libraries
 				checkPrimaryProfile,
+				householdRequiresProfile,
 				permissionPDP,
 				accessGroupStore,
 			).RequireMarkerEdit
@@ -646,6 +664,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 				userRepo,
 				nil,
 				checkPrimaryProfile,
+				householdRequiresProfile,
 			).RequireMarkerEdit
 		}
 	}
@@ -2400,7 +2419,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 			adminAPIKeys.Owners = userRepo
 		}
 		v2deps.AdminAPIKeys = adminAPIKeys
-		v2deps.PersonalAPIKeys = handlers.NewAPIKeyHandler(apiKeyRepo)
+		v2deps.PersonalAPIKeys = newPersonalAPIKeyHandler(apiKeyRepo, deps.UserStoreProvider, userRepo, profileTokenService)
 	}
 	if markersHandler != nil {
 		v2deps.Markers = markersHandler
@@ -3119,7 +3138,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 					r.Use(demoGuard.Guard)
 				}
 
-				apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyRepo)
+				apiKeyHandler := newPersonalAPIKeyHandler(apiKeyRepo, deps.UserStoreProvider, userRepo, profileTokenService)
 				r.Route("/api-keys", func(r chi.Router) {
 					r.Post("/", apiKeyHandler.HandleCreateAPIKey)
 					r.Get("/", apiKeyHandler.HandleListAPIKeys)
@@ -5199,4 +5218,22 @@ func profileNamesByUser(stores userstore.UserStoreProvider) downloads.ProfileNam
 		}
 		return names, nil
 	}
+}
+
+// newPersonalAPIKeyHandler builds the account-scoped API key handler with the
+// household check its creation path runs. A nil user repository stays a nil
+// interface so the PIN check fails closed instead of calling through it.
+func newPersonalAPIKeyHandler(
+	repo *auth.APIKeyRepository,
+	stores userstore.UserStoreProvider,
+	users *auth.UserRepository,
+	tokens *access.ProfileTokenService,
+) *handlers.APIKeyHandler {
+	h := handlers.NewAPIKeyHandler(repo)
+	h.Stores = stores
+	if users != nil {
+		h.Users = users
+	}
+	h.ProfileTokens = tokens
+	return h
 }
