@@ -132,11 +132,14 @@ function DeviceSettingRow({
   // makes the reset meaningful — reset clears that row rather than copying the
   // profile value into it.
   const changedHere = effective?.scope === "profile_device" || retainedHere;
-  // Where an unchanged row's value comes from. The profile-wide note already
-  // says the profile holds the value, so it is not repeated here.
-  const inheritedFrom = changedHere || profileWide ? null : sourceLabel(effective, ownerLabel);
   const locked = effective?.constraint_kind === "locked";
   const constrained = Boolean(effective?.constrained);
+  // Where an unchanged row's value comes from. Skipped when the profile-wide
+  // note already says so, and under a household limit, where the value shown
+  // is the limit's (the badge names it) while `source` still names the choice
+  // the limit capped.
+  const inheritedFrom =
+    changedHere || profileWide || constrained ? null : sourceLabel(effective, ownerLabel);
   const value = effective?.value ?? definition.defaultValue;
   const inlineControl = controlKindFor(definition) === "switch";
 
