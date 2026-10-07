@@ -8266,6 +8266,7 @@ func (s *MetadataService) FetchItemImages(ctx context.Context, providerIDs map[s
 			ProviderIDs: providerIDs,
 			ContentType: contentType,
 			Language:    language,
+			ForPicker:   true,
 		})
 		if err != nil {
 			slog.WarnContext(ctx, "fetch item images: provider error", "component", "metadata",
@@ -8333,6 +8334,7 @@ func (s *MetadataService) FetchSeasonImages(ctx context.Context, providerIDs map
 				ContentType:  "series",
 				Language:     language,
 				SeasonNumber: &requestedSeason,
+				ForPicker:    true,
 			})
 			if imageErr != nil {
 				slog.WarnContext(ctx, "fetch season images: provider gallery error", "component", "metadata",
@@ -8389,6 +8391,7 @@ func (s *MetadataService) FetchSeasonImages(ctx context.Context, providerIDs map
 				ProviderIDs: providerIDs,
 				ContentType: "series",
 				Language:    language,
+				ForPicker:   true,
 			})
 			if imageErr != nil {
 				slog.WarnContext(ctx, "fetch season images: Specials show fallback error", "component", "metadata",
