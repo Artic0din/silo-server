@@ -350,7 +350,9 @@ A client therefore:
    minutes if the last progress report said paused.
 3. Treats `404 playback_session_not_found` from `replan` or progress as the end
    of the session and, if the viewer is still watching, starts a new attempt
-   (§6.2). A `404` from `DELETE` means the session had already ended.
+   (§6.2). A `404 playback_session_not_found` from `DELETE` means the session
+   had already ended; a `404 not_found` means `X-Profile-Id` is wrong and the
+   stop should be retried with the right one.
 4. If it opens the control socket, answers every command it receives with a
    `result` before the command's `deadline_ms` (below).
 
