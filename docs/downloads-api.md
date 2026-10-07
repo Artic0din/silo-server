@@ -127,7 +127,8 @@ Yes, manifests include metadata needed to make the offline item feel native:
 - Title, year, overview, runtime, content rating, genres.
 - Series, season, and episode context for episodes.
 - Poster/backdrop thumbhashes and authenticated artwork proxy URLs for poster,
-  backdrop, and logo when available.
+  backdrop, and logo when available. Episode manifests also carry the parent
+  series poster.
 - Chapters, intro/credits/recap/preview markers.
 - External and downloaded subtitle fetch URLs plus known subtitle file sizes.
 - Container, codecs, resolution, HDR, duration, selected audio track, and audio
@@ -251,7 +252,8 @@ Response:
   "bounded_subscription_sync": true,
   "bulk_quality": true,
   "monitor_quality": true,
-  "preparation_progress": true
+  "preparation_progress": true,
+  "direct_download_links": true
 }
 ```
 
@@ -273,6 +275,7 @@ Response:
 | `preparation_progress`   | Listed preparing entries (§4.2) carry `preparation`: queue position or encode progress. |
 | `bulk_quality`           | Series and season batches (§4.1) accept any of `quality_presets`. Without it, send `original`. |
 | `monitor_quality`        | Monitors (§8) store a `quality`. Without it, monitors download originals and the field is absent. |
+| `direct_download_links`  | `POST /api/v2/direct-download/links` (§4.10) mints profile-bound direct-download links. |
 | `bounded_manifests`      | Bounded manifest and batch-manifest operations (§4.6, §4.7) are available.         |
 | `subscription_reads`     | Subscription reads (§8.3) are available.                                          |
 | `subscription_mutations` | Subscription create/patch/delete (§8.1, §8.3) are available.                       |
@@ -632,7 +635,9 @@ whole batch in one request.
 GET /api/v2/downloads/{id}/artwork/{kind}
 ```
 
-`kind` is `poster`, `backdrop`, or `logo`, and `X-Silo-Device-Id` is required. The
+`kind` is `poster`, `backdrop`, `logo`, or `series_poster`, and
+`X-Silo-Device-Id` is required. `series_poster` exists only for episode entries and
+serves the parent series poster; access to the series is checked as well. The
 manifest's `artwork_urls` point here. Fetch each available image once while online
 and cache the bytes locally. Artwork and subtitle assets are whole-object,
 privately cached deliveries; they do not advertise byte ranges.
@@ -675,12 +680,58 @@ should use managed `POST /api/v2/downloads` plus `/api/v2/downloads/{id}/file`.
 `file_id` is a canonical positive decimal string; `format` may be absent, empty, or
 `original`. Duplicate and unknown query parameters return `422`.
 
-For browser-friendly links, the endpoint accepts the session access token as a
-`?token=` query parameter in place of the `Authorization` header.
+A browser navigation cannot send headers, so it opens a short-lived link
+instead. Mint one with an ordinary profile-scoped request:
 
-> **Security note:** the query token is the session access token. Treat
-> direct-download URLs as secrets — they end up in browser history and proxy
-> logs. A short-lived download-scoped URL is a planned follow-up.
+```http
+POST /api/v2/direct-download/links
+X-Profile-Id: {profile}
+X-Profile-Token: {pin proof, for a locked profile}
+
+{"file_id": "42"}
+```
+
+```json
+{
+  "url": "/api/v2/direct-download?dl=…&file_id=42",
+  "proxy_url": "/api/v2/direct-download-proxy?dl=…&file_id=42",
+  "expires_at": "2026-01-01T00:05:00Z"
+}
+```
+
+`createDirectDownloadLink` requires `X-Profile-Id`, and the PIN proof for a
+locked profile. It authorizes the file the way the download itself does: the
+download policy, then catalog and file access under the profile's limits. A
+file the profile cannot see, or that does not exist, is `404`; a refused
+download policy is `403 permission_denied`. API keys get `403`, since a link is
+bound to a login session; they call direct download with their key instead.
+Nothing is served or recorded. The URLs are server-relative; use `proxy_url`
+only when `proxy_delivery` is true.
+
+The `dl` link token authorizes one file, as the profile that minted it, for
+five minutes. It is checked when a request arrives, so a transfer that started
+in time may run longer. The direct-download routes authorize the request again
+under that profile's limits; any `X-Profile-Id` or `X-Profile-Token` header is
+ignored. An expired or altered link is `401 invalid_token`, a link for another
+`file_id` is `403 permission_denied`, and a link whose login session was
+revoked is `401 session_expired`. When the session cannot be checked because
+its store is unavailable, the answer is `503 dependency_unavailable` with
+`Retry-After`, as for any other credential. A link is accepted only as `dl` on
+these routes, never as a bearer credential. Do not send `dl` together with
+`token`: the link is checked first, so an invalid one is still `401`, and a
+valid one is refused with `422`.
+
+Without a link, the routes keep the existing credentials: the `Authorization`
+header, or the session access token as a `?token=` query parameter. On an
+account where any profile has a PIN, a rating ceiling, an advisory-age limit or
+library restrictions, such a request must also send `X-Profile-Id`; without it
+the answer is `422 validation_failed` at `header.x-profile-id`, the household
+rule in [the API contract](architecture/api-contract.md). So a `?token=` URL
+works only on accounts whose profiles are all unrestricted. API keys are exempt.
+
+> **Security note:** treat direct-download URLs as secrets until they expire —
+> they end up in browser history and proxy logs. A `?token=` URL carries the
+> session access token itself; prefer a link.
 
 ### 4.11 Distributed proxy delivery
 
@@ -876,6 +927,11 @@ Notes:
 - Artwork and subtitle URLs are authenticated proxy paths on this server. Fetch
   them once while online and cache the bytes locally.
 - Thumbhash fields are inline placeholders for fast offline UI rendering.
+- For an episode, `poster` and `poster_thumbhash` are the episode still and
+  `backdrop` is the series backdrop. The series poster arrives separately as
+  `series_poster_thumbhash` and `artwork_urls.series_poster`, present only on
+  episode manifests; use it for series-level screens such as a downloaded
+  series' header.
 - `stable_identity` is for rescan recovery when a server-side `content_id` changes.
 - `integrity.expected_bytes` should match the local media file size after download.
 - `revision` should match the download row revision. If a row revision increases,
@@ -1181,7 +1237,7 @@ Persist these records in the app's local database:
 | Local model            | Required fields                                                                                                                                                                                                                       |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OfflineDownload`      | `download_id`, `content_id`, `episode_id`, `batch_id`, `quality`, `effective_quality`, `delivery_format`, `target_bitrate_kbps`, `revision`, `status`, local media path, local manifest path, byte count, created/updated timestamps. |
-| `OfflineAsset`         | `download_id`, asset kind (`media`, `poster`, `backdrop`, `logo`, `subtitle`), remote proxy path, local path, expected bytes if known, fetch status.                                                                                  |
+| `OfflineAsset`         | `download_id`, asset kind (`media`, `poster`, `backdrop`, `logo`, `series_poster`, `subtitle`), remote proxy path, local path, expected bytes if known, fetch status.                                                                 |
 | `OfflineProgressEvent` | `media_item_id`, `position`, `duration`, `updated_at`, retry/ack state.                                                                                                                                                               |
 | `DownloadSubscription` | Server subscription id, `series_id`, mode, season filters, retention settings, active state.                                                                                                                                          |
 
@@ -1359,7 +1415,8 @@ Use manifest fields as follows:
 - `series_id`, `series_title`, `season_number`, and `episode_number` drive episode
   grouping.
 - `poster_thumbhash` and `backdrop_thumbhash` are placeholders while local artwork
-  bytes load.
+  bytes load. For an episode, `poster` is the episode still; series-level screens
+  use `series_poster` and `series_poster_thumbhash`.
 - `chapters`, `intro`, `credits`, `recap`, and `preview` drive the same skip and
   chapter UI as online playback.
 - `audio_tracks` and `selected_audio_track_index` seed the audio-track picker when
@@ -1563,7 +1620,7 @@ operations use:
 | 422  | `validation_failed`      | A well-formed request with an invalid domain value: quality, status, revision guard, device identity, subtitle ref, subscription option, non-canonical decimal ID, or an unknown/duplicated query parameter. `errors[].location` names the member. |
 | 428  | `precondition_required`  | A subscription mutation without `If-Match`.                               |
 | 412  | `precondition_failed`    | A stale `If-Match` validator.                                             |
-| 429  | `rate_limited`           | Concurrent download cap or period quota hit.                              |
+| 429  | `rate_limited`           | Concurrent download cap or period quota hit. New managed entries that register `ready` (original quality, or a prepared file that is already ready) count only toward the period quota; the app queues their transfers. |
 | 500  | `internal_error`         | Unexpected server error.                                                  |
 | 501  | `capability_unsupported` | The requested delivery is not supported by configuration or policy — tone mapping disabled or disallowed, a quality the server cannot prepare, or a missing prepare pipeline. |
 | 503  | `dependency_unavailable` | Downloads, offline assets, series monitoring, or capability discovery is temporarily unavailable; retry the same request. |
@@ -1726,7 +1783,7 @@ unavailable or ineligible proxy targets fall back to existing local delivery.
 
 `GET /api/v2/downloads/{id}/artwork/{kind}` and
 `GET /api/v2/downloads/{id}/subtitles/{ref}` require the device header.
-Artwork kinds are poster, backdrop and logo; subtitle references retain the
+Artwork kinds are poster, backdrop, logo and series_poster; subtitle references retain the
 external:index, embedded:ordinal, and downloaded:id identity. Current content access is
 checked before asset delivery, and downloaded subtitle ownership must match the
 entry's media file. These two asset routes preserve whole-object delivery and
@@ -1865,13 +1922,13 @@ prevents duplicate ephemeral transfers. The download capability exposes
 
 GET and HEAD `/api/v2/direct-download?file_id={id}` preserve synchronous original-file delivery. GET and HEAD `/api/v2/direct-download-proxy?file_id={id}` preserve the proxy-aware variant. `file_id` is a canonical positive decimal string; `format` may be absent, empty or `original`. Duplicate and unknown query parameters return 422. These routes use the existing download capability/policy service; they do not create a managed download, artifact or playback session.
 
-Every request applies account authentication, viewer/demo gates, account download policy and catalog/file access. Header callers may supply the existing profile and PIN headers. Browser navigation retains the existing account `token` query fallback: the selected profile/PIN does not travel in that URL, and the request uses account-scoped access without a selected profile. This migration introduces no new signed browser grant or profile query credential. Account URLs remain secrets with the limitations described in section 4.10.
+Every request applies authentication, viewer/demo gates, the household profile rule, account download policy and catalog/file access. Header callers may supply the existing profile and PIN headers. Browser navigation uses a link from `POST /api/v2/direct-download/links` (section 4.10): its `dl` token carries the profile that minted it, so the request runs under that profile's limits. The account `token` query fallback remains, but carries no profile, so the household rule refuses it on accounts with a locked or restricted profile. URLs remain secrets with the limitations described in section 4.10.
 
 The service opens the authorized source file and closes it after streaming. Success preserves Content-Disposition, original MIME type, Content-Length, Last-Modified, HEAD, ranges/206 and conditional/304 semantics. Missing files return 404. Malformed input returns 422; invalid range 416 retains Content-Range. Failures before output become redacted v2 problems. A failure after output has begun aborts the stream instead of appending JSON; neither partial bytes nor a lost response prove completion. No replay or durable local-file receipt is provided.
 
 The proxy producer resolves permission before creating a token for the selected FileTarget. The existing planner, short-lived signed target, preflight and local fallback remain authoritative; callers cannot supply a path or proxy URL. A successful proxy preflight may yield 307. HEAD releases its provisional planner reservation; GET retains the existing reservation lifecycle, with no new completion/cleanup guarantee. Preflight failure releases the reservation and falls back to a freshly authorized local serve. A redirect is not proof of delivery, and an issued proxy token retains its existing expiration/revocation limits.
 
-The bundled DownloadVersionPicker captures account/session and current profile/PIN UI authority, probes once with HEAD, and launches browser GET using the identical captured account URL only while that authority and selection remain current. Closing/replacing the picker or changing authority prevents a late launch. There is no refresh replay, whole-file buffering or proxy URL fabrication. HEAD success and navigation dispatch do not prove that the subsequent browser download completed. No first-party direct-proxy producer was found; exact native method-family inventories remain required for ordinary ratification. Managed downloads, worker routes and Jellyfin retain their separate implementations.
+The bundled DownloadVersionPicker captures account/session and current profile/PIN UI authority, mints a link with those headers, probes the link once with HEAD, and launches browser GET on the identical link URL only while that authority and selection remain current. Closing/replacing the picker or changing authority prevents a late launch. There is no refresh replay, whole-file buffering or proxy URL fabrication. HEAD success and navigation dispatch do not prove that the subsequent browser download completed. No first-party direct-proxy producer was found; exact native method-family inventories remain required for ordinary ratification. Managed downloads, worker routes and Jellyfin retain their separate implementations.
 
 ---
 
