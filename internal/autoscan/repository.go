@@ -157,7 +157,28 @@ func (r *Repository) UpdateConnection(ctx context.Context, c Connection) (Connec
 	if err != nil {
 		return Connection{}, fmt.Errorf("encrypt autoscan api key: %w", err)
 	}
-	row := r.pool.QueryRow(ctx, `
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Connection{}, fmt.Errorf("begin autoscan connection update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Read the upstream identity under a row lock so the comparison below and
+	// the marker reset see the same before-image as the update that replaces it.
+	var old connectionUpstream
+	if err := tx.QueryRow(ctx, `
+		SELECT base_url, request_integration_id
+		FROM autoscan_connections
+		WHERE id = $1
+		FOR UPDATE`, c.ID).Scan(&old.baseURL, &old.integrationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Connection{}, fmt.Errorf("%w: connection %s", ErrNotFound, c.ID)
+		}
+		return Connection{}, fmt.Errorf("read autoscan connection: %w", err)
+	}
+
+	row := tx.QueryRow(ctx, `
 		UPDATE autoscan_connections
 		SET name = $2, kind = $3, base_url = $4,
 		    api_key_ref = CASE WHEN $5 = '' THEN api_key_ref ELSE $5 END,
@@ -172,7 +193,61 @@ func (r *Repository) UpdateConnection(ctx context.Context, c Connection) (Connec
 		}
 		return Connection{}, fmt.Errorf("update autoscan connection: %w", err)
 	}
+
+	// A source's marker is a continuation token into the server this
+	// connection points at. Repointing the connection (another URL, or another
+	// linked Requests integration) makes every bound source's marker refer to a
+	// different upstream, so they restart from now, matching UpdateSource.
+	// Rotating the API key, renaming or relabelling the kind keeps them.
+	if old.differsFrom(out) {
+		if _, err := tx.Exec(ctx, `
+			UPDATE autoscan_sources
+			SET marker = NULL, updated_at = now()
+			WHERE connection_id = $1 AND marker IS NOT NULL`, c.ID); err != nil {
+			return Connection{}, fmt.Errorf("reset autoscan source markers: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Connection{}, fmt.Errorf("commit autoscan connection update: %w", err)
+	}
 	return out, nil
+}
+
+// connectionUpstream is the part of a stored connection row that decides
+// which server a bound source's marker points into. UpdateConnection resets
+// markers when it changes, and AdvanceMarker refuses a poll's marker when it
+// changed since the poll read the connection.
+type connectionUpstream struct {
+	baseURL       *string
+	integrationID *string
+}
+
+// differsFrom reports whether c points at a different upstream than u. It
+// compares what ConnectionResolver.Resolve hands the plugin: a linked Requests
+// integration when there is one, otherwise the row's own base URL. The kind
+// never reaches the plugin, and a linked row's stored base URL is ignored by
+// Resolve, so changing either leaves the upstream (and the markers) alone.
+func (u connectionUpstream) differsFrom(c Connection) bool {
+	oldLink, newLink := linkedIntegration(u.integrationID), linkedIntegration(c.RequestIntegrationID)
+	if oldLink != "" || newLink != "" {
+		return oldLink != newLink
+	}
+	return derefString(u.baseURL) != c.BaseURL
+}
+
+// linkedIntegration returns the Requests integration a connection resolves
+// through, or "" when it uses its own fields. It matches Resolve, which treats
+// a blank link as no link.
+func linkedIntegration(id *string) string {
+	return strings.TrimSpace(derefString(id))
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (r *Repository) DeleteConnection(ctx context.Context, id string) error {
@@ -366,9 +441,18 @@ func (r *Repository) CreateSource(ctx context.Context, s Source) (Source, error)
 }
 
 // UpdateSource updates a source's binding/scheduling fields by id. Identity
-// (plugin_id, capability_id) and bookkeeping fields (marker/last_run_at/
-// last_error) are left untouched. An unknown id maps to ErrNotFound; a
-// non-existent connection trips the FK constraint and also maps to ErrNotFound.
+// (plugin_id, capability_id) and the last_run_at/last_error bookkeeping are left
+// untouched. An unknown id maps to ErrNotFound; a non-existent connection trips
+// the FK constraint and also maps to ErrNotFound.
+//
+// The stored marker is kept unless the update changes what it points into. A
+// marker is the plugin's opaque continuation token for one upstream, so it is
+// cleared when the bound connection or the plugin's source_config changes:
+// handing Sonarr's marker to Radarr would replay or skip that server's history.
+// An empty marker tells the plugin to start from now. Label, enabled, delivery
+// mode, interval and path rewrites only change how the host treats results, so
+// they keep it. The comparison runs inside the UPDATE against the row's current
+// values, so a concurrent update cannot slip between a read and the write.
 func (r *Repository) UpdateSource(ctx context.Context, s Source) (Source, error) {
 	if err := missingID("source", s.ID); err != nil {
 		return Source{}, err
@@ -393,6 +477,12 @@ func (r *Repository) UpdateSource(ctx context.Context, s Source) (Source, error)
 		    path_rewrites = $6,
 		    source_config = $7,
 		    label = $8,
+		    marker = CASE
+		        WHEN connection_id IS DISTINCT FROM $2::uuid
+		          OR source_config IS DISTINCT FROM $7::jsonb
+		        THEN NULL
+		        ELSE marker
+		    END,
 		    updated_at = now()
 		WHERE id = $1
 		RETURNING `+sourceColumns,
@@ -491,22 +581,108 @@ func (r *Repository) DeleteSource(ctx context.Context, id string) error {
 	return nil
 }
 
+// MarkerAdvance is one poll's request to store its next marker, together with
+// the rows the poll read. The marker is only valid for that state: a different
+// starting marker, connection binding, source_config, or connection upstream
+// means an admin reset the marker while the poll ran.
+type MarkerAdvance struct {
+	// Source is the source row the poll used. Its ID, Marker, ConnectionID and
+	// SourceConfig are the snapshot the write is compared against.
+	Source Source
+	// Connection is the connection row the poll resolved. It is required when
+	// Source.ConnectionID is set and must be that connection.
+	Connection *Connection
+	NextMarker string
+}
+
 // AdvanceMarker stores the opaque next marker for a source, stamps last_run_at,
 // and clears any prior error. Called once a poll window's work is consumed —
 // after a successful enqueue, or when the window's paths all resolved outside
 // Silo's libraries and were advanced past.
-func (r *Repository) AdvanceMarker(ctx context.Context, sourceID, marker string) error {
-	tag, err := r.pool.Exec(ctx, `
+//
+// The write is a compare-and-swap against adv's snapshot. UpdateSource and
+// UpdateConnection clear the marker when the upstream changes; a poll that
+// was already running would otherwise write the old upstream's marker over
+// that reset. When the snapshot no longer matches, nothing is written and
+// AdvanceMarker returns false: the next poll starts from the reset marker.
+// A skipped write also leaves last_run_at and last_error as they were, so the
+// next poll cycle polls the source against its new upstream without waiting
+// for its interval. The connection row is read FOR SHARE first, so a
+// concurrent connection update either commits before the check or waits for
+// this write and then clears it, matching UpdateConnection's lock order.
+func (r *Repository) AdvanceMarker(ctx context.Context, adv MarkerAdvance) (bool, error) {
+	src := adv.Source
+	if src.ConnectionID != nil && (adv.Connection == nil || adv.Connection.ID != *src.ConnectionID) {
+		return false, fmt.Errorf("advance autoscan marker: source %s: the poll's connection row is missing or does not match its binding", src.ID)
+	}
+	sourceConfig, err := sourceConfigSnapshot(src.SourceConfig)
+	if err != nil {
+		return false, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin autoscan marker advance: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if src.ConnectionID != nil {
+		var current connectionUpstream
+		err := tx.QueryRow(ctx, `
+			SELECT base_url, request_integration_id
+			FROM autoscan_connections
+			WHERE id = $1
+			FOR SHARE`, adv.Connection.ID).Scan(&current.baseURL, &current.integrationID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("read autoscan connection for marker advance: %w", err)
+		}
+		if current.differsFrom(*adv.Connection) {
+			return false, nil
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE autoscan_sources
 		SET marker = $2, last_run_at = now(), last_error = NULL, updated_at = now()
-		WHERE id = $1`, sourceID, nullable(marker))
+		WHERE id = $1
+		  AND COALESCE(marker, '') = $3
+		  AND connection_id IS NOT DISTINCT FROM $4::uuid
+		  AND source_config = $5::jsonb`,
+		src.ID, nullable(adv.NextMarker), derefString(src.Marker), connectionIDArg(src.ConnectionID), sourceConfig)
 	if err != nil {
-		return fmt.Errorf("advance autoscan marker: %w", err)
+		return false, fmt.Errorf("advance autoscan marker: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: source %s", ErrNotFound, sourceID)
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM autoscan_sources WHERE id = $1)`, src.ID).Scan(&exists); err != nil {
+			return false, fmt.Errorf("check autoscan source: %w", err)
+		}
+		if !exists {
+			return false, fmt.Errorf("%w: source %s", ErrNotFound, src.ID)
+		}
+		return false, nil
 	}
-	return nil
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit autoscan marker advance: %w", err)
+	}
+	return true, nil
+}
+
+// sourceConfigSnapshot encodes a source_config map exactly as it was read, for
+// comparison with the stored jsonb. Unlike marshalSourceConfig it does not
+// normalize, so a stored value that predates normalization still matches the
+// map decoded from it and the poll can keep advancing.
+func sourceConfigSnapshot(config map[string]string) ([]byte, error) {
+	if config == nil {
+		config = map[string]string{}
+	}
+	b, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("encode autoscan source_config snapshot: %w", err)
+	}
+	return b, nil
 }
 
 // maxLastErrorLen bounds the stored last_error (in bytes) so a pathological

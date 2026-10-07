@@ -20,6 +20,8 @@ type fakeStore struct {
 	sources        []Source
 	connection     Connection
 	advanced       map[string]string // source ID -> marker
+	advances       []MarkerAdvance   // every advance attempt, stored or not
+	staleAdvance   bool              // reject advances as if an admin reset the marker
 	recorded       map[string]string // source ID -> error message
 	createdEvents  []EventCreate
 	events         []EventFinish
@@ -45,12 +47,16 @@ func (f *fakeStore) GetSource(_ context.Context, id string) (Source, error) {
 func (f *fakeStore) GetConnection(context.Context, string) (Connection, error) {
 	return f.connection, nil
 }
-func (f *fakeStore) AdvanceMarker(_ context.Context, sourceID, marker string) error {
+func (f *fakeStore) AdvanceMarker(_ context.Context, adv MarkerAdvance) (bool, error) {
+	f.advances = append(f.advances, adv)
+	if f.staleAdvance {
+		return false, nil
+	}
 	if f.advanced == nil {
 		f.advanced = map[string]string{}
 	}
-	f.advanced[sourceID] = marker
-	return nil
+	f.advanced[adv.Source.ID] = adv.NextMarker
+	return true, nil
 }
 func (f *fakeStore) RecordError(_ context.Context, sourceID, msg string) error {
 	if f.recorded == nil {
@@ -131,12 +137,14 @@ type fakeProvider struct {
 	err        error
 	errByCap   map[string]error
 	lastConfig map[string]string
+	lastMarker string
 	calls      int
 }
 
-func (f *fakeProvider) PollChanges(_ context.Context, _ string, capabilityID, _ string, _ ResolvedConnection, sourceConfig map[string]string) ([]Change, string, error) {
+func (f *fakeProvider) PollChanges(_ context.Context, _ string, capabilityID, marker string, _ ResolvedConnection, sourceConfig map[string]string) ([]Change, string, error) {
 	f.calls++
 	f.lastConfig = sourceConfig
+	f.lastMarker = marker
 	if f.err != nil {
 		return nil, "", f.err
 	}
@@ -433,6 +441,168 @@ func TestPollOnceEnqueuesDedupedFolders(t *testing.T) {
 	if _, ok := store.advanced["s1"]; !ok {
 		t.Fatalf("expected marker advanced for s1")
 	}
+}
+
+// The poll's marker advance carries the state it read from, so the repository
+// can refuse it when an admin reset the marker mid-poll.
+func TestPollOnceAdvanceCarriesPollSnapshot(t *testing.T) {
+	marker := "m0"
+	store := &fakeStore{
+		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+		sources: []Source{{
+			ID: "s1", PluginID: "silo.autoscan.arr", CapabilityID: "arr", ConnectionID: strptr("c1"), Enabled: true,
+			Marker: &marker, SourceConfig: map[string]string{"scope": "all"},
+		}},
+		connection: Connection{ID: "c1", Kind: "sonarr", BaseURL: "http://sonarr.invalid"},
+	}
+	prov := &fakeProvider{paths: map[string][]string{"arr": {"/mnt/media/Show/S01/E01.mkv"}}, nextMarker: "m1"}
+	svc := newService(store, prov, &recordingQueuer{}, allowSuppressor{})
+	if err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if len(store.advances) != 1 {
+		t.Fatalf("advances = %+v, want one", store.advances)
+	}
+	adv := store.advances[0]
+	if adv.Source.ID != "s1" || adv.Source.Marker == nil || *adv.Source.Marker != "m0" || adv.NextMarker != "m1" {
+		t.Fatalf("advance markers = %+v", adv)
+	}
+	if adv.Source.ConnectionID == nil || *adv.Source.ConnectionID != "c1" || adv.Source.SourceConfig["scope"] != "all" {
+		t.Fatalf("advance source snapshot = %+v", adv)
+	}
+	if adv.Connection == nil || adv.Connection.Kind != "sonarr" || adv.Connection.BaseURL != "http://sonarr.invalid" {
+		t.Fatalf("advance connection snapshot = %+v", adv.Connection)
+	}
+}
+
+// A poll whose marker advance lost to an admin reset still consumed its
+// window: the event succeeds and no error is recorded on the source.
+func TestPollOnceStaleMarkerAdvanceIsNotAnError(t *testing.T) {
+	store := &fakeStore{
+		settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+		sources: []Source{{
+			ID: "s1", PluginID: "silo.autoscan.arr", CapabilityID: "arr", ConnectionID: strptr("c1"), Enabled: true,
+		}},
+		staleAdvance: true,
+	}
+	prov := &fakeProvider{paths: map[string][]string{"arr": {"/mnt/media/Show/S01/E01.mkv"}}, nextMarker: "m1"}
+	q := &recordingQueuer{}
+	svc := newService(store, prov, q, allowSuppressor{})
+	if err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if len(q.enqueued) != 1 {
+		t.Fatalf("enqueued = %+v, want the window's scan", q.enqueued)
+	}
+	if _, ok := store.advanced["s1"]; ok {
+		t.Fatal("stale advance must not store a marker")
+	}
+	if msg, ok := store.recorded["s1"]; ok {
+		t.Fatalf("recorded error %q, want none", msg)
+	}
+	if len(store.events) != 1 || store.events[0].Status != EventStatusSuccess {
+		t.Fatalf("events = %+v, want one successful event", store.events)
+	}
+	// The event must not claim an advance the source never stored.
+	if got := store.events[0]; got.MarkerAfter != "" || got.ErrorMessage != markerNotStoredMessage {
+		t.Fatalf("event marker_after = %q, message = %q; want the starting marker and a not-stored note", got.MarkerAfter, got.ErrorMessage)
+	}
+}
+
+// A source edited after the cycle listed it is polled from its current row,
+// so a marker an admin reset is not sent to the new upstream.
+func TestPollOncePollsFromCurrentSourceRow(t *testing.T) {
+	stale := "m-old-upstream"
+	listed := Source{
+		ID: "s1", PluginID: "silo.autoscan.arr", CapabilityID: "arr", ConnectionID: strptr("c1"), Enabled: true,
+		Marker: &stale,
+	}
+	current := listed
+	current.Marker = nil // reset by a connection edit after the list was read
+	store := &rereadStore{
+		fakeStore: &fakeStore{
+			settings:   Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+			sources:    []Source{listed},
+			connection: Connection{ID: "c1", Kind: "sonarr", BaseURL: "http://sonarr-b.invalid"},
+		},
+		current: map[string]Source{"s1": current},
+	}
+	prov := &fakeProvider{nextMarker: "m1"}
+	if err := newService(store, prov, &recordingQueuer{}, allowSuppressor{}).PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if prov.calls != 1 || prov.lastMarker != "" {
+		t.Fatalf("provider calls = %d with marker %q, want one call from the reset marker", prov.calls, prov.lastMarker)
+	}
+	if len(store.createdEvents) != 1 || store.createdEvents[0].MarkerBefore != "" {
+		t.Fatalf("created events = %+v, want marker_before from the current row", store.createdEvents)
+	}
+}
+
+// A source disabled or removed after the cycle listed it is not polled.
+func TestPollOnceSkipsSourceDisabledOrRemovedSinceListing(t *testing.T) {
+	listed := []Source{
+		{ID: "disabled", PluginID: "silo.autoscan.arr", CapabilityID: "arr", Enabled: true},
+		{ID: "removed", PluginID: "silo.autoscan.arr", CapabilityID: "arr", Enabled: true},
+	}
+	disabled := listed[0]
+	disabled.Enabled = false
+	store := &rereadStore{
+		fakeStore: &fakeStore{
+			settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+			sources:  listed,
+		},
+		current: map[string]Source{"disabled": disabled},
+	}
+	prov := &fakeProvider{nextMarker: "m1"}
+	if err := newService(store, prov, &recordingQueuer{}, allowSuppressor{}).PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if prov.calls != 0 || len(store.createdEvents) != 0 {
+		t.Fatalf("provider calls = %d, events = %d; want none", prov.calls, len(store.createdEvents))
+	}
+}
+
+// A source whose current row cannot be read is skipped for the cycle rather
+// than polled with a listed marker that may belong to a replaced upstream.
+func TestPollOnceSkipsSourceWhenRereadFails(t *testing.T) {
+	stale := "m-old-upstream"
+	store := &rereadStore{
+		fakeStore: &fakeStore{
+			settings: Settings{Enabled: true, DefaultPollIntervalSeconds: 600, DebounceSeconds: 60},
+			sources: []Source{{
+				ID: "s1", PluginID: "silo.autoscan.arr", CapabilityID: "arr", ConnectionID: strptr("c1"), Enabled: true,
+				Marker: &stale,
+			}},
+		},
+		err: errors.New("connection reset"),
+	}
+	prov := &fakeProvider{nextMarker: "m1"}
+	if err := newService(store, prov, &recordingQueuer{}, allowSuppressor{}).PollOnce(context.Background()); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
+	if prov.calls != 0 || len(store.createdEvents) != 0 {
+		t.Fatalf("provider calls = %d, events = %d; want none", prov.calls, len(store.createdEvents))
+	}
+}
+
+// rereadStore serves the cycle's source list from fakeStore but answers
+// GetSource from current, as if the rows changed after the list was read.
+type rereadStore struct {
+	*fakeStore
+	current map[string]Source
+	err     error
+}
+
+func (r *rereadStore) GetSource(_ context.Context, id string) (Source, error) {
+	if r.err != nil {
+		return Source{}, r.err
+	}
+	src, ok := r.current[id]
+	if !ok {
+		return Source{}, ErrNotFound
+	}
+	return src, nil
 }
 
 func TestPollOnceRecordsSuccessfulEvent(t *testing.T) {
