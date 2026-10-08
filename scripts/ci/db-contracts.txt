@@ -120,3 +120,6 @@
 
 # Admin top-activity leaderboards count playback, not marked-watched rows.
 ./internal/api/handlers TestAdminTopActivityCountsPlaybackNotMarks
+
+# Transactional administrator audit details and rollback isolation.
+./internal/activitylog TestMutationCommitRollbackAndHistoryDB
