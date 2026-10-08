@@ -90,3 +90,10 @@ func TestSQLiteAtomicJellycompatProgressHistoryRollback(t *testing.T) {
 func TestSQLiteCollectionSharing(t *testing.T) {
 	storetest.RunCollectionSharing(t, newConformanceStore)
 }
+
+// TestSQLiteProfilePINRevision runs the profile PIN revision conformance test
+// against the per-user SQLite backend; the Postgres backend runs the same suite
+// in internal/userstore/pgstore.
+func TestSQLiteProfilePINRevision(t *testing.T) {
+	storetest.RunProfilePINRevision(t, newConformanceStore)
+}

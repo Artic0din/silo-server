@@ -2027,15 +2027,9 @@ func (f *Fetcher) fetchEditorialSpotlightWithTitle(ctx context.Context, s Resolv
 		return nil, 0, "", fmt.Errorf("editorial_spotlight build query: %w", err)
 	}
 
-	switch {
-	case libraryID != nil:
-		def.LibraryIDs = []int{*libraryID}
-	case libraryIDs != nil:
-		if len(def.LibraryIDs) == 0 {
-			def.LibraryIDs = append([]int(nil), libraryIDs...)
-		} else {
-			def.LibraryIDs = intersectLibraryIDs(def.LibraryIDs, libraryIDs)
-		}
+	def, ok := applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	if !ok {
+		return []*models.MediaItem{}, 0, "", nil
 	}
 
 	limit := s.ItemLimit
@@ -2579,10 +2573,13 @@ func (f *Fetcher) fetchFiltered(ctx context.Context, s ResolvedSection, libraryI
 	return items, total, nil
 }
 
-// applySectionLibraryScopeToQuery limits def to the section's library scope.
-// It reports false when the scope is empty (non-nil) or shares no library
-// with the query's own, since an empty def.LibraryIDs would mean every
-// library instead.
+// applySectionLibraryScopeToQuery scopes a section's query to the fetch's
+// libraries: a pinned libraryID replaces the query's own libraries, and
+// libraryIDs limits them. It reports false when libraryIDs is empty but
+// non-nil, or when the query names libraries and none of them is in
+// libraryIDs; the section must then return nothing.
+// Clearing the query's libraries instead would read as "every library" and
+// fill the section from libraries it was never scoped to.
 func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int, libraryIDs []int) (catalog.QueryDefinition, bool) {
 	switch {
 	case libraryID != nil:
@@ -2593,10 +2590,13 @@ func applySectionLibraryScopeToQuery(def catalog.QueryDefinition, libraryID *int
 		}
 		if len(def.LibraryIDs) == 0 {
 			def.LibraryIDs = append([]int(nil), libraryIDs...)
-		} else {
-			def.LibraryIDs = intersectLibraryIDs(def.LibraryIDs, libraryIDs)
-			return def, len(def.LibraryIDs) > 0
+			break
 		}
+		scoped, none := catalog.AccessFilter{AllowedLibraryIDs: libraryIDs}.LibraryScope(def.LibraryIDs)
+		if none {
+			return def, false
+		}
+		def.LibraryIDs = scoped
 	}
 	return def, true
 }
@@ -2857,10 +2857,13 @@ func narrowLibraryScope(scope, allowed []int) []int {
 	case scope == nil:
 		return allowed
 	}
-	if narrowed := intersectLibraryIDs(scope, allowed); narrowed != nil {
-		return narrowed
+	narrowed := make([]int, 0, len(scope))
+	for _, id := range scope {
+		if slices.Contains(allowed, id) && !slices.Contains(narrowed, id) {
+			narrowed = append(narrowed, id)
+		}
 	}
-	return []int{}
+	return narrowed
 }
 
 func applyEpisodeTargetLibraryAccess(
@@ -2890,17 +2893,12 @@ func collectionRailQueryAccess(filter catalog.AccessFilter, libraryID *int, libr
 		return result
 	}
 
-	if effectiveLibraryIDs == nil {
-		result.AllowedLibraryIDs = []int{*libraryID}
-		return result
+	result.AllowedLibraryIDs = effectiveLibraryIDs
+	scoped, none := result.LibraryScope([]int{*libraryID})
+	if none {
+		scoped = []int{}
 	}
-	for _, id := range effectiveLibraryIDs {
-		if id == *libraryID {
-			result.AllowedLibraryIDs = []int{*libraryID}
-			return result
-		}
-	}
-	result.AllowedLibraryIDs = []int{}
+	result.AllowedLibraryIDs = scoped
 	return result
 }
 
@@ -3446,29 +3444,6 @@ func fetchSortClause(sort, order string) string {
 	}
 }
 
-func intersectLibraryIDs(a, b []int) []int {
-	if len(a) == 0 || len(b) == 0 {
-		return nil
-	}
-	allowed := make(map[int]struct{}, len(b))
-	for _, value := range b {
-		allowed[value] = struct{}{}
-	}
-	var result []int
-	seen := make(map[int]struct{})
-	for _, value := range a {
-		if _, ok := allowed[value]; !ok {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result
-}
-
 // applyConfigTypeFilter adds a WHERE condition for the config's filter_type.
 func applyConfigTypeFilter(alias string, filterType string, conditions *[]string, args *[]any, argIdx *int) {
 	if filterType == "" {
@@ -3553,15 +3528,9 @@ func (f *Fetcher) fetchSeasonalThemed(ctx context.Context, s ResolvedSection, li
 	}
 
 	// Apply library scope the same way fetchFiltered / fetchEditorialSpotlight do.
-	switch {
-	case libraryID != nil:
-		def.LibraryIDs = []int{*libraryID}
-	case libraryIDs != nil:
-		if len(def.LibraryIDs) == 0 {
-			def.LibraryIDs = append([]int(nil), libraryIDs...)
-		} else {
-			def.LibraryIDs = intersectLibraryIDs(def.LibraryIDs, libraryIDs)
-		}
+	def, ok := applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	if !ok {
+		return []*models.MediaItem{}, 0, nil
 	}
 
 	limit := s.ItemLimit
@@ -3725,15 +3694,9 @@ func (f *Fetcher) fetchMoodCollection(ctx context.Context, s ResolvedSection, li
 		},
 	}
 
-	switch {
-	case libraryID != nil:
-		def.LibraryIDs = []int{*libraryID}
-	case libraryIDs != nil:
-		if len(def.LibraryIDs) == 0 {
-			def.LibraryIDs = append([]int(nil), libraryIDs...)
-		} else {
-			def.LibraryIDs = intersectLibraryIDs(def.LibraryIDs, libraryIDs)
-		}
+	def, ok = applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
+	if !ok {
+		return []*models.MediaItem{}, 0, nil
 	}
 
 	limit := s.ItemLimit
@@ -3901,17 +3864,8 @@ func (f *Fetcher) fetchReturningShows(ctx context.Context, s ResolvedSection, li
 	if libraryID != nil {
 		scopeIDs = []int{*libraryID}
 	}
-	allowedFolders := filter.AllowedLibraryIDs
-	if len(scopeIDs) > 0 {
-		if allowedFolders != nil {
-			allowedFolders = intersectLibraryIDs(scopeIDs, allowedFolders)
-			if len(allowedFolders) == 0 {
-				return []*models.MediaItem{}, 0, nil
-			}
-		} else {
-			allowedFolders = scopeIDs
-		}
-	} else if allowedFolders != nil && len(allowedFolders) == 0 {
+	allowedFolders, none := filter.LibraryScope(scopeIDs)
+	if none {
 		return []*models.MediaItem{}, 0, nil
 	}
 
