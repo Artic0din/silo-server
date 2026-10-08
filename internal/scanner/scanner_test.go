@@ -184,6 +184,46 @@ func TestScanStateUpdateReasons_DetectsExternalSubtitleInventoryChange(t *testin
 	}
 }
 
+// TestScanStateUpdateReasons_SkipsProbeRepairForRejectedUnchangedFile covers a
+// file ffprobe rejected. Rescanning the same bytes must not run ffprobe and the
+// OSHash again, while changed bytes and unmarked rows still get the probe.
+func TestScanStateUpdateReasons_SkipsProbeRepairForRejectedUnchangedFile(t *testing.T) {
+	t.Parallel()
+
+	modifiedAt := time.Now().UTC().Truncate(time.Microsecond)
+	rejectedAt := modifiedAt.Add(time.Minute)
+	rejected := &scanStateFile{
+		ContentID:      "matched-content",
+		FileSize:       1_000,
+		FileModifiedAt: &modifiedAt,
+		ProbeFailedAt:  &rejectedAt,
+	}
+
+	reasons := scanStateUpdateReasons(rejected, 1_000, modifiedAt, nil, false, fileRootAssignment{}, fileGroupAssignment{}, "movies", true)
+	if testStringSliceContains(reasons, "probe_repair") {
+		t.Fatalf("rejected unchanged file got reasons %#v, want no probe_repair", reasons)
+	}
+	if !shouldSkipStableConfirmedScanState(rejected, "matched", 1_000, modifiedAt, reasons, true) {
+		t.Fatal("expected a rejected unchanged file to use the stable scan-state skip")
+	}
+
+	changedAt := modifiedAt.Add(time.Hour)
+	reasons = scanStateUpdateReasons(rejected, 1_000, changedAt, nil, false, fileRootAssignment{}, fileGroupAssignment{}, "movies", true)
+	if !testStringSliceContains(reasons, "mtime_changed") || !testStringSliceContains(reasons, "probe_repair") {
+		t.Fatalf("rejected file with new bytes got reasons %#v, want mtime_changed and probe_repair", reasons)
+	}
+
+	unmarked := &scanStateFile{
+		ContentID:      "matched-content",
+		FileSize:       1_000,
+		FileModifiedAt: &modifiedAt,
+	}
+	reasons = scanStateUpdateReasons(unmarked, 1_000, modifiedAt, nil, false, fileRootAssignment{}, fileGroupAssignment{}, "movies", true)
+	if !testStringSliceContains(reasons, "probe_repair") {
+		t.Fatalf("unprobed file got reasons %#v, want probe_repair", reasons)
+	}
+}
+
 func TestIdentityOnlyUpdateReasons(t *testing.T) {
 	t.Parallel()
 

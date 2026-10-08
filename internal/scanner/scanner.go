@@ -3332,7 +3332,7 @@ func scanStateUpdateReasons(
 	if existing.MissingSince != nil {
 		reasons = append(reasons, "was_missing")
 	}
-	if canRepairProbe && needsCriticalProbeRepairScanState(existing) {
+	if scanStateNeedsProbeRepair(existing, fileSize, fileModifiedAt, canRepairProbe) {
 		reasons = append(reasons, "probe_repair")
 	}
 	if externalSubtitlesChecked {
@@ -3425,7 +3425,7 @@ func shouldSkipStableConfirmedScanState(
 	if existing.MissingSince != nil {
 		return false
 	}
-	if canRepairProbe && needsCriticalProbeRepairScanState(existing) {
+	if scanStateNeedsProbeRepair(existing, fileSize, fileModifiedAt, canRepairProbe) {
 		return false
 	}
 	if len(updateReasons) > 0 {
@@ -3510,6 +3510,24 @@ func sameFileModifiedAt(existing *time.Time, current time.Time) bool {
 
 func normalizeFileModifiedAt(ts time.Time) time.Time {
 	return models.NormalizeFileModifiedAt(ts)
+}
+
+// scanStateNeedsProbeRepair reports whether a scan should probe an unchanged
+// file again to fill in playback-critical metadata. ffprobe has already
+// rejected a file marked probe_failed_at that never probed successfully, and
+// the mark only stands while its size and modification time are the ones that
+// were probed, so probing the same bytes again would only fail again. Changed
+// bytes drop the mark and are probed as usual. Playback still probes a marked
+// file when it is played.
+func scanStateNeedsProbeRepair(existing *scanStateFile, fileSize int64, fileModifiedAt time.Time, canRepairProbe bool) bool {
+	if !canRepairProbe {
+		return false
+	}
+	if existing != nil && existing.ProbeFailedAt != nil && existing.ProbeUpdatedAt == nil &&
+		existing.FileSize == fileSize && sameFileModifiedAt(existing.FileModifiedAt, fileModifiedAt) {
+		return false
+	}
+	return needsCriticalProbeRepairScanState(existing)
 }
 
 func needsCriticalProbeRepairScanState(file *scanStateFile) bool {
