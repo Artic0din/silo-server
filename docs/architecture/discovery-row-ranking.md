@@ -18,7 +18,8 @@ same statement as every insert, update or delete of a `tmdb` row, so the rows
 can filter and index them without a join and no writer can leave them stale. A
 missing source or a zero count leaves both NULL, and a NULL count never
 qualifies: an item without a known count is left out until a refresh supplies
-one. Catalog transfer carries the pair with each item.
+one. Catalog transfer carries each item's `tmdb` rating source, so the
+trigger derives the pair on import as well.
 
 The pair always comes from one row. `rating_tmdb` is not used for ranking: a
 scheduled refresh never overwrites it, so it can predate the stored count, and
@@ -72,4 +73,6 @@ that pool, in pool order (`sections.dailyBestOf`). The pick is keyed by row kind
 day. The shared rows carry the day in their resolved-list cache key, so every
 node switches at the same UTC midnight. A profile that hides watched titles
 fetches a larger window, so its pick can differ. Genre Roulette already rotates
-its genre and shows that genre's best titles without a daily pick.
+its genre and shows that genre's best titles without a daily pick; it picks
+from genres among titles with the vote minimum, so the chosen genre can fill
+the row.

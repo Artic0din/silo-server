@@ -75,6 +75,13 @@ describe("describeRow", () => {
     expect(text(describeRow(row("short_watches"), home))).toBe(
       "Movies of 95 minutes or less, rated 6.0+ on TMDB with 100+ votes",
     );
+    // Zero or negative settings fall back to the server's defaults.
+    expect(text(describeRow(row("short_watches", { max_minutes: 0 }), home))).toBe(
+      "Movies of 95 minutes or less, rated 6.0+ on TMDB with 100+ votes",
+    );
+    expect(text(describeRow(row("forgotten_favorites", { lookback_days: -5 }), home))).toBe(
+      "Rated 7.0+ on TMDB with 100+ votes, and not watched in the past year",
+    );
   });
 
   it("calls the viewer's own collection theirs", () => {

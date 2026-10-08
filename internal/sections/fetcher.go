@@ -3994,8 +3994,9 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 	return items, len(items), editorialSpotlightDisplayTitle(s.Title, genre), nil
 }
 
-// genreRouletteCandidates returns the most common genres in scope, mirroring
-// topStudioCandidates. The subjectType parameter is fixed ("genre_roulette")
+// genreRouletteCandidates returns the most common genres in scope among titles
+// with the vote count the row requires, so the chosen genre can fill it,
+// mirroring topStudioCandidates. The subjectType parameter is fixed ("genre_roulette")
 // and only exists to satisfy the shared candidate-loader signature.
 func (f *Fetcher) genreRouletteCandidates(ctx context.Context, _ string, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) ([]string, error) {
 	var conditions []string
@@ -4020,12 +4021,13 @@ func (f *Fetcher) genreRouletteCandidates(ctx context.Context, _ string, library
 			SELECT unnest(mi.genres) AS genre
 			FROM %s
 			WHERE mi.genres IS NOT NULL
+			  AND mi.tmdb_vote_count >= %d
 			%s
 		) sub
 		GROUP BY genre
 		ORDER BY COUNT(*) DESC
 		LIMIT $%d
-	`, fromClause, whereClause, argIdx)
+	`, fromClause, recipes.DiscoveryMinVotes, whereClause, argIdx)
 
 	rows, err := f.pool.Query(ctx, query, args...)
 	if err != nil {

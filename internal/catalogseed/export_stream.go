@@ -353,8 +353,9 @@ func (s *Service) streamItemRecords(ctx context.Context, folderIDs []int, fn fun
 			COALESCE(mi.tagline, ''),
 			mi.rating_imdb,
 			mi.rating_tmdb,
-			mi.tmdb_vote_count,
-			mi.tmdb_vote_average,
+			trs.score,
+			trs.votes,
+			trs.provider,
 			mi.rating_rt_critic,
 			mi.rating_rt_audience,
 			COALESCE(mi.imdb_id, ''),
@@ -387,6 +388,7 @@ func (s *Service) streamItemRecords(ctx context.Context, folderIDs []int, fn fun
 			mi.updated_at
 		FROM media_items mi
 		JOIN exported_content_ids ids ON ids.content_id = mi.content_id
+		LEFT JOIN media_item_rating_sources trs ON trs.content_id = mi.content_id AND trs.source = 'tmdb'
 		ORDER BY mi.content_id ASC`,
 		folderIDs,
 	)
@@ -397,6 +399,9 @@ func (s *Service) streamItemRecords(ctx context.Context, folderIDs []int, fn fun
 
 	for rows.Next() {
 		var record ItemRecord
+		var tmdbScore *float64
+		var tmdbVotes *int64
+		var tmdbProvider *string
 		if err := rows.Scan(
 			&record.ContentID,
 			&record.Type,
@@ -413,8 +418,9 @@ func (s *Service) streamItemRecords(ctx context.Context, folderIDs []int, fn fun
 			&record.Tagline,
 			&record.RatingIMDB,
 			&record.RatingTMDB,
-			&record.TMDBVoteCount,
-			&record.TMDBVoteAverage,
+			&tmdbScore,
+			&tmdbVotes,
+			&tmdbProvider,
 			&record.RatingRTCritic,
 			&record.RatingRTAudience,
 			&record.ImdbID,
@@ -447,6 +453,9 @@ func (s *Service) streamItemRecords(ctx context.Context, folderIDs []int, fn fun
 			&record.UpdatedAt,
 		); err != nil {
 			return fmt.Errorf("scanning export item row: %w", err)
+		}
+		if tmdbScore != nil && tmdbProvider != nil {
+			record.TMDBRating = &RatingSourceRecord{Score: *tmdbScore, Votes: tmdbVotes, Provider: *tmdbProvider}
 		}
 		if err := fn(record); err != nil {
 			return err

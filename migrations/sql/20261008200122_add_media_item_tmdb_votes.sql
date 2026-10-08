@@ -43,11 +43,19 @@ BEGIN
             vote_average := NEW.score / 10;
         END IF;
     END IF;
+    -- Check before writing: an UPDATE with nothing to change still fires the
+    -- statement-level triggers on media_items, once per source row, which a
+    -- bulk delete of items would pay for every cascaded row.
+    PERFORM 1 FROM public.media_items
+    WHERE content_id = target
+      AND (tmdb_vote_count, tmdb_vote_average) IS DISTINCT FROM (vote_count, vote_average);
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
     UPDATE public.media_items
     SET tmdb_vote_count = vote_count,
         tmdb_vote_average = vote_average
-    WHERE content_id = target
-      AND (tmdb_vote_count, tmdb_vote_average) IS DISTINCT FROM (vote_count, vote_average);
+    WHERE content_id = target;
     RETURN NULL;
 END;
 $$;
@@ -59,8 +67,11 @@ FOR EACH ROW EXECUTE FUNCTION public.sync_media_item_tmdb_votes();
 
 -- Fill the pair from the counts already stored (MDBList sends TMDB's). Commit
 -- each batch to bound row-lock retention and WAL bursts; a resumed migration
--- skips rows already filled. Called as a top-level statement because
--- transaction control is prohibited in a DO block.
+-- skips rows already filled. Each batch locks its source rows first, in the
+-- trigger's order (source, then item), so a concurrent write to a source waits
+-- or is waited for and the pair never takes a value the source no longer has.
+-- Called as a top-level statement because transaction control is prohibited
+-- in a DO block.
 -- +goose StatementBegin
 CREATE OR REPLACE PROCEDURE public.backfill_media_item_tmdb_votes()
 LANGUAGE plpgsql
@@ -89,10 +100,13 @@ BEGIN
         UPDATE public.media_items mi
         SET tmdb_vote_count = s.votes,
             tmdb_vote_average = s.score / 10
-        FROM public.media_item_rating_sources s
+        FROM (
+            SELECT content_id, score, votes
+            FROM public.media_item_rating_sources
+            WHERE source = 'tmdb' AND votes > 0 AND content_id = ANY(batch_ids)
+            FOR SHARE
+        ) s
         WHERE s.content_id = mi.content_id
-          AND s.source = 'tmdb'
-          AND s.content_id = ANY(batch_ids)
           AND mi.tmdb_vote_count IS NULL;
         last_id := batch_ids[array_length(batch_ids, 1)];
         COMMIT;
