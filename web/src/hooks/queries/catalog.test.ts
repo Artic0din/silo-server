@@ -158,14 +158,18 @@ describe("catalog browse and facets on the v2 contract", () => {
     expect(bodies.map((body) => body.cursor)).toEqual([undefined, "p2", "p3"]);
     expect(bodies.every((body) => body.limit <= MAX_CATALOG_PAGE)).toBe(true);
 
+    // A capped read keeps one limit for every page, since the cursor is bound
+    // to it, even when a page comes back short with more to follow.
     fetchMock.mockReset();
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(pageOf(100, 0, "p2")))
-      .mockResolvedValueOnce(jsonResponse(pageOf(50, 100, "p3")));
+      .mockResolvedValueOnce(jsonResponse(pageOf(50, 0, "p2")))
+      .mockResolvedValueOnce(jsonResponse(pageOf(100, 50, "p3")))
+      .mockResolvedValueOnce(jsonResponse(pageOf(100, 150, "p4")));
     const capped = await fetchCatalogItems(state, { max: 150 });
     expect(capped).toHaveLength(150);
+    expect(capped.at(-1)?.content_id).toBe("c-149");
     expect(fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)).limit)).toEqual([
-      100, 50,
+      100, 100,
     ]);
   });
 
