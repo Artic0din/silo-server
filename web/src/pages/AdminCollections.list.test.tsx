@@ -587,7 +587,7 @@ describe("AdminCollections List row menu", () => {
       artwork: true,
       item_reorder: true,
     });
-    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "collection_in_use"));
+    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "conflict"));
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Best Picture Winners");
@@ -721,7 +721,7 @@ describe("AdminCollections List: rows that show a collection", () => {
   });
 
   it("shows the rows when the server refuses a delete the list thought was free", async () => {
-    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "collection_in_use"));
+    v2Recorder.answer("DELETE /api/v2/admin/collections/{id}", problem(409, "conflict"));
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Studio Ghibli");

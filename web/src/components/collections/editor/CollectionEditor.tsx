@@ -494,7 +494,7 @@ export function CollectionEditor<Raw extends WireCollection>({
     setDeleteError(null);
   }
   // When the rows don't load but the list counts none, the plain confirm stays
-  // usable: the server still refuses with collection_in_use if one appeared.
+  // usable: the server still refuses with a 409 if one appeared.
   const deleteRowsState = rowsState?.status === "error" && listedRowCount === 0 ? null : rowsState;
   async function deleteServerCollection() {
     if (!view || !editor.etag) return;

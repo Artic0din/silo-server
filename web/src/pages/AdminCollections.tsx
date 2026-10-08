@@ -176,12 +176,10 @@ interface PendingDelete {
 
 const DELETE_CHANGED = "It changed since you opened this. Check it, then delete again.";
 
+// A server collection's DELETE answers 409 (problem type "conflict") only
+// while a row still shows it.
 function isCollectionInUse(error: unknown) {
-  return (
-    error instanceof V2ProblemError &&
-    error.status === 409 &&
-    error.problemType === "collection_in_use"
-  );
+  return error instanceof V2ProblemError && error.status === 409;
 }
 
 function deleteErrorMessage(error: unknown): string {

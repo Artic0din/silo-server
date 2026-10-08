@@ -201,11 +201,8 @@ export function useDeleteAdminCollections() {
           if (error instanceof V2ProblemError && error.status === 404) {
             return "deleted";
           }
-          if (
-            error instanceof V2ProblemError &&
-            error.status === 409 &&
-            error.problemType === "collection_in_use"
-          ) {
+          // 409 (problem type "conflict"): a row still shows it.
+          if (error instanceof V2ProblemError && error.status === 409) {
             return "kept";
           }
           return "failed";

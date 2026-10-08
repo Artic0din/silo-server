@@ -258,7 +258,7 @@ capabilities don't report `section_references`, the list is left out and Add as 
   row that fails stops the run before the collection is touched, and the dialog names the rows
   that still show it. When the rows list fails to load, the delete waits for Retry only if the
   List's `row_count` says rows show it; otherwise the plain confirm deletes and the server's
-  `409 collection_in_use` guards a row added since. On the List, that `409` is shown as "Rows
+  `409` (problem type `conflict`) guards a row added since. On the List, that `409` is shown as "Rows
   still use it. Remove them first." without `section_references`, and with it the List falls back
   to the rows list for a collection its counts showed as unused. The editor shows the server's
   message and reads the rows again (only when the server reports rows).
