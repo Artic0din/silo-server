@@ -225,6 +225,17 @@ export function draftConnectionId(draft: Pick<SourceDraft, "connectionId">): str
 }
 
 /**
+ * Whether the dialog changed the source's config. The schema form marks the
+ * draft dirty; the webhook provider has its own control, so it is compared
+ * with the stored value instead.
+ */
+function configEdited(source: AutoscanSource, draft: SourceDraft): boolean {
+  if (draft.configDirty) return true;
+  const chosen = draft.sourceConfig[WEBHOOK_PROVIDER_KEY];
+  return chosen !== undefined && chosen !== source.source_config?.[WEBHOOK_PROVIDER_KEY];
+}
+
+/**
  * The complete PUT body for an edited source. Every field is sent: the edit
  * dialog owns all of them, and the list's enabled switch owns `enabled`, which
  * is read from the live source rather than the dialog's snapshot.
@@ -243,7 +254,13 @@ export function editedSourceBody(
     // rather than clearing it if one slips through.
     poll_interval_seconds: interval.valid ? interval.seconds : source.poll_interval_seconds,
     path_rewrites: usableMappings(draft.mappings),
-    source_config: normalizeSourceConfig(serializedConfig),
+    // A config the operator did not touch goes back exactly as stored.
+    // Rebuilding it fills in defaults and drops keys the descriptor no longer
+    // declares, and the server restarts a poll source from now whenever its
+    // source_config changes.
+    source_config: configEdited(source, draft)
+      ? normalizeSourceConfig(serializedConfig)
+      : { ...(source.source_config ?? {}) },
     label: draft.label.trim(),
   };
 }

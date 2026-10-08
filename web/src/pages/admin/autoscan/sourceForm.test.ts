@@ -38,6 +38,7 @@ describe("editedSourceBody", () => {
     const source = pollSource();
     const draft = {
       ...draftFromSource(source, descriptor),
+      configDirty: true,
       label: "  Basement ",
       intervalStr: "1200",
       mappings: [newMapping("/mnt/media/tv", " /data/tv "), newMapping("", "")],
@@ -65,6 +66,26 @@ describe("editedSourceBody", () => {
     const source = pollSource();
     const draft = { ...draftFromSource(source, descriptor), connectionId: "__none__" };
     expect(editedSourceBody(source, draft, {}).connection_id).toBeNull();
+  });
+
+  it("sends the stored config back when the config was not edited", () => {
+    // Saving rebuilds the config from the form, which fills in declared
+    // defaults. Sending that for a label change would make the server
+    // restart the source's poll marker from now.
+    const source = pollSource();
+    const draft = { ...draftFromSource(source, descriptor), label: "Renamed", intervalStr: "1200" };
+    expect(
+      editedSourceBody(source, draft, { lookback: "24h", window: "7d" }).source_config,
+    ).toEqual(source.source_config);
+  });
+
+  it("counts a webhook provider change as a config edit", () => {
+    const source = webhookSource();
+    const draft = draftFromSource(source, descriptor);
+    draft.sourceConfig = { ...draft.sourceConfig, webhook_provider: "radarr" };
+    expect(editedSourceBody(source, draft, { webhook_provider: "radarr" }).source_config).toEqual({
+      webhook_provider: "radarr",
+    });
   });
 
   it("round-trips a webhook source unchanged", () => {
