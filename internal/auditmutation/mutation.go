@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const auditFieldLibraryIDs = "library_ids"
+
 // Change contains canonical JSON representations of safe policy values. Secret
 // changes have only a field name: no password, hash, token or request body.
 type Change struct {
@@ -69,7 +71,7 @@ func UserValues(user *models.User) map[string]any {
 	return map[string]any{
 		"username": user.Username, "email": user.Email, "role": user.Role,
 		"permissions": user.Permissions, "enabled": user.Enabled, "access_group_id": user.AccessGroupID,
-		"library_ids": user.LibraryIDs, "max_playback_quality": user.MaxPlaybackQuality,
+		auditFieldLibraryIDs: user.LibraryIDs, "max_playback_quality": user.MaxPlaybackQuality,
 		"max_streams": user.MaxStreams, "max_transcodes": user.MaxTranscodes,
 		"max_remote_stream_bitrate_kbps": user.MaxRemoteStreamBitrateKbps,
 		"max_local_stream_bitrate_kbps":  user.MaxLocalStreamBitrateKbps,

@@ -48,6 +48,7 @@ type AdminLogsSocketCapabilitiesOutputBody struct {
 
 const (
 	adminLogsSocketCacheControl = "no-store"
+	adminLogsActorIDPattern     = "^[1-9][0-9]*$"
 	adminLogsQuerySessionID     = "session_id"
 	adminLogsQueryPlaybackID    = "playback_session_id"
 	adminLogsQueryRequestID     = "request_id"
@@ -107,7 +108,7 @@ func registerAdminLogsSocket(reg *Registry) {
 	raw := Operation{Operation: huma.Operation{Method: http.MethodGet, Path: root + "/ws", OperationID: "connectAdminLogsSocket", Tags: []string{"admin-observability"}, Summary: "Connect the administrator log stream using a single-use session-bound credential in Sec-WebSocket-Protocol. Frames are the bridge's snapshot, append and error messages.", Responses: responses}, Class: ClassPublic, ServiceBacked: true}
 	raw.Parameters = []*huma.Param{
 		{Name: "action", In: discordLinkQuery, Schema: &huma.Schema{Type: huma.TypeString, MaxLength: new(64)}, Description: "audit: domain action filter."},
-		{Name: "actor_user_id", In: discordLinkQuery, Schema: &huma.Schema{Type: huma.TypeString, Pattern: "^[1-9][0-9]*$", MaxLength: new(20)}, Description: "audit: acting account, including an impersonator."},
+		{Name: "actor_user_id", In: discordLinkQuery, Schema: &huma.Schema{Type: huma.TypeString, Pattern: adminLogsActorIDPattern, MaxLength: new(20)}, Description: "audit: acting account, including an impersonator."},
 		{Name: "target_type", In: discordLinkQuery, Schema: &huma.Schema{Type: huma.TypeString, MaxLength: new(64)}, Description: "audit: affected entity type."},
 		{Name: "target_id", In: discordLinkQuery, Schema: &huma.Schema{Type: huma.TypeString, MaxLength: new(64)}, Description: "audit: affected entity identifier."},
 		{Name: eventsProtocolHeader, In: paramInHeader, Required: true, Schema: &huma.Schema{Type: huma.TypeString}, Description: "Offer silo.admin-logs.v2 followed by silo.ticket.<single-use-ticket>."},

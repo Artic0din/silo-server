@@ -18,6 +18,8 @@ import (
 	"github.com/Silo-Server/silo-server/internal/opslog"
 )
 
+const auditFilterAction = "action"
+
 type AdminLogsHandler struct {
 	opsRepo   *opslog.Repo
 	auditRepo *activitylog.Repo
@@ -135,7 +137,7 @@ func parseAuditLogOptionsFromRequest(r *http.Request) (activitylog.ListOptions, 
 	}
 
 	if strings.HasPrefix(r.URL.Path, "/api/v2/") {
-		for _, key := range []string{"action", "target_type", "target_id"} {
+		for _, key := range []string{auditFilterAction, "target_type", "target_id"} {
 			if utf8.RuneCountInString(r.URL.Query().Get(key)) > 64 {
 				return activitylog.ListOptions{}, invalidQueryError(key)
 			}
@@ -151,7 +153,7 @@ func parseAuditLogOptionsFromRequest(r *http.Request) (activitylog.ListOptions, 
 				}
 			}
 		}
-		opts.Action = strings.TrimSpace(r.URL.Query().Get("action"))
+		opts.Action = strings.TrimSpace(r.URL.Query().Get(auditFilterAction))
 		opts.TargetType = strings.TrimSpace(r.URL.Query().Get("target_type"))
 		opts.TargetID = strings.TrimSpace(r.URL.Query().Get("target_id"))
 		actor, err := parseOptionalIntQuery(r, "actor_user_id")
