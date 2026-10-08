@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/Silo-Server/silo-server/internal/models"
@@ -131,6 +132,51 @@ func TestPersonalCollectionUpdatePreservesNullableGroupAndImportConfig(t *testin
 	}
 	if len(cfg) != 1 || cfg["limit"] != nil {
 		t.Fatalf("patch must only clear limit: %#v", cfg)
+	}
+}
+
+// groupLessStore reports the features of a store without collection groups,
+// as both user stores do since groups were retired.
+type groupLessStore struct{ *lifecycleStore }
+
+func (groupLessStore) CollectionFeatures() userstore.CollectionFeatures {
+	return userstore.CollectionFeatures{Imports: true, Artwork: true, ItemReorder: true, Description: true}
+}
+
+type groupLessProvider struct {
+	userstore.UserStoreProvider
+	store groupLessStore
+}
+
+func (p groupLessProvider) ForUser(context.Context, int) (userstore.UserStore, error) {
+	return p.store, nil
+}
+
+func TestPersonalCollectionUpdateWithoutGroupsIgnoresNullGroup(t *testing.T) {
+	for _, body := range []string{`{"name":"Renamed","group_id":null}`, `{"name":"Renamed","group_id":"  "}`} {
+		inner := &lifecycleStore{collection: userstore.Collection{ID: "c", CreatorProfileID: "owner", CollectionType: "manual"}}
+		h := NewCollectionHandler(groupLessProvider{store: groupLessStore{inner}})
+		var req PersonalCollectionUpdateRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.UpdatePersonalCollection(t.Context(), PersonalCollectionUpdateCommand{UserID: 1, ProfileID: "owner", CollectionID: "c", Request: req}); err != nil {
+			t.Fatalf("%s: %v", body, err)
+		}
+		if inner.update.Name == nil || *inner.update.Name != "Renamed" || inner.update.GroupID != nil {
+			t.Fatalf("%s: update = %#v, want the rename without a group change", body, inner.update)
+		}
+	}
+
+	inner := &lifecycleStore{collection: userstore.Collection{ID: "c", CreatorProfileID: "owner", CollectionType: "manual"}}
+	h := NewCollectionHandler(groupLessProvider{store: groupLessStore{inner}})
+	var req PersonalCollectionUpdateRequest
+	if err := json.Unmarshal([]byte(`{"name":"Renamed","group_id":"g1"}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	_, err := h.UpdatePersonalCollection(t.Context(), PersonalCollectionUpdateCommand{UserID: 1, ProfileID: "owner", CollectionID: "c", Request: req})
+	if apiErr, ok := errors.AsType[*APIError](err); !ok || apiErr.Status != http.StatusNotImplemented {
+		t.Fatalf("named group error = %#v, want 501", err)
 	}
 }
 

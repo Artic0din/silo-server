@@ -53,7 +53,12 @@ func (h *CollectionHandler) UpdatePersonalCollection(ctx context.Context, cmd Pe
 	}
 	if req.GroupID.Set() {
 		if err := collectionFeatureError(store, "groups"); err != nil {
-			return none, err
+			if group := req.GroupID.Value(); group != nil && strings.TrimSpace(*group) != "" {
+				return none, err
+			}
+			// A null or blank group_id asks for no group, which every
+			// collection already has on a store without groups.
+			req.GroupID = optionalNullableString{}
 		}
 	}
 	input := userstore.UpdateCollectionInput{

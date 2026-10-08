@@ -112,7 +112,8 @@ contract keeps their members with fixed values:
 - `createCollectionGroup`, `getCollectionGroup`, `updateCollectionGroup`,
   `deleteCollectionGroup`, `getCollectionGroupsOrder` and `reorderCollectionGroups` answer
   `501 capability_unsupported`, as they already did for an account on the SQLite user store.
-- Setting `group_id` in `updateCollection` answers `501 capability_unsupported`.
+- Setting `group_id` to a group in `updateCollection` answers `501 capability_unsupported`; a
+  null or blank `group_id` is accepted and changes nothing, since no collection is in a group.
 - `group_id` on `reorderCollections` and `getCollectionOrder` must be omitted (or null in the
   body); a value is a `422 validation_failed`.
 
@@ -123,5 +124,5 @@ A later change removes these operations and members from `/api/v2` before the 1.
 The frozen v1 routes share the same rules. `GET /api/v1/collections` returns own and shared
 collections; `groups` is always `[]` and `group_id` always `null`. `allowed_profile_ids` reports
 the effective audience (the creator alone, or every profile on the login) and is ignored on
-input. `PUT /api/v1/collections/order` accepts only a null or absent `group_id`. The v1 group
-routes answer `501`. See the [v1 removals table](architecture/v1-scope.md#breaking-removals-taken-before-lock).
+input. `PUT /api/v1/collections/order` accepts only a null or absent `group_id`, and its
+`ordered_ids` names only the acting profile's own collections. The v1 group routes answer `501`. See the [v1 removals table](architecture/v1-scope.md#breaking-removals-taken-before-lock).
