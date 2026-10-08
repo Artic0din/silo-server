@@ -389,6 +389,31 @@ func TestDiscoveryQueries_DisabledLibrariesUseNotExists(t *testing.T) {
 	}
 }
 
+func TestRatingThreshold_NarrowsByTypeGenreAndRuntime(t *testing.T) {
+	query, args := buildRatingThresholdQuery(RatingFilter{
+		Min:        6.5,
+		MinVotes:   100,
+		Types:      []string{"movie", "series"},
+		GenresAny:  []string{"Comedy", "Family"},
+		MaxRuntime: 95,
+		Limit:      50,
+	})
+	for _, want := range []string{
+		"mi.tmdb_vote_average >= $1 AND mi.tmdb_vote_count >= $2",
+		"mi.type = ANY($3)",
+		"mi.genres && $4::text[]",
+		"mi.runtime > 0 AND mi.runtime <= $5",
+		"LIMIT $6",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("query lacks %q:\n%s", want, query)
+		}
+	}
+	if len(args) != 6 || args[4] != 95 || args[5] != 50 {
+		t.Fatalf("args = %v, want rating, votes, types, genres, 95, 50", args)
+	}
+}
+
 // An unknown vote count must never qualify, or a title rated 10 by one person
 // would lead the row again.
 func TestDiscoveryQueries_RequireAKnownVoteCount(t *testing.T) {

@@ -7,6 +7,8 @@ import {
   rowSwitchLabel,
   titleCount,
 } from "./describe";
+import { rowKindSentence } from "./catalog";
+import { everyPreset } from "./recipeCatalogFixture.test-support";
 import type { HomeRow } from "./types";
 
 function row(sectionType: string, config: Record<string, unknown> = {}): HomeRow {
@@ -248,4 +250,25 @@ describe("rule row order", () => {
     expect(summary("runtime", "asc")).toBe("Custom order");
     expect(ruleSortSummary({ sort: "added_at", order: "desc" })).toBe("Newest added first");
   });
+});
+
+describe("rating-led row text", () => {
+  // The server states each rating-led preset's rule in description_short (the
+  // Add row preview shows it). The row list and the picker repeat that rule,
+  // so a changed rating floor or vote minimum must change all three.
+  const kinds = [
+    "critically_acclaimed",
+    "hidden_gems",
+    "forgotten_favorites",
+    "short_watches",
+    "genre_roulette",
+  ];
+  for (const { def, preset } of everyPreset().filter(({ def }) => kinds.includes(def.type))) {
+    it(`${def.type}/${preset.key} matches the server's description`, () => {
+      const rule = preset.description_short.replace(/\.$/, "");
+      const admin = { pageKind: "home" as const, surface: "admin" as const };
+      expect(text(describeRow(row(def.type, preset.default_params), admin))).toBe(rule);
+      expect(rowKindSentence(def.type).startsWith(rule)).toBe(true);
+    });
+  }
 });

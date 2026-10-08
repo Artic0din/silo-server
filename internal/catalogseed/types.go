@@ -57,6 +57,8 @@ type ItemRecord struct {
 	RatingTMDB        *float64   `json:"rating_tmdb,omitempty"`
 	RatingRTCritic    *int       `json:"rating_rt_critic,omitempty"`
 	RatingRTAudience  *int       `json:"rating_rt_audience,omitempty"`
+	TMDBVoteCount     *int64     `json:"tmdb_vote_count,omitempty"`   // discovery rows rank by this pair
+	TMDBVoteAverage   *float64   `json:"tmdb_vote_average,omitempty"` // and need it after an import
 	ImdbID            string     `json:"imdb_id"`
 	TmdbID            string     `json:"tmdb_id"`
 	TvdbID            string     `json:"tvdb_id"`

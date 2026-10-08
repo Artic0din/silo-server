@@ -279,7 +279,7 @@ export function describeRow(row: HomeRow, context: DescribeContext): Description
     }
     case "genre_roulette":
       return [
-        `A different genre every ${cadence(config)}, rated ${rating(config.min_rating, 6)}+ on TMDB`,
+        `A different genre every ${cadence(config)}, rated ${rating(config.min_rating, 6)}+ on TMDB with ${MIN_VOTES}+ votes`,
       ];
     case "random":
       return ["A random mix"];

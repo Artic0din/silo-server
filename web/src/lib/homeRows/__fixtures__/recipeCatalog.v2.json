@@ -212,7 +212,7 @@
               "key": "genre_roulette_weekly",
               "display_name": "Genre Roulette",
               "icon": "🎰",
-              "description_short": "A different genre every week, rated 6.0+ on TMDB.",
+              "description_short": "A different genre every week, rated 6.0+ on TMDB with 100+ votes.",
               "description_long": "",
               "default_params": {
                 "rotation_cadence": "weekly"

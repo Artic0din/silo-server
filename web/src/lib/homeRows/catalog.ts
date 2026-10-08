@@ -181,7 +181,7 @@ const ROW_KINDS: Record<string, RowKind> = {
   genre_roulette: {
     group: "moods",
     label: "Genre roulette",
-    sentence: "A different genre every week, rated 6.0+ on TMDB.",
+    sentence: "A different genre every week, rated 6.0+ on TMDB with 100+ votes.",
   },
   random: { group: "moods", label: "Surprise me", sentence: "A random mix from your libraries." },
   short_watches: {

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -169,6 +170,8 @@ func TestRatingSourceRepositoryReplacePostgres(t *testing.T) {
 	}
 }
 
+// The trigger from migration 20261008200122 keeps media_items' TMDB vote pair
+// in step with the item's 'tmdb' rating source on every write.
 func TestRatingSourceRepositorySyncsTMDBVotesPostgres(t *testing.T) {
 	pool := newBatchEquivTestPool(t)
 	ctx := context.Background()
@@ -196,7 +199,7 @@ func TestRatingSourceRepositorySyncsTMDBVotesPostgres(t *testing.T) {
 		if (count == nil) != (average == nil) {
 			t.Fatalf("tmdb vote pair is half set: count %v, average %v", count, average)
 		}
-		if average != nil && *average != 8.4 {
+		if average != nil && math.Abs(*average-8.4) > 1e-9 {
 			t.Fatalf("tmdb_vote_average = %v, want 8.4 (the row's score / 10)", *average)
 		}
 		return count
@@ -209,21 +212,22 @@ func TestRatingSourceRepositorySyncsTMDBVotesPostgres(t *testing.T) {
 		t.Fatalf("after Upsert tmdb_vote_count = %v, want 20000", got)
 	}
 
-	// A scheduled (fill-empty) refresh from the same provider keeps its own
-	// row current; another provider's report does not overwrite it.
-	if err := repo.Upsert(ctx, movie, []models.ItemRatingSource{tmdb(votes(21000))}, false); err != nil {
-		t.Fatalf("Upsert(fill, same provider) error = %v", err)
-	}
-	if got := stored(); got == nil || *got != 21000 {
-		t.Fatalf("after same-provider fill tmdb_vote_count = %v, want 21000", got)
-	}
+	// A fill-empty write (the enrichment pass) keeps the stored row and pair.
 	other := tmdb(votes(5))
 	other.Provider = "mdblist"
 	if err := repo.Upsert(ctx, movie, []models.ItemRatingSource{other}, false); err != nil {
 		t.Fatalf("Upsert(fill, other provider) error = %v", err)
 	}
+	if got := stored(); got == nil || *got != 20000 {
+		t.Fatalf("after fill-empty tmdb_vote_count = %v, want 20000 kept", got)
+	}
+
+	// A refresh's overwrite moves the pair with the row.
+	if err := repo.Upsert(ctx, movie, []models.ItemRatingSource{tmdb(votes(21000))}, true); err != nil {
+		t.Fatalf("Upsert(replace) error = %v", err)
+	}
 	if got := stored(); got == nil || *got != 21000 {
-		t.Fatalf("after other-provider fill tmdb_vote_count = %v, want 21000", got)
+		t.Fatalf("after replace tmdb_vote_count = %v, want 21000", got)
 	}
 
 	// A refresh that no longer reports a count clears the column.

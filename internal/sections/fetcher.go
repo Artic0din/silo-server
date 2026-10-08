@@ -3689,10 +3689,16 @@ func (f *Fetcher) fetchMoodCollection(ctx context.Context, s ResolvedSection, li
 	}
 
 	limit, pool := discoveryLimits(s)
-	items, err := f.queryDiscoveryPool(ctx,
-		[]string{"mi.type IN ('movie','series')", "mi.genres && $1::text[]"},
-		[]any{info.GenresAny},
-		info.MinRating, recipes.DiscoveryMinVotes, libraryID, libraryIDs, filter, pool)
+	items, err := catalog.NewDiscoveryRepository(f.pool).ListByRatingThreshold(ctx, catalog.RatingFilter{
+		Min:        info.MinRating,
+		MinVotes:   recipes.DiscoveryMinVotes,
+		Types:      []string{"movie", "series"},
+		GenresAny:  info.GenresAny,
+		Limit:      pool,
+		LibraryID:  libraryID,
+		LibraryIDs: libraryIDs,
+		Filter:     filter,
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("mood_collection query: %w", err)
 	}
@@ -3716,44 +3722,21 @@ func (f *Fetcher) fetchShortWatches(ctx context.Context, s ResolvedSection, libr
 	}
 
 	limit, pool := discoveryLimits(s)
-	items, err := f.queryDiscoveryPool(ctx,
-		[]string{"mi.type = 'movie'", "mi.runtime > 0 AND mi.runtime <= $1"},
-		[]any{p.MaxMinutes},
-		minRating, recipes.DiscoveryMinVotes, libraryID, libraryIDs, filter, pool)
+	items, err := catalog.NewDiscoveryRepository(f.pool).ListByRatingThreshold(ctx, catalog.RatingFilter{
+		Min:        minRating,
+		MinVotes:   recipes.DiscoveryMinVotes,
+		Types:      []string{"movie"},
+		MaxRuntime: p.MaxMinutes,
+		Limit:      pool,
+		LibraryID:  libraryID,
+		LibraryIDs: libraryIDs,
+		Filter:     filter,
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("fetching short watches: %w", err)
 	}
 	items = dailyBestOf(items, limit, string(s.SectionType), f.now())
 	return items, len(items), nil
-}
-
-// queryDiscoveryPool returns up to pool candidates for a discovery row: titles
-// matching the row's own conditions (over alias mi, numbering their args from
-// $1) that clear the TMDB rating floor and vote minimum, within the section's
-// libraries and the viewer's access, best vote-weighted rating first.
-func (f *Fetcher) queryDiscoveryPool(ctx context.Context, conditions []string, args []any, minRating float64, minVotes int, libraryID *int, libraryIDs []int, filter catalog.AccessFilter, pool int) ([]*models.MediaItem, error) {
-	argIdx := len(args) + 1
-	catalog.AppendTMDBRatingFloor(&conditions, &args, &argIdx, minRating, minVotes)
-
-	fromClause, libConditions, libArgs, newArgIdx := buildLibraryScope(libraryID, libraryIDs, nil, filter.DisabledLibraryIDs, argIdx)
-	conditions = append(conditions, libConditions...)
-	args = append(args, libArgs...)
-	argIdx = newArgIdx
-	catalog.ApplySectionAccessFilter("mi", filter, &conditions, &args, &argIdx)
-	conditions = append(conditions, catalog.MangaChapterExclusionWhere("mi"))
-
-	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT $%d`,
-		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), catalog.DiscoveryRatingOrder, argIdx,
-	)
-	args = append(args, pool)
-
-	rows, err := f.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanMediaItems(rows)
 }
 
 // fetchAnniversaries returns movies whose release month matches the current
@@ -3989,31 +3972,22 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 	idx := recipes.RotationIndex(f.now(), "genre_roulette|"+libKey, len(cands), days)
 	genre := cands[idx]
 
-	def := catalog.QueryDefinition{
-		Match: "all",
-		Groups: []catalog.QueryGroup{
-			{Match: "all", Rules: []catalog.QueryRule{
-				{Field: "genre", Op: "contains", Value: genre},
-				{Field: "rating_tmdb", Op: "gte", Value: minRating},
-			}},
-		},
-	}
-
-	switch {
-	case libraryID != nil:
-		def.LibraryIDs = []int{*libraryID}
-	case libraryIDs != nil:
-		def.LibraryIDs = append([]int(nil), libraryIDs...)
-	}
-
 	limit := s.ItemLimit
 	if limit <= 0 {
 		limit = 20
 	}
-	def.Limit = &limit
-
-	executor := &catalog.QueryExecutor{Pool: f.pool}
-	items, _, _, err := executor.PreviewPage(ctx, def.Normalize(), filter, limit, 0, false)
+	// The genre already rotates, so the row shows the genre's best titles
+	// rather than a daily pick.
+	items, err := catalog.NewDiscoveryRepository(f.pool).ListByRatingThreshold(ctx, catalog.RatingFilter{
+		Min:        minRating,
+		MinVotes:   recipes.DiscoveryMinVotes,
+		Types:      []string{"movie", "series"},
+		GenresAny:  []string{genre},
+		Limit:      limit,
+		LibraryID:  libraryID,
+		LibraryIDs: libraryIDs,
+		Filter:     filter,
+	})
 	if err != nil {
 		return nil, 0, "", fmt.Errorf("genre_roulette query: %w", err)
 	}

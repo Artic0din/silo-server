@@ -24,26 +24,16 @@ func NewRatingSourceRepository(pool *pgxpool.Pool) *RatingSourceRepository {
 	return &RatingSourceRepository{pool: pool}
 }
 
-// Upsert stores the item's rating sources. With replace false (the fill-empty
-// merge of a scheduled refresh), a stored row is updated only from the provider
-// that stored it, so scores and vote counts stay current without one provider
-// overwriting another's; with replace true (replace-unlocked), the incoming row
-// overwrites it. Sources absent from the input are never removed.
+// Upsert stores the item's rating sources. With replace false, a source that
+// already has a row keeps it (the fill-empty merge); with replace true, the
+// incoming row overwrites it. Sources absent from the input are never removed.
+// A trigger copies the 'tmdb' row's vote count and average onto media_items.
 func (r *RatingSourceRepository) Upsert(ctx context.Context, contentID string, sources []models.ItemRatingSource, replace bool) error {
 	contentID = strings.TrimSpace(contentID)
 	if contentID == "" {
 		return fmt.Errorf("content_id is required")
 	}
-	columns := ratingSourceColumnsOf(sources)
-	if err := upsertRatingSources(ctx, r.pool, contentID, columns, replace); err != nil {
-		return err
-	}
-	// Upsert never removes a source, so the vote count can only change when
-	// the input carries TMDB's.
-	if !slices.Contains(columns.names, models.RatingSourceTMDB) {
-		return nil
-	}
-	return syncTMDBVotes(ctx, r.pool, contentID)
+	return upsertRatingSources(ctx, r.pool, contentID, ratingSourceColumnsOf(sources), replace)
 }
 
 // Replace makes sources the item's complete set of rating sources: it writes
@@ -69,9 +59,6 @@ func (r *RatingSourceRepository) Replace(ctx context.Context, contentID string, 
 		return fmt.Errorf("delete unreported rating sources: %w", err)
 	}
 	if err := upsertRatingSources(ctx, tx, contentID, columns, true); err != nil {
-		return err
-	}
-	if err := syncTMDBVotes(ctx, tx, contentID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -115,16 +102,7 @@ func upsertRatingSources(ctx context.Context, db itemExecer, contentID string, c
 	if len(columns.names) == 0 {
 		return nil
 	}
-	// Fill-empty: a provider keeps its own rows current. Ratings and vote
-	// counts move after release, and a row nobody updates would freeze a new
-	// title at its launch-week count.
-	conflict := `DO UPDATE SET
-			score = EXCLUDED.score,
-			votes = EXCLUDED.votes,
-			updated_at = now()
-		WHERE media_item_rating_sources.provider = EXCLUDED.provider
-			AND (media_item_rating_sources.score, media_item_rating_sources.votes)
-				IS DISTINCT FROM (EXCLUDED.score, EXCLUDED.votes)`
+	conflict := `DO NOTHING`
 	if replace {
 		// Skip unchanged rows so updated_at records when a rating last changed.
 		conflict = `DO UPDATE SET

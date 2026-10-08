@@ -41,7 +41,6 @@ var queryFieldDefs = map[string]queryFieldDef{
 	"genre":             {columnSQL: "genres", isArray: true, executable: true, validOps: map[string]bool{"is": true, "is_not": true, "contains": true}},
 	"year":              {columnSQL: "year", executable: true, validOps: map[string]bool{"is": true, "is_not": true, "gt": true, "gte": true, "lt": true, "lte": true, "between": true}},
 	"rating_imdb":       {columnSQL: "rating_imdb", executable: true, validOps: map[string]bool{"gt": true, "gte": true, "lt": true, "lte": true, "between": true}},
-	querySortRatingTMDb: {columnSQL: querySortRatingTMDb, executable: true, validOps: map[string]bool{"gt": true, "gte": true, "lt": true, "lte": true, "between": true}},
 	"studio":            {columnSQL: "studios", isArray: true, executable: true, validOps: map[string]bool{"is": true, "is_not": true}},
 	"network":           {columnSQL: "networks", isArray: true, executable: true, validOps: map[string]bool{"is": true, "is_not": true}},
 	"country":           {columnSQL: "countries", isArray: true, executable: true, validOps: map[string]bool{"is": true, "is_not": true}},

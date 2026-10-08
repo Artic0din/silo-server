@@ -174,6 +174,7 @@ func (s *Service) ImportWithProgress(ctx context.Context, data []byte, opts Impo
 				item.CreatedAt, item.UpdatedAt,
 				contentRatingAge,
 				advisoryAge, advisorySource,
+				item.TMDBVoteCount, item.TMDBVoteAverage,
 			})
 		}
 		if err := copyInsertBatches(ctx, tx, "media_items",
@@ -189,6 +190,7 @@ func (s *Service) ImportWithProgress(ctx context.Context, data []byte, opts Impo
 				"created_at", "updated_at",
 				"content_rating_age",
 				"advisory_age", "advisory_source",
+				"tmdb_vote_count", "tmdb_vote_average",
 			},
 			itemRows, func(processed int) {
 				currentWork += processed

@@ -177,7 +177,7 @@ func (genreRouletteRecipe) Definition() RecipeDefinition {
 				Key:              "genre_roulette_weekly",
 				DisplayName:      "Genre Roulette",
 				Icon:             "🎰",
-				DescriptionShort: "A different genre every week, rated 6.0+ on TMDB.",
+				DescriptionShort: fmt.Sprintf("A different genre every week, rated 6.0+ on TMDB with %d+ votes.", DiscoveryMinVotes),
 				DefaultParams:    json.RawMessage(`{"rotation_cadence":"weekly"}`),
 			},
 		},

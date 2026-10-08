@@ -175,9 +175,15 @@ export function RowForm({
   const fallbackTitle = collectionChoices.current?.title;
   const def = findRecipe(catalog, draft.sectionType);
   // Collection, rule and Editor's Picks rows show their own control instead.
-  const preset =
+  // A preset describes the row only while the row sets nothing beyond the
+  // preset's params; a custom rating floor would make its text wrong.
+  const matched =
     def && !CONTROL_KINDS.has(draft.sectionType)
       ? findMatchingPreset(def, draft.config)
+      : undefined;
+  const preset =
+    matched && Object.keys(draft.config).every((key) => key in matched.default_params)
+      ? matched
       : undefined;
   let nameHelp: string | null = null;
   if (draft.sectionType === "collection" && draft.titleFollowsVariant) {

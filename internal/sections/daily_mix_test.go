@@ -1,11 +1,13 @@
 package sections
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/Silo-Server/silo-server/internal/catalog"
 	"github.com/Silo-Server/silo-server/internal/models"
 )
 
@@ -67,10 +69,36 @@ func TestDailyBestOfChangesByDayAndKey(t *testing.T) {
 }
 
 func TestDiscoveryLimitsDefaultsAndPool(t *testing.T) {
-	if limit, pool := discoveryLimits(ResolvedSection{}); limit != 20 || pool != 100 {
-		t.Errorf("unset limit = (%d, %d), want (20, 100)", limit, pool)
+	cases := []struct{ itemLimit, limit, pool int }{
+		{0, 20, 100},
+		{12, 12, 60},
+		{100, 100, 250}, // capped
+		{300, 300, 300}, // never below the limit
 	}
-	if limit, pool := discoveryLimits(ResolvedSection{ItemLimit: 12}); limit != 12 || pool != 60 {
-		t.Errorf("limit 12 = (%d, %d), want (12, 60)", limit, pool)
+	for _, tc := range cases {
+		if limit, pool := discoveryLimits(ResolvedSection{ItemLimit: tc.itemLimit}); limit != tc.limit || pool != tc.pool {
+			t.Errorf("item limit %d = (%d, %d), want (%d, %d)", tc.itemLimit, limit, pool, tc.limit, tc.pool)
+		}
+	}
+}
+
+// A shared daily-mix row must not serve yesterday's pick from cache after UTC
+// midnight, or two nodes would disagree for the rest of the cache window.
+func TestResolvedListKeyCarriesTheDayForDailyMixRows(t *testing.T) {
+	day1 := &Fetcher{Clock: fixedClock(time.Date(2026, 10, 8, 23, 59, 0, 0, time.UTC))}
+	day2 := &Fetcher{Clock: fixedClock(time.Date(2026, 10, 9, 0, 1, 0, 0, time.UTC))}
+	key := func(f *Fetcher, sectionType SectionType) string {
+		t.Helper()
+		k, err := f.resolvedListKey(context.Background(), ResolvedSection{ID: "row", SectionType: sectionType}, nil, nil, catalog.AccessFilter{})
+		if err != nil {
+			t.Fatalf("resolvedListKey: %v", err)
+		}
+		return k
+	}
+	if key(day1, SectionCriticallyAcclaimed) == key(day2, SectionCriticallyAcclaimed) {
+		t.Error("critically acclaimed shares a cache key across UTC days")
+	}
+	if key(day1, SectionRecentlyAdded) != key(day2, SectionRecentlyAdded) {
+		t.Error("recently added gained a day in its cache key")
 	}
 }

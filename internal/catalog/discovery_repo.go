@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Silo-Server/silo-server/internal/models"
@@ -27,6 +28,13 @@ type RatingFilter struct {
 	Min float64
 	// MinVotes is the minimum TMDB vote count; below 1 counts as 1.
 	MinVotes int
+	// Types, when non-empty, limits results to these media types.
+	Types []string
+	// GenresAny, when non-empty, requires at least one of these genres.
+	GenresAny []string
+	// MaxRuntime, when positive, keeps titles with a known runtime of at most
+	// this many minutes.
+	MaxRuntime int
 	// Limit caps the number of rows returned. Zero or negative means no limit.
 	Limit int
 	// LibraryID, when non-nil, restricts results to items in that library.
@@ -48,8 +56,9 @@ var DiscoveryRatingOrder = TMDBWeightedRatingSQL("mi") + " DESC NULLS LAST, mi.c
 // RatedOrder is the ORDER BY list over alias mi for rows that sort by rating
 // without requiring a vote count (format showcases, anniversaries, seasonal
 // picks): vote-weighted TMDB rating first, then titles with no known count by
-// their TMDB rating, so a perfect score from a few votes never leads.
-var RatedOrder = TMDBWeightedRatingSQL("mi") + " DESC NULLS LAST, mi.rating_tmdb DESC NULLS LAST, mi.content_id ASC"
+// their TMDB and then IMDb rating, so a perfect score from a few votes never
+// leads.
+var RatedOrder = TMDBWeightedRatingSQL("mi") + " DESC NULLS LAST, mi.rating_tmdb DESC NULLS LAST, mi.rating_imdb DESC NULLS LAST, mi.content_id ASC"
 
 // AppendTMDBRatingFloor requires, for alias mi, a TMDB vote average of at
 // least minRating from at least minVotes votes. minVotes below 1 counts as 1,
@@ -74,6 +83,21 @@ func buildRatingThresholdQuery(f RatingFilter) (string, []any) {
 	argIdx := 1
 
 	AppendTMDBRatingFloor(&conditions, &args, &argIdx, f.Min, f.MinVotes)
+	if len(f.Types) > 0 {
+		conditions = append(conditions, fmt.Sprintf("mi.type = ANY($%d)", argIdx))
+		args = append(args, f.Types)
+		argIdx++
+	}
+	if len(f.GenresAny) > 0 {
+		conditions = append(conditions, fmt.Sprintf("mi.genres && $%d::text[]", argIdx))
+		args = append(args, f.GenresAny)
+		argIdx++
+	}
+	if f.MaxRuntime > 0 {
+		conditions = append(conditions, fmt.Sprintf("mi.runtime > 0 AND mi.runtime <= $%d", argIdx))
+		args = append(args, f.MaxRuntime)
+		argIdx++
+	}
 
 	if ok := appendDiscoveryLibraryScope(&conditions, &args, &argIdx, f.LibraryID, f.LibraryIDs, f.Filter); !ok {
 		return "", nil
@@ -98,8 +122,9 @@ func buildRatingThresholdQuery(f RatingFilter) (string, []any) {
 }
 
 // ListByRatingThreshold returns media items whose TMDB vote average is at
-// least f.Min from at least f.MinVotes votes, ordered by vote-weighted TMDB
-// rating. Items without a known vote count are always excluded.
+// least f.Min from at least f.MinVotes votes, narrowed by f.Types, f.GenresAny
+// and f.MaxRuntime, ordered by vote-weighted TMDB rating. Items without a
+// known vote count are always excluded.
 func (r *DiscoveryRepository) ListByRatingThreshold(ctx context.Context, f RatingFilter) ([]*models.MediaItem, error) {
 	query, args := buildRatingThresholdQuery(f)
 	if query == "" {
@@ -112,11 +137,7 @@ func (r *DiscoveryRepository) ListByRatingThreshold(ctx context.Context, f Ratin
 	}
 	defer rows.Close()
 
-	items, err := scanItems(rows)
-	if err != nil {
-		return nil, err
-	}
-	return items, nil
+	return scanDiscoveryItems(rows)
 }
 
 // UnplayedFilter controls the ListUnplayedHighRated query.
@@ -223,11 +244,7 @@ func (r *DiscoveryRepository) ListUnplayedHighRated(ctx context.Context, f Unpla
 	}
 	defer rows.Close()
 
-	items, err := scanItems(rows)
-	if err != nil {
-		return nil, err
-	}
-	return items, nil
+	return scanDiscoveryItems(rows)
 }
 
 // ForgottenFavoritesFilter controls the ListForgottenFavorites query.
@@ -321,11 +338,7 @@ func (r *DiscoveryRepository) ListForgottenFavorites(ctx context.Context, f Forg
 	}
 	defer rows.Close()
 
-	items, err := scanItems(rows)
-	if err != nil {
-		return nil, err
-	}
-	return items, nil
+	return scanDiscoveryItems(rows)
 }
 
 func appendDiscoveryLibraryScope(
@@ -367,4 +380,21 @@ func appendDiscoveryLibraryScope(
 		*argIdx += len(scopeArgs)
 	}
 	return true
+}
+
+// scanDiscoveryItems scans discovery rows and, like the query executor's
+// preview path, falls back to created_at for added_at so section responses
+// carry it.
+func scanDiscoveryItems(rows pgx.Rows) ([]*models.MediaItem, error) {
+	items, err := scanItems(rows)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.AddedAt == nil && !item.CreatedAt.IsZero() {
+			added := item.CreatedAt
+			item.AddedAt = &added
+		}
+	}
+	return items, nil
 }

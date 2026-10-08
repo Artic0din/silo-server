@@ -13,16 +13,38 @@ import (
 // discoveryPoolFactor sets how deep a discovery row's daily mix reaches: each
 // day the row shows its item limit drawn from the best-rated limit×factor
 // qualifying titles, so about four in five of them appear within a week.
-const discoveryPoolFactor = 5
+// discoveryPoolCap bounds the pool for large rows; a row whose limit reaches
+// the cap shows its best titles without a mix.
+const (
+	discoveryPoolFactor = 5
+	discoveryPoolCap    = 250
+)
+
+// dailyMixSectionTypes are the rows that show a daily pick. The shared ones
+// carry the day in their resolved-list cache key, so every node switches to the
+// new pick at the same UTC midnight.
+var dailyMixSectionTypes = map[SectionType]bool{
+	SectionCriticallyAcclaimed: true,
+	SectionHiddenGems:          true,
+	SectionForgottenFavorites:  true,
+	SectionShortWatches:        true,
+	SectionMoodCollection:      true,
+}
+
+// dailyMixDay is the UTC day a daily pick belongs to.
+func dailyMixDay(now time.Time) int64 {
+	return now.UTC().Unix() / 86400
+}
 
 // discoveryLimits returns a discovery row's display limit (20 when unset) and
-// the pool size its query should fetch.
+// the pool size its query should fetch: five times the limit, capped at
+// discoveryPoolCap, and never below the limit.
 func discoveryLimits(s ResolvedSection) (limit, pool int) {
 	limit = s.ItemLimit
 	if limit <= 0 {
 		limit = 20
 	}
-	return limit, limit * discoveryPoolFactor
+	return limit, max(limit, min(limit*discoveryPoolFactor, discoveryPoolCap))
 }
 
 // dailyBestOf picks limit items from pool, which is ordered best first, and
@@ -33,7 +55,7 @@ func dailyBestOf(pool []*models.MediaItem, limit int, key string, now time.Time)
 	if limit <= 0 || len(pool) <= limit {
 		return pool
 	}
-	day := now.UTC().Unix() / 86400
+	day := dailyMixDay(now)
 	type ranked struct {
 		index int
 		score uint64
