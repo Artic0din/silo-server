@@ -3033,7 +3033,8 @@ func (s *Scanner) processFile(
 
 		// Try to get probe data.
 		probe, probeSource, probeRejected := s.probeFile(ctx, filePath)
-		if shouldPreserveExistingProbeAfterProbeFailure(updateReasons, probe, probeRejectionStands(existing, fileSize, fileModifiedAt)) {
+		rejectionStands := probeRejectionStands(existing, fileSize, fileModifiedAt)
+		if shouldPreserveExistingProbeAfterProbeFailure(updateReasons, probe, rejectionStands) {
 			if probeRejected {
 				// Nothing else about the row changes here, so the rejection
 				// is recorded on its own. The repository only marks rows with
@@ -3043,8 +3044,10 @@ func (s *Scanner) processFile(
 				}
 			}
 			// Leave the migrated row's probe_updated_at NULL so a later scan
-			// retries without replacing valid metadata with zero values.
-			if slices.ContainsFunc(updateReasons, func(reason string) bool { return reason != "probe_repair" }) {
+			// retries without replacing valid metadata with zero values. A
+			// standing rejection has no probe_repair reason, so every reason
+			// it has is an identity or subtitle change to write.
+			if rejectionStands || len(updateReasons) > 1 {
 				mf := models.MediaFile{MediaFolderID: folder.ID, FilePath: filePath}
 				populateScanIdentity(&mf, filePath, folder.Type, assignment, groupAssignment, existing)
 				mf.ExternalSubtitles = externalSubtitleModels(loadExternalSubs())
