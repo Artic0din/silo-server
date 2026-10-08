@@ -2724,8 +2724,9 @@ func (s *MetadataService) mergeAndPersist(
 	// Persist per-source ratings. The item row does not carry them, so the
 	// merge above saw no stored sources and passed every reported one through
 	// (or none, under a FieldRating lock). The stored rows are merged by the
-	// write instead: fill-empty keeps each source already stored, and
-	// replace-unlocked overwrites the sources this refresh reported. Identify
+	// write instead: fill-empty keeps each source another provider stored and
+	// updates the ones this refresh's provider stored, and replace-unlocked
+	// overwrites the sources this refresh reported. Identify
 	// replaces the whole set, even with an empty one, because it keeps the
 	// content_id while changing the title: a source only the previous match
 	// reported would otherwise stay on the item for good. Like the rating

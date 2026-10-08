@@ -1755,11 +1755,13 @@ func (f *Fetcher) fetchHiddenGems(ctx context.Context, s ResolvedSection, librar
 		return []*models.MediaItem{}, 0, nil
 	}
 
+	limit, pool := discoveryLimits(s)
 	repo := catalog.NewDiscoveryRepository(f.pool)
 	items, err := repo.ListUnplayedHighRated(ctx, catalog.UnplayedFilter{
 		MinRating:  p.MinRating,
+		MinVotes:   recipes.DiscoveryMinVotes,
 		MaxPlays:   p.MaxPlayCount,
-		Limit:      s.ItemLimit,
+		Limit:      pool,
 		UserID:     userID,
 		ProfileID:  profileID,
 		LibraryID:  libraryID,
@@ -1769,6 +1771,7 @@ func (f *Fetcher) fetchHiddenGems(ctx context.Context, s ResolvedSection, librar
 	if err != nil {
 		return nil, 0, err
 	}
+	items = dailyBestOf(items, limit, string(s.SectionType), f.now())
 	return items, len(items), nil
 }
 
@@ -1781,10 +1784,12 @@ func (f *Fetcher) fetchCriticallyAcclaimed(ctx context.Context, s ResolvedSectio
 		p.MinScore = 8.0
 	}
 
+	limit, pool := discoveryLimits(s)
 	repo := catalog.NewDiscoveryRepository(f.pool)
 	items, err := repo.ListByRatingThreshold(ctx, catalog.RatingFilter{
 		Min:        p.MinScore,
-		Limit:      s.ItemLimit,
+		MinVotes:   recipes.AcclaimedMinVotes,
+		Limit:      pool,
 		LibraryID:  libraryID,
 		LibraryIDs: libraryIDs,
 		Filter:     filter,
@@ -1792,6 +1797,7 @@ func (f *Fetcher) fetchCriticallyAcclaimed(ctx context.Context, s ResolvedSectio
 	if err != nil {
 		return nil, 0, err
 	}
+	items = dailyBestOf(items, limit, string(s.SectionType), f.now())
 	return items, len(items), nil
 }
 
@@ -1814,10 +1820,12 @@ func (f *Fetcher) fetchForgottenFavorites(ctx context.Context, s ResolvedSection
 		return []*models.MediaItem{}, 0, nil
 	}
 
+	limit, pool := discoveryLimits(s)
 	repo := catalog.NewDiscoveryRepository(f.pool)
 	items, err := repo.ListForgottenFavorites(ctx, catalog.ForgottenFavoritesFilter{
 		LookbackDays: p.LookbackDays,
-		Limit:        s.ItemLimit,
+		MinVotes:     recipes.DiscoveryMinVotes,
+		Limit:        pool,
 		UserID:       userID,
 		ProfileID:    profileID,
 		LibraryID:    libraryID,
@@ -1827,6 +1835,7 @@ func (f *Fetcher) fetchForgottenFavorites(ctx context.Context, s ResolvedSection
 	if err != nil {
 		return nil, 0, err
 	}
+	items = dailyBestOf(items, limit, string(s.SectionType), f.now())
 	return items, len(items), nil
 }
 
@@ -1908,7 +1917,7 @@ func (f *Fetcher) fetchFormatShowcase(ctx context.Context, s ResolvedSection, li
 		limit = 20
 	}
 
-	orderBy := "mi.rating_imdb DESC NULLS LAST, mi.content_id ASC"
+	orderBy := catalog.RatedOrder
 	if p.Sort == "recent" {
 		orderBy = "mi.created_at DESC, mi.content_id ASC"
 	}
@@ -3648,8 +3657,8 @@ func (f *Fetcher) fetchSeasonalKeywordItems(ctx context.Context, keywords []stri
 	}
 
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s ORDER BY mi.rating_imdb DESC NULLS LAST, mi.content_id ASC LIMIT $%d`,
-		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), argIdx,
+		`SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT $%d`,
+		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), catalog.RatedOrder, argIdx,
 	)
 	args = append(args, limit)
 
@@ -3666,7 +3675,8 @@ func (f *Fetcher) fetchSeasonalKeywordItems(ctx context.Context, keywords []stri
 	return items, len(items), nil
 }
 
-// fetchMoodCollection returns items for a mood_collection section.
+// fetchMoodCollection returns items for a mood_collection section: titles in
+// any of the mood's genres that clear its TMDB rating floor and vote minimum.
 func (f *Fetcher) fetchMoodCollection(ctx context.Context, s ResolvedSection, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) ([]*models.MediaItem, int, error) {
 	var p recipes.MoodCollectionParams
 	if len(s.Config) > 0 {
@@ -3678,38 +3688,15 @@ func (f *Fetcher) fetchMoodCollection(ctx context.Context, s ResolvedSection, li
 		return []*models.MediaItem{}, 0, nil
 	}
 
-	// Build genre rules (OR'd together).
-	genreRules := make([]catalog.QueryRule, 0, len(info.GenresAny))
-	for _, genre := range info.GenresAny {
-		genreRules = append(genreRules, catalog.QueryRule{Field: "genre", Op: "contains", Value: genre})
-	}
-
-	def := catalog.QueryDefinition{
-		Match: "all",
-		Groups: []catalog.QueryGroup{
-			{Match: "any", Rules: genreRules},
-			{Match: "all", Rules: []catalog.QueryRule{
-				{Field: "rating_imdb", Op: "gte", Value: info.MinRating},
-			}},
-		},
-	}
-
-	def, ok = applySectionLibraryScopeToQuery(def, libraryID, libraryIDs)
-	if !ok {
-		return []*models.MediaItem{}, 0, nil
-	}
-
-	limit := s.ItemLimit
-	if limit <= 0 {
-		limit = 20
-	}
-	def.Limit = &limit
-
-	executor := &catalog.QueryExecutor{Pool: f.pool}
-	items, _, _, err := executor.PreviewPage(ctx, def, filter, limit, 0, false)
+	limit, pool := discoveryLimits(s)
+	items, err := f.queryDiscoveryPool(ctx,
+		[]string{"mi.type IN ('movie','series')", "mi.genres && $1::text[]"},
+		[]any{info.GenresAny},
+		info.MinRating, recipes.DiscoveryMinVotes, libraryID, libraryIDs, filter, pool)
 	if err != nil {
 		return nil, 0, fmt.Errorf("mood_collection query: %w", err)
 	}
+	items = dailyBestOf(items, limit, "mood_collection|"+info.Key, f.now())
 	return items, len(items), nil
 }
 
@@ -3728,49 +3715,45 @@ func (f *Fetcher) fetchShortWatches(ctx context.Context, s ResolvedSection, libr
 		minRating = 6.0
 	}
 
-	var conditions []string
-	var args []any
-	argIdx := 1
+	limit, pool := discoveryLimits(s)
+	items, err := f.queryDiscoveryPool(ctx,
+		[]string{"mi.type = 'movie'", "mi.runtime > 0 AND mi.runtime <= $1"},
+		[]any{p.MaxMinutes},
+		minRating, recipes.DiscoveryMinVotes, libraryID, libraryIDs, filter, pool)
+	if err != nil {
+		return nil, 0, fmt.Errorf("fetching short watches: %w", err)
+	}
+	items = dailyBestOf(items, limit, string(s.SectionType), f.now())
+	return items, len(items), nil
+}
 
-	conditions = append(conditions,
-		"mi.type = 'movie'",
-		fmt.Sprintf("mi.runtime > 0 AND mi.runtime <= $%d", argIdx),
-	)
-	args = append(args, p.MaxMinutes)
-	argIdx++
-
-	conditions = append(conditions, fmt.Sprintf("mi.rating_imdb >= $%d", argIdx))
-	args = append(args, minRating)
-	argIdx++
+// queryDiscoveryPool returns up to pool candidates for a discovery row: titles
+// matching the row's own conditions (over alias mi, numbering their args from
+// $1) that clear the TMDB rating floor and vote minimum, within the section's
+// libraries and the viewer's access, best vote-weighted rating first.
+func (f *Fetcher) queryDiscoveryPool(ctx context.Context, conditions []string, args []any, minRating float64, minVotes int, libraryID *int, libraryIDs []int, filter catalog.AccessFilter, pool int) ([]*models.MediaItem, error) {
+	argIdx := len(args) + 1
+	catalog.AppendTMDBRatingFloor(&conditions, &args, &argIdx, minRating, minVotes)
 
 	fromClause, libConditions, libArgs, newArgIdx := buildLibraryScope(libraryID, libraryIDs, nil, filter.DisabledLibraryIDs, argIdx)
 	conditions = append(conditions, libConditions...)
 	args = append(args, libArgs...)
 	argIdx = newArgIdx
 	catalog.ApplySectionAccessFilter("mi", filter, &conditions, &args, &argIdx)
-
-	limit := s.ItemLimit
-	if limit <= 0 {
-		limit = 20
-	}
+	conditions = append(conditions, catalog.MangaChapterExclusionWhere("mi"))
 
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s ORDER BY mi.rating_imdb DESC NULLS LAST, mi.content_id ASC LIMIT $%d`,
-		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), argIdx,
+		`SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT $%d`,
+		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), catalog.DiscoveryRatingOrder, argIdx,
 	)
-	args = append(args, limit)
+	args = append(args, pool)
 
 	rows, err := f.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("fetching short watches: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
-
-	items, err := scanMediaItems(rows)
-	if err != nil {
-		return nil, 0, err
-	}
-	return items, len(items), nil
+	return scanMediaItems(rows)
 }
 
 // fetchAnniversaries returns movies whose release month matches the current
@@ -3820,8 +3803,8 @@ func (f *Fetcher) fetchAnniversaries(ctx context.Context, s ResolvedSection, lib
 	}
 
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s ORDER BY mi.rating_imdb DESC NULLS LAST, mi.content_id ASC LIMIT $%d`,
-		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), argIdx,
+		`SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT $%d`,
+		itemColumns("mi"), fromClause, strings.Join(conditions, " AND "), catalog.RatedOrder, argIdx,
 	)
 	args = append(args, limit)
 
@@ -4011,7 +3994,7 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 		Groups: []catalog.QueryGroup{
 			{Match: "all", Rules: []catalog.QueryRule{
 				{Field: "genre", Op: "contains", Value: genre},
-				{Field: "rating_imdb", Op: "gte", Value: minRating},
+				{Field: "rating_tmdb", Op: "gte", Value: minRating},
 			}},
 		},
 	}

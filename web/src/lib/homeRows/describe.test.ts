@@ -55,7 +55,24 @@ describe("describeRow", () => {
     );
     expect(text(describeRow(row("favorites"), own))).toBe("Your favorites");
     // Rows that aren't personal read the same on both surfaces.
-    expect(text(describeRow(row("hidden_gems"), own))).toBe("Well rated, rarely watched");
+    expect(text(describeRow(row("critically_acclaimed"), own))).toBe(
+      "Rated 8.0+ on TMDB with 500+ votes",
+    );
+  });
+
+  it("states the TMDB rating, vote and watch rule a ready-made row needs", () => {
+    const home = { pageKind: "home" as const, surface: "admin" as const };
+    const gem = row("hidden_gems", { min_rating: 7.5, max_play_count: 2 });
+    expect(text(describeRow(gem, home))).toBe(
+      "Rated 7.5+ on TMDB with 100+ votes, and watched twice or less",
+    );
+    const forgotten = row("forgotten_favorites", { lookback_days: 365 });
+    expect(text(describeRow(forgotten, home))).toBe(
+      "Rated 7.0+ on TMDB with 100+ votes, and not watched in the past year",
+    );
+    expect(text(describeRow(row("short_watches"), home))).toBe(
+      "Movies of 95 minutes or less, rated 6.0+ on TMDB with 100+ votes",
+    );
   });
 
   it("calls the viewer's own collection theirs", () => {

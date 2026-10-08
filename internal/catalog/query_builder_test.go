@@ -192,6 +192,27 @@ func TestBuild_AddedAtInLastAcceptsYears(t *testing.T) {
 	}
 }
 
+// Mood and genre roulette rows filter on the TMDB rating (see sections'
+// fetchMoodCollection), so the field must compile like rating_imdb does.
+func TestBuild_RatingTMDBThreshold(t *testing.T) {
+	clause, args, err := NewQueryBuilder("mi").Build(QueryDefinition{
+		Match: "all",
+		Groups: []QueryGroup{{
+			Match: "all",
+			Rules: []QueryRule{{Field: "rating_tmdb", Op: "gte", Value: 6.5}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	if !strings.Contains(clause, "mi.rating_tmdb >= $1") {
+		t.Fatalf("expected a rating_tmdb threshold, got %q", clause)
+	}
+	if len(args) != 1 || args[0] != 6.5 {
+		t.Fatalf("expected args [6.5], got %v", args)
+	}
+}
+
 func TestBuild_ReleaseDateInLastComparesDateExpression(t *testing.T) {
 	clause, args, err := NewQueryBuilder("mi").Build(QueryDefinition{
 		Match: "all",

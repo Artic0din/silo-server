@@ -23,9 +23,10 @@ func NewDiscoveryRepository(pool *pgxpool.Pool) *DiscoveryRepository {
 
 // RatingFilter controls the ListByRatingThreshold query.
 type RatingFilter struct {
-	// Min is the minimum rating_imdb value (inclusive). Items with a NULL
-	// rating_imdb are excluded.
+	// Min is the minimum TMDB vote average (inclusive).
 	Min float64
+	// MinVotes is the minimum TMDB vote count; below 1 counts as 1.
+	MinVotes int
 	// Limit caps the number of rows returned. Zero or negative means no limit.
 	Limit int
 	// LibraryID, when non-nil, restricts results to items in that library.
@@ -39,6 +40,31 @@ type RatingFilter struct {
 	Filter AccessFilter
 }
 
+// DiscoveryRatingOrder is the ORDER BY list for discovery rows over alias mi:
+// vote-weighted TMDB rating, matching idx_media_items_tmdb_weighted_rating
+// (see TMDBWeightedRatingSQL).
+var DiscoveryRatingOrder = TMDBWeightedRatingSQL("mi") + " DESC NULLS LAST, mi.content_id ASC"
+
+// RatedOrder is the ORDER BY list over alias mi for rows that sort by rating
+// without requiring a vote count (format showcases, anniversaries, seasonal
+// picks): vote-weighted TMDB rating first, then titles with no known count by
+// their TMDB rating, so a perfect score from a few votes never leads.
+var RatedOrder = TMDBWeightedRatingSQL("mi") + " DESC NULLS LAST, mi.rating_tmdb DESC NULLS LAST, mi.content_id ASC"
+
+// AppendTMDBRatingFloor requires, for alias mi, a TMDB vote average of at
+// least minRating from at least minVotes votes. minVotes below 1 counts as 1,
+// so an item whose count is unknown never qualifies on a rating a handful of
+// people gave.
+func AppendTMDBRatingFloor(conditions *[]string, args *[]any, argIdx *int, minRating float64, minVotes int) {
+	minVotes = max(minVotes, 1)
+	*conditions = append(*conditions,
+		fmt.Sprintf("mi.tmdb_vote_average >= $%d", *argIdx),
+		fmt.Sprintf("mi.tmdb_vote_count >= $%d", *argIdx+1),
+	)
+	*args = append(*args, minRating, minVotes)
+	*argIdx += 2
+}
+
 // buildRatingThresholdQuery builds the SQL statement and bind args for ListByRatingThreshold.
 // It returns an empty query string when access rules exclude every
 // library, signalling the caller to skip the query and return no rows.
@@ -47,10 +73,7 @@ func buildRatingThresholdQuery(f RatingFilter) (string, []any) {
 	var args []any
 	argIdx := 1
 
-	// IMDb rating threshold - NULL ratings are excluded implicitly by >=.
-	conditions = append(conditions, fmt.Sprintf("mi.rating_imdb >= $%d", argIdx))
-	args = append(args, f.Min)
-	argIdx++
+	AppendTMDBRatingFloor(&conditions, &args, &argIdx, f.Min, f.MinVotes)
 
 	if ok := appendDiscoveryLibraryScope(&conditions, &args, &argIdx, f.LibraryID, f.LibraryIDs, f.Filter); !ok {
 		return "", nil
@@ -61,7 +84,7 @@ func buildRatingThresholdQuery(f RatingFilter) (string, []any) {
 	conditions = append(conditions, MangaChapterExclusionWhere("mi"))
 
 	query := fmt.Sprintf(
-		"SELECT %s FROM media_items mi WHERE %s ORDER BY mi.rating_imdb DESC NULLS LAST, mi.content_id ASC",
+		"SELECT %s FROM media_items mi WHERE %s ORDER BY "+DiscoveryRatingOrder,
 		qualifiedItemColumns("mi"),
 		strings.Join(conditions, " AND "),
 	)
@@ -74,9 +97,9 @@ func buildRatingThresholdQuery(f RatingFilter) (string, []any) {
 	return query, args
 }
 
-// ListByRatingThreshold returns media items whose rating_imdb is >= f.Min,
-// ordered by rating_imdb DESC NULLS LAST.  Items without an IMDb rating are
-// always excluded.
+// ListByRatingThreshold returns media items whose TMDB vote average is at
+// least f.Min from at least f.MinVotes votes, ordered by vote-weighted TMDB
+// rating. Items without a known vote count are always excluded.
 func (r *DiscoveryRepository) ListByRatingThreshold(ctx context.Context, f RatingFilter) ([]*models.MediaItem, error) {
 	query, args := buildRatingThresholdQuery(f)
 	if query == "" {
@@ -98,8 +121,10 @@ func (r *DiscoveryRepository) ListByRatingThreshold(ctx context.Context, f Ratin
 
 // UnplayedFilter controls the ListUnplayedHighRated query.
 type UnplayedFilter struct {
-	// MinRating is the minimum rating_imdb value (inclusive).
+	// MinRating is the minimum TMDB vote average (inclusive).
 	MinRating float64
+	// MinVotes is the minimum TMDB vote count; below 1 counts as 1.
+	MinVotes int
 	// MaxPlays is the maximum number of watch-history events the viewer may
 	// have for an item before it stops counting as a hidden gem. Zero (the
 	// default) keeps the strict "never started" semantics.
@@ -128,10 +153,7 @@ func buildUnplayedHighRatedQuery(f UnplayedFilter) (string, []any) {
 	var args []any
 	argIdx := 1
 
-	// IMDb rating threshold.
-	conditions = append(conditions, fmt.Sprintf("mi.rating_imdb >= $%d", argIdx))
-	args = append(args, f.MinRating)
-	argIdx++
+	AppendTMDBRatingFloor(&conditions, &args, &argIdx, f.MinRating, f.MinVotes)
 
 	// Items the viewer has watched more than MaxPlays times are excluded.
 	// MaxPlays 0 (the default) reduces to the strict "never started" check.
@@ -166,7 +188,7 @@ func buildUnplayedHighRatedQuery(f UnplayedFilter) (string, []any) {
 	conditions = append(conditions, MangaChapterExclusionWhere("mi"))
 
 	query := fmt.Sprintf(
-		"SELECT %s FROM media_items mi WHERE %s ORDER BY mi.rating_imdb DESC NULLS LAST, mi.content_id ASC",
+		"SELECT %s FROM media_items mi WHERE %s ORDER BY "+DiscoveryRatingOrder,
 		qualifiedItemColumns("mi"),
 		strings.Join(conditions, " AND "),
 	)
@@ -182,9 +204,9 @@ func buildUnplayedHighRatedQuery(f UnplayedFilter) (string, []any) {
 // ListUnplayedHighRated returns high-rated items that the given user/profile has
 // never started watching.  "Never started" means no row exists in
 // user_watch_history for (user_id, profile_id, media_item_id), regardless of
-// completion status.  Items without an IMDb rating are excluded.
+// completion status.  Items without a known TMDB vote count are excluded.
 //
-// Results are ordered by rating_imdb DESC NULLS LAST.
+// Results are ordered by vote-weighted TMDB rating.
 func (r *DiscoveryRepository) ListUnplayedHighRated(ctx context.Context, f UnplayedFilter) ([]*models.MediaItem, error) {
 	if f.UserID <= 0 || strings.TrimSpace(f.ProfileID) == "" {
 		return nil, fmt.Errorf("ListUnplayedHighRated: UserID and ProfileID are required")
@@ -214,6 +236,8 @@ type ForgottenFavoritesFilter struct {
 	// event is considered "forgotten".  Items last watched more recently than
 	// this threshold are excluded.  Must be > 0.
 	LookbackDays int
+	// MinVotes is the minimum TMDB vote count; below 1 counts as 1.
+	MinVotes int
 	// Limit caps the number of rows returned. Zero or negative means no limit.
 	Limit int
 	// UserID and ProfileID identify the viewer whose watch history is checked.
@@ -242,8 +266,7 @@ func buildForgottenFavoritesQuery(f ForgottenFavoritesFilter) (string, []any) {
 	var args []any
 	argIdx := 1
 
-	// Only items with an IMDb rating of at least 7.0.
-	conditions = append(conditions, "mi.rating_imdb >= 7.0")
+	AppendTMDBRatingFloor(&conditions, &args, &argIdx, 7.0, f.MinVotes)
 
 	// Items the user has never watched, or last watched before the lookback window.
 	conditions = append(conditions, fmt.Sprintf(`NOT EXISTS (
@@ -266,7 +289,7 @@ func buildForgottenFavoritesQuery(f ForgottenFavoritesFilter) (string, []any) {
 	conditions = append(conditions, MangaChapterExclusionWhere("mi"))
 
 	query := fmt.Sprintf(
-		"SELECT %s FROM media_items mi WHERE %s ORDER BY mi.rating_imdb DESC NULLS LAST, mi.content_id ASC",
+		"SELECT %s FROM media_items mi WHERE %s ORDER BY "+DiscoveryRatingOrder,
 		qualifiedItemColumns("mi"),
 		strings.Join(conditions, " AND "),
 	)
@@ -279,9 +302,10 @@ func buildForgottenFavoritesQuery(f ForgottenFavoritesFilter) (string, []any) {
 	return query, args
 }
 
-// ListForgottenFavorites returns high-rated items (rating_imdb >= 7.0) that the
-// user/profile either has never watched OR last watched more than LookbackDays
-// ago.  Results are ordered by rating_imdb DESC NULLS LAST.
+// ListForgottenFavorites returns high-rated items (a TMDB vote average of 7.0+
+// from at least MinVotes votes) that the user/profile either has never watched
+// OR last watched more than LookbackDays ago.  Results are ordered by
+// vote-weighted TMDB rating.
 func (r *DiscoveryRepository) ListForgottenFavorites(ctx context.Context, f ForgottenFavoritesFilter) ([]*models.MediaItem, error) {
 	if f.UserID <= 0 || strings.TrimSpace(f.ProfileID) == "" {
 		return nil, fmt.Errorf("ListForgottenFavorites: UserID and ProfileID are required")
