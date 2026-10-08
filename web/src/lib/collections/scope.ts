@@ -910,6 +910,11 @@ export const PERSONAL_SCOPE: CollectionScope<Collection> = {
   async update(ref, draft, base) {
     const body: UpdateCollectionRequest =
       draft.kind === "synced" ? personalListRequest(draft, base ?? draft) : personalFields(draft);
+    // An absent display_query_definition keeps the saved one, so Show only set
+    // back to All sends an empty filter, which the server stores as none.
+    if (draft.kind !== "smart" && !draft.showOnly && base?.showOnly) {
+      body.display_query_definition = { match: "all", groups: [] };
+    }
     const updated = await v2("PATCH /api/v2/collections/{id}", {
       path: { id: ref.id },
       headers: { "If-Match": requiredETag(ref.etag) },

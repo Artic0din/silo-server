@@ -389,6 +389,31 @@ describe("create and update send the editor's bodies", () => {
     expect(rules).not.toHaveProperty("display_query_definition");
   });
 
+  it("clears a saved Show only filter when it is set back to All", async () => {
+    const showOnly = {
+      match: "all" as const,
+      groups: [{ match: "all" as const, rules: [{ field: "watched", op: "is", value: false }] }],
+    };
+    const first = await loaded(PERSONAL_SCOPE);
+    const base = { ...first.draft, showOnly };
+    await PERSONAL_SCOPE.update(
+      { id: "c1", etag: first.etag },
+      { ...base, showOnly: undefined },
+      base,
+    );
+    const [cleared] = writes().map((call) => call.body as Record<string, unknown>);
+    expect(cleared!.display_query_definition).toEqual({ match: "all", groups: [] });
+
+    const second = await loaded(PERSONAL_SCOPE);
+    await PERSONAL_SCOPE.update(
+      { id: "c1", etag: second.etag },
+      { ...second.draft, name: "Renamed" },
+      second.draft,
+    );
+    const [untouched] = writes().map((call) => call.body as Record<string, unknown>);
+    expect(untouched).not.toHaveProperty("display_query_definition");
+  });
+
   it("updates a personal manual collection", async () => {
     const { draft, etag } = await loaded(PERSONAL_SCOPE);
     await PERSONAL_SCOPE.update({ id: "c1", etag }, { ...draft, name: "Renamed" });
