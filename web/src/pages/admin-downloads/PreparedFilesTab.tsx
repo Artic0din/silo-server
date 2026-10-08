@@ -94,6 +94,7 @@ export default function PreparedFilesTab({
   const selectedInUse = selectedRows.filter((row) => row.state === "in_use").length;
   const selectable = rows.filter((row) => row.state !== "expired");
   const allSelected = selectable.length > 0 && selectable.every((row) => selected.has(row.id));
+  const someSelected = !allSelected && selectable.some((row) => selected.has(row.id));
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -210,6 +211,9 @@ export default function PreparedFilesTab({
                   type="checkbox"
                   className={CHECKBOX}
                   aria-label="Select every listed file"
+                  ref={(input) => {
+                    if (input) input.indeterminate = someSelected;
+                  }}
                   checked={allSelected}
                   disabled={selectable.length === 0}
                   onChange={() =>
@@ -364,12 +368,13 @@ function DeleteFilesDialog({
   const remove = useDeleteAdminDownloadStorageFiles();
   const [includeInUse, setIncludeInUse] = useState(false);
   const checkboxId = useId();
-  const [observed, setObserved] = useState(files);
-  if (observed !== files) {
-    setObserved(files);
+  // The last files stay on screen while the dialog animates closed.
+  const [shown, setShown] = useState(files);
+  if (files !== null && files !== shown) {
+    setShown(files);
     setIncludeInUse(false);
   }
-  const list = files ?? [];
+  const list = shown ?? [];
   const cached = list.filter((f) => f.state !== "in_use");
   const inUse = list.filter((f) => f.state === "in_use");
   const targets = includeInUse ? list : cached;

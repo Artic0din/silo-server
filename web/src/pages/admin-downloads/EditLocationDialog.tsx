@@ -4,7 +4,7 @@ import type {
   AdminDownloadStorage,
   AdminDownloadStorageLocation,
 } from "@/api/v2/adminDownloadStorage";
-import type { StreamNode } from "@/api/types";
+import type { StreamNode, UpdateNodeRequest } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -183,11 +183,12 @@ function NodeLocationFields({
   const dirId = useId();
   const budgetId = useId();
   const currentDir = node.download_artifact_dir_override ?? "";
-  const currentBudget = node.download_artifact_max_bytes_override;
+  const currentBudget = node.download_artifact_max_bytes_override ?? null;
   const [dir, setDir] = useState(currentDir);
   const [mode, setMode] = useState<BudgetMode>(initialBudgetMode(node));
+  // Unrounded, so reopening the dialog shows (and keeps) a 1.5 GB budget.
   const [gb, setGb] = useState(
-    currentBudget && currentBudget > 0 ? String(Math.round(currentBudget / BYTES_PER_GB)) : "",
+    currentBudget && currentBudget > 0 ? String(currentBudget / BYTES_PER_GB) : "",
   );
 
   const trimmed = dir.trim();
@@ -203,16 +204,16 @@ function NodeLocationFields({
 
   function save() {
     if (dirError || gbError) return;
-    update.mutate(
-      {
-        node,
-        body: {
-          download_artifact_dir_override: trimmed === "" ? null : trimmed,
-          download_artifact_max_bytes_override: budgetOverride(mode, gbValue),
-        },
-      },
-      { onSuccess: onClose },
-    );
+    // Send only what changed: an omitted override is left as it is.
+    const body: UpdateNodeRequest = {};
+    if (dirChanged) body.download_artifact_dir_override = trimmed === "" ? null : trimmed;
+    const budget = budgetOverride(mode, gbValue);
+    if (budget !== currentBudget) body.download_artifact_max_bytes_override = budget;
+    if (Object.keys(body).length === 0) {
+      onClose();
+      return;
+    }
+    update.mutate({ node, body }, { onSuccess: onClose });
   }
 
   return (

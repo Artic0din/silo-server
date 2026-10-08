@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StreamNode } from "@/api/types";
 import type { AdminDownloadStorage, AdminDownloadStorageFile } from "@/api/v2/adminDownloadStorage";
 import {
   makeDownloadDevice,
@@ -19,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   deleteUntracked: vi.fn(),
   revoke: vi.fn(),
   toastSuccess: vi.fn(),
+  nodes: [] as StreamNode[],
+  updateNode: vi.fn(),
 }));
 
 function page<T>(items: T[]) {
@@ -62,8 +65,8 @@ vi.mock("@/hooks/queries/admin/downloadStorage", () => ({
   useRevokeAdminDownloads: () => ({ mutate: mocks.revoke, isPending: false }),
 }));
 vi.mock("@/hooks/queries/admin/nodes", () => ({
-  useAdminNodes: () => ({ data: [], isLoading: false }),
-  useUpdateNode: () => ({ mutate: vi.fn(), isPending: false }),
+  useAdminNodes: () => ({ data: mocks.nodes, isLoading: false }),
+  useUpdateNode: () => ({ mutate: mocks.updateNode, isPending: false }),
 }));
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, info: vi.fn(), error: vi.fn() },
@@ -105,6 +108,7 @@ beforeEach(() => {
   mocks.files = [];
   mocks.filesQuery = [];
   mocks.devicesQuery = [];
+  mocks.nodes = [];
 });
 afterEach(cleanup);
 
@@ -134,6 +138,29 @@ describe("AdminDownloads storage tab", () => {
     fireEvent.click(within(node).getByRole("button", { name: "Review" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete untracked files" }));
     expect(mocks.deleteUntracked).toHaveBeenCalledWith("node:9", expect.any(Object));
+  });
+
+  it("saves only the node override that changed", () => {
+    mocks.nodes = [
+      {
+        id: 9,
+        name: "node-gpu-1",
+        config_etag: "1",
+        download_artifact_max_bytes_override: 1.5e9,
+      } as unknown as StreamNode,
+    ];
+    renderAt();
+    const card = screen.getByRole("region", { name: "node-gpu-1" });
+    fireEvent.click(within(card).getByRole("button", { name: "Edit location" }));
+    expect(screen.getByLabelText("Budget in GB")).toHaveValue("1.5");
+    fireEvent.change(screen.getByLabelText("Prepared file directory"), {
+      target: { value: "/mnt/fast/silo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(mocks.updateNode).toHaveBeenCalledWith(
+      { node: mocks.nodes[0], body: { download_artifact_dir_override: "/mnt/fast/silo" } },
+      expect.anything(),
+    );
   });
 
   it("opens a location's files from its card", () => {
@@ -181,7 +208,7 @@ describe("AdminDownloads device copies tab", () => {
   it("opens with the stale filter from the storage banner and revokes a whole device", () => {
     renderAt("/admin/downloads?tab=devices&stale=1");
     expect(mocks.devicesQuery.at(-1)).toMatchObject({ stale: true });
-    fireEvent.click(screen.getByRole("button", { name: "Revoke all…" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Revoke all downloads on / }));
     const dialog = screen.getByRole("alertdialog");
     expect(within(dialog).getByText(/last seen/)).toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: "Lost phone" } });

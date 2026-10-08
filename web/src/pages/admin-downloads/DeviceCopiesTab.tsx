@@ -197,6 +197,7 @@ export default function DeviceCopiesTab({ initialStale = false }: { initialStale
                           variant="outline"
                           size="sm"
                           disabled={device.copies === 0}
+                          aria-label={`Revoke all downloads on ${device.device_name || device.device_id}`}
                           onClick={() => setRevoking({ kind: "device", device })}
                         >
                           Revoke all…
@@ -226,7 +227,7 @@ export default function DeviceCopiesTab({ initialStale = false }: { initialStale
 
       <RevokeDialog
         intent={revoking}
-        cacheHours={storage.data?.cache_hours ?? 72}
+        cacheHours={storage.data?.cache_hours}
         onClose={() => setRevoking(null)}
       />
     </div>
@@ -251,6 +252,7 @@ function entryStatus(entry: AdminDownloadEntry) {
   switch (entry.status) {
     case "completed":
       return { label: "Finished", className: "bg-muted text-foreground" };
+    case "queued":
     case "preparing":
     case "ready":
       return { label: "Waiting", className: "text-foreground bg-chart-1/30" };
@@ -260,6 +262,8 @@ function entryStatus(entry: AdminDownloadEntry) {
       return { label: "Revoked", className: "text-warning bg-warning/10" };
     case "failed":
       return { label: "Failed", className: "text-destructive bg-destructive/10" };
+    case "cancelled":
+      return { label: "Cancelled", className: "bg-muted text-muted-foreground" };
     default:
       return { label: entry.status, className: "bg-muted text-muted-foreground" };
   }
@@ -341,6 +345,7 @@ function DeviceEntries({
                 <button
                   type="button"
                   className="text-xs underline underline-offset-3"
+                  aria-label={`Revoke ${entryTitle(row)}`}
                   onClick={() => onRevoke([row])}
                 >
                   Revoke
@@ -386,7 +391,8 @@ function RevokeDialog({
   onClose,
 }: {
   intent: RevokeIntent | null;
-  cacheHours: number;
+  /** Undefined until the storage overview has loaded. */
+  cacheHours: number | undefined;
   onClose: () => void;
 }) {
   const revoke = useRevokeAdminDownloads();
@@ -394,37 +400,40 @@ function RevokeDialog({
   const [reason, setReason] = useState("");
   const pauseId = useId();
   const reasonId = useId();
-  const [observed, setObserved] = useState(intent);
-  if (observed !== intent) {
-    setObserved(intent);
+  // The last intent stays on screen while the dialog animates closed.
+  const [shown, setShown] = useState(intent);
+  if (intent !== null && intent !== shown) {
+    setShown(intent);
     setPauseMonitors(true);
     setReason("");
   }
-  const device = intent?.device;
-  const { count, bytes } = revokeScope(intent);
+  const device = shown?.device;
+  const { count, bytes } = revokeScope(shown);
   const seen = device ? formatRelativeTime(device.last_seen_at) : null;
   const only =
-    intent?.kind === "entries" && intent.entries.length === 1 ? intent.entries[0] : undefined;
-  const subject = only ? `“${entryTitle(only)}”` : `${count} downloads`;
+    shown?.kind === "entries" && shown.entries.length === 1 ? shown.entries[0] : undefined;
+  const subject = only
+    ? `“${entryTitle(only)}”`
+    : `${count} ${count === 1 ? "download" : "downloads"}`;
 
   function confirm() {
-    if (!intent) return;
+    if (!shown) return;
     const target =
-      intent.kind === "device"
+      shown.kind === "device"
         ? {
-            userId: intent.device.user_id,
-            profileId: intent.device.profile_id,
-            deviceId: intent.device.device_id,
+            userId: shown.device.user_id,
+            profileId: shown.device.profile_id,
+            deviceId: shown.device.device_id,
             pauseMonitors,
           }
-        : { ids: intent.entries.map((e) => e.id) };
+        : { ids: shown.entries.map((e) => e.id) };
     revoke.mutate(
       { target, reason: reason.trim() },
       {
         onSuccess: (result) => {
           toast.success(
             result.revoked > 0
-              ? `Revoked ${result.revoked} ${result.revoked === 1 ? "download" : "downloads"} on ${intent.device.device_name || "the device"}`
+              ? `Revoked ${result.revoked} ${result.revoked === 1 ? "download" : "downloads"} on ${shown.device.device_name || "the device"}`
               : "Those downloads were already revoked",
           );
           onClose();
@@ -459,10 +468,11 @@ function RevokeDialog({
           <div className="font-medium">Frees {formatStorageBytes(bytes)} on the device.</div>
           <div className="text-muted-foreground text-xs">
             Prepared files on the server that only these downloads were waiting on become cached and
-            expire after {cacheHours} hours. Preparations nothing else needs are canceled.
+            expire after {cacheHours === undefined ? "the cache period" : `${cacheHours} hours`}.
+            Preparations nothing else needs are canceled.
           </div>
         </div>
-        {intent?.kind === "device" && intent.device.monitors > 0 ? (
+        {shown?.kind === "device" && shown.device.monitors > 0 ? (
           <label htmlFor={pauseId} className="flex items-start gap-2 text-sm">
             <input
               id={pauseId}
@@ -473,9 +483,9 @@ function RevokeDialog({
             />
             <span>
               Also pause the{" "}
-              {intent.device.monitors === 1
+              {shown.device.monitors === 1
                 ? "series monitor"
-                : `${intent.device.monitors} series monitors`}{" "}
+                : `${shown.device.monitors} series monitors`}{" "}
               on this device
               <span className="text-muted-foreground block text-xs">
                 Otherwise new episodes download again.

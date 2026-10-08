@@ -51,23 +51,24 @@ export default function HistoryTab() {
   const events = useAdminDownloadStorageEvents(query);
   const rows = events.data?.pages.flatMap((page) => page.items) ?? [];
   const locations = storage.data?.locations ?? [];
+  const settings = storage.data;
 
   return (
     <div className="space-y-4">
       <StatStrip columns={4}>
         <StatTile
           label="Freed, 30 days"
-          value={formatStorageBytes(storage.data?.freed_last_30_days_bytes)}
+          value={settings ? formatStorageBytes(settings.freed_last_30_days_bytes) : "—"}
           detail="server and nodes"
         />
         <StatTile
           label="Keep cached files for"
-          value={`${storage.data?.cache_hours ?? 0} h`}
+          value={settings ? `${settings.cache_hours} h` : "—"}
           detail="after their last use"
         />
         <StatTile
           label="Disk ceiling"
-          value={`${storage.data?.disk_ceiling_percent ?? 0}%`}
+          value={settings ? `${settings.disk_ceiling_percent}%` : "—"}
           detail="cached files go early above it"
         />
         <StatTile

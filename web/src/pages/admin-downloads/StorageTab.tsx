@@ -181,6 +181,7 @@ export default function StorageTab({
             location={location}
             ceiling={data.disk_ceiling_percent}
             cleaningUp={cleanUp.isPending && cleanUp.variables === location.key}
+            cleanUpBusy={cleanUp.isPending}
             onCleanUp={() => runCleanUp(location)}
             onEdit={() => setEditing(location)}
             onReviewUntracked={() => setUntrackedTarget(location)}
@@ -260,6 +261,7 @@ function LocationCard({
   location,
   ceiling,
   cleaningUp,
+  cleanUpBusy,
   onCleanUp,
   onEdit,
   onReviewUntracked,
@@ -267,7 +269,10 @@ function LocationCard({
 }: {
   location: AdminDownloadStorageLocation;
   ceiling: number;
+  /** This location's clean-up is running. */
   cleaningUp: boolean;
+  /** A clean-up is running somewhere; one at a time keeps every result reported. */
+  cleanUpBusy: boolean;
   onCleanUp: () => void;
   onEdit: () => void;
   onReviewUntracked: () => void;
@@ -295,7 +300,7 @@ function LocationCard({
           <h2 className="truncate text-base font-semibold">{location.name}</h2>
           <StatusPill location={location} />
         </div>
-        <Button variant="ghost" size="sm" onClick={onCleanUp} disabled={cleaningUp || offline}>
+        <Button variant="ghost" size="sm" onClick={onCleanUp} disabled={cleanUpBusy || offline}>
           <RefreshCw className={cn("size-3.5", cleaningUp && "animate-spin")} aria-hidden="true" />
           Clean up now
         </Button>

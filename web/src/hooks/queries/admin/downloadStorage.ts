@@ -19,8 +19,9 @@ import {
 } from "@/api/v2/adminDownloadStorage";
 
 // The download_storage.changed event invalidates these after clean-up or a
-// revoke; the stale time bounds how long a missed event can hide a change.
-// Measurements themselves refresh every few minutes on the server.
+// revoke, and every (re)subscription to its channel re-reads them in case
+// events were missed. The overview also polls, because the server re-measures
+// directories every few minutes without publishing an event.
 const STORAGE_STALE_TIME = 30_000;
 const STORAGE_REFRESH_INTERVAL = 60_000;
 

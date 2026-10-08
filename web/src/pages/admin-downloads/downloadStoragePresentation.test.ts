@@ -17,6 +17,7 @@ describe("formatStorageBytes", () => {
     expect(formatStorageBytes(38e9)).toBe("38 GB");
     expect(formatStorageBytes(2.3e9)).toBe("2.3 GB");
     expect(formatStorageBytes(1.1e12)).toBe("1.1 TB");
+    expect(formatStorageBytes(999.7e9)).toBe("1.0 TB");
     expect(formatStorageBytes(undefined)).toBe("0 B");
   });
 });

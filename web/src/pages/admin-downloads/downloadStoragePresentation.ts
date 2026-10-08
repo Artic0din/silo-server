@@ -14,7 +14,8 @@ export function formatStorageBytes(bytes: number | null | undefined): string {
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let index = 0;
   let scaled = value;
-  while (scaled >= 1000 && index < units.length - 1) {
+  // 999.5 and up would round to "1000", so it moves to the next unit.
+  while (scaled >= 999.5 && index < units.length - 1) {
     scaled /= 1000;
     index++;
   }
