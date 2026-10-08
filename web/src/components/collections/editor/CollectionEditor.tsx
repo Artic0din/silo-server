@@ -4,7 +4,6 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
-import type { BrowseItem } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SaveBar } from "@/components/SaveBar";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
@@ -14,7 +13,7 @@ import {
 } from "@/hooks/queries/admin/collectionRows";
 import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
 import { useAdminLibraries } from "@/hooks/queries/admin/libraries";
-import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/catalog";
+import { createCatalogSearchState, fetchCatalogItems } from "@/hooks/queries/catalog";
 import {
   useCollectionDraft,
   useListedPoster,
@@ -121,14 +120,7 @@ async function collectionTitlesIn(collectionId: string, libraryId: number, signa
     library_id: libraryId,
     uses_source_order: true,
   });
-  const titles: BrowseItem[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await fetchCatalogPage(state, 200, 0, { signal }, false, undefined, cursor);
-    titles.push(...page.items);
-    cursor = page.has_more ? page.next_cursor : undefined;
-  } while (cursor);
-  return titles;
+  return fetchCatalogItems(state, { signal });
 }
 
 /**

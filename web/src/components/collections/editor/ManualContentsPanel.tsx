@@ -34,11 +34,16 @@ import type { BrowseItem } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdminCollectionCapabilities } from "@/hooks/queries/admin/collections";
-import { createCatalogSearchState, fetchCatalogPage } from "@/hooks/queries/catalog";
+import {
+  createCatalogSearchState,
+  fetchCatalogItems,
+  fetchCatalogPage,
+} from "@/hooks/queries/catalog";
 import { putCollectionItem } from "@/hooks/queries/collectionScope";
 import {
   useCollectionCapabilities,
   useCollectionItemOrderSnapshot,
+  COLLECTION_ITEMS_PAGE,
   useCollectionItems,
   useReorderCollectionItems,
 } from "@/hooks/queries/collections";
@@ -498,28 +503,23 @@ export function ManualContentsPanel({
   const dragOrder = useRef<typeof orderSnapshot>(undefined);
 
   // Posters and years for titles saved before the editor opened.
-  const catalogPage = useQuery({
+  const catalogTitles = useQuery({
     queryKey: [...catalogKeys.all, "collectionTitles", source, collectionId],
     queryFn: ({ signal }) =>
-      fetchCatalogPage(
+      fetchCatalogItems(
         createCatalogSearchState(source === "user" ? "user_collection" : "library_collection", {
           collection_id: collectionId,
           uses_source_order: true,
         }),
-        200,
-        0,
-        { signal },
-        false,
+        { max: COLLECTION_ITEMS_PAGE, signal },
       ),
     enabled: created,
     staleTime: 60 * 1000,
   });
   const catalogInfo = useMemo(
     () =>
-      Object.fromEntries(
-        (catalogPage.data?.items ?? []).map((item) => [item.content_id, infoOf(item)]),
-      ),
-    [catalogPage.data],
+      Object.fromEntries((catalogTitles.data ?? []).map((item) => [item.content_id, infoOf(item)])),
+    [catalogTitles.data],
   );
   const infoFor = useCallback(
     (id: string, title?: string): TitleInfo | undefined => {

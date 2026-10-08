@@ -127,6 +127,29 @@ export async function fetchCatalogPage(
   };
 }
 
+/** The most items one `POST /api/v2/catalog/query` page may ask for (its `limit` maximum). */
+export const MAX_CATALOG_PAGE = 100;
+
+/**
+ * The items `state` lists, up to `max` (every one when `max` is omitted), read
+ * a page of at most `MAX_CATALOG_PAGE` at a time through the response cursor.
+ */
+export async function fetchCatalogItems(
+  state: CatalogSearchState,
+  options: { max?: number; signal?: AbortSignal } = {},
+): Promise<CatalogPage["items"]> {
+  const { max = Number.POSITIVE_INFINITY, signal } = options;
+  const items: CatalogPage["items"] = [];
+  let cursor: string | undefined;
+  do {
+    const limit = Math.min(MAX_CATALOG_PAGE, max - items.length);
+    const page = await fetchCatalogPage(state, limit, 0, { signal }, false, undefined, cursor);
+    items.push(...page.items);
+    cursor = page.has_more ? page.next_cursor : undefined;
+  } while (cursor && items.length < max);
+  return items;
+}
+
 export async function fetchCatalogFilters(
   state: CatalogSearchState,
   options?: Pick<RequestInit, "signal">,

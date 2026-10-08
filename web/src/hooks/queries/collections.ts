@@ -60,6 +60,9 @@ export function useServerCollections() {
   });
 }
 
+/** Titles per page of a collection's item list; the editor lists one page. */
+export const COLLECTION_ITEMS_PAGE = 200;
+
 export function useCollectionItems(
   collectionId: string,
   cursor = "",
@@ -79,7 +82,7 @@ export function useCollectionItems(
           : "GET /api/v2/admin/collections/{id}/items",
         {
           path: { id: collectionId },
-          query: { limit: 200, ...(cursor ? { cursor } : {}) },
+          query: { limit: COLLECTION_ITEMS_PAGE, ...(cursor ? { cursor } : {}) },
         },
       ),
     // Keep only the visible edit window; old pages are inexpensive to refetch.
