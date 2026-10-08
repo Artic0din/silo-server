@@ -53,6 +53,7 @@ const (
 	subtitleCodecPGSFFmpegV3      = "hdmv_pgs_subtitle"
 	subtitleMIMEVTTV3             = "text/vtt"
 	subtitleUnavailableReasonV3   = "subtitle_artifact_unavailable"
+	subtitleTrackKindV3           = "subtitle"
 	transcodeStartFailedReasonV3  = "transcode_start_failed"
 	capabilityUnavailableReasonV3 = "transcode_node_capability_unavailable"
 	// transportStartupReadyV3 is the "outcome" of a transport startup whose
@@ -1245,6 +1246,18 @@ func retryIncompletePlaybackSettingsV3(result playback.PlannerResultV3, settings
 }
 
 func (h *PlaybackHandler) planPlaybackWithCapabilitiesV3(ctx context.Context, input playback.PlannerInputV3) (playback.PlannerResultV3, error) {
+	additional, err := h.downloadedSubtitleInventoryV3(ctx, input.EffectiveFile)
+	if err != nil && selectsDownloadedSubtitleV3(input.EffectiveFile, input.Request) {
+		// A failed lookup says nothing about whether the selected track
+		// exists. Planning without it would turn the subtitle off, and every
+		// later replan starts from that plan, so it would stay off for the
+		// rest of the session.
+		return playback.PlannerResultV3{
+			Terminal:           &playback.TerminalV3{Reason: subtitleUnavailableReasonV3, Message: "Downloaded subtitles are temporarily unavailable.", Retryable: true},
+			SubtitleTrackIndex: -1, SubtitleTransportTrackIndex: -1,
+		}, nil
+	}
+	input.AdditionalSubtitles = additional
 	mode := headerAuthenticatedMediaV3(input.Request.ClientFeatures)
 	proxyAllowed := !mode.headerAuth && h.JWTSecret != "" || mode.proxyEgress && h.proxyEgressOriginsAvailableV3()
 	snapshot := &hlsPlanningSnapshotV3{
@@ -1717,7 +1730,6 @@ func (h *PlaybackHandler) startPlaybackApplicationV3(r *http.Request, body []byt
 		ServerBitrateCapKbps: serverBitrateCapV3(r.Context()),
 		AudioTrackIndex:      audioIndex, Settings: settings,
 		Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), effectiveFile), Now: time.Now(),
-		AdditionalSubtitles: h.downloadedSubtitleInventoryV3(r.Context(), effectiveFile),
 	})
 	timings.mark("planning")
 	if req.AllowsAlternateVersions() && terminalAllowsAlternateFileV3(result.Terminal) && shouldTryAlternateFileV3(req.QualityPreference) {
@@ -1754,7 +1766,7 @@ func (h *PlaybackHandler) startPlaybackApplicationV3(r *http.Request, body []byt
 					if err := preflightPlaybackFile(r.Context(), candidateFile, h.MissingMarker, h.EventsHub); err != nil {
 						continue
 					}
-					candidateResult, candidateToneMapErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: candidateReq, RequestedFile: requestedFile, EffectiveFile: candidateFile, LowerVersion: lowerVersionForFileV3(lowerVersion, candidateFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: candidateAudioIndex, Settings: settings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), candidateFile), Now: time.Now(), AdditionalSubtitles: h.downloadedSubtitleInventoryV3(r.Context(), candidateFile)})
+					candidateResult, candidateToneMapErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: candidateReq, RequestedFile: requestedFile, EffectiveFile: candidateFile, LowerVersion: lowerVersionForFileV3(lowerVersion, candidateFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: candidateAudioIndex, Settings: settings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), candidateFile), Now: time.Now()})
 				}
 				if candidateResult.Terminal == nil && subtitleDropped {
 					// Prefer a version that keeps the viewer's subtitle; hold
@@ -3208,7 +3220,6 @@ func (h *PlaybackHandler) plannerInputV3(ctx context.Context, req playback.Start
 		DVRPUStrippable:      h.lazyDVRPUStrippableV3(ctx, effectiveFile),
 		Now:                  time.Now(),
 		AttemptedKeys:        attemptedKeys,
-		AdditionalSubtitles:  h.downloadedSubtitleInventoryV3(ctx, effectiveFile),
 	}
 }
 
@@ -4476,15 +4487,33 @@ func (h *PlaybackHandler) attachSubtitleArtifactV3(ctx context.Context, sessionI
 // downloadedSubtitleInventoryV3 lists the downloaded and AI-generated tracks
 // that follow the file's own tracks in the combined-ordinal space. The
 // repository orders by created_at, so the ordinals it produces are stable.
-func (h *PlaybackHandler) downloadedSubtitleInventoryV3(ctx context.Context, file *models.MediaFile) []playback.SubtitleInventoryEntryV3 {
+func (h *PlaybackHandler) downloadedSubtitleInventoryV3(ctx context.Context, file *models.MediaFile) ([]playback.SubtitleInventoryEntryV3, error) {
 	if h == nil || h.SubtitleRepo == nil || file == nil {
-		return nil
+		return nil, nil
 	}
 	downloaded, err := h.SubtitleRepo.ListDownloadedSubtitles(ctx, file.ID)
 	if err != nil {
-		return nil
+		return nil, wrapSubtitleStoreErrorV3(err)
 	}
-	return downloadedSubtitleEntriesV3(file, downloaded)
+	return downloadedSubtitleEntriesV3(file, downloaded), nil
+}
+
+// selectsDownloadedSubtitleV3 reports whether request selects a subtitle past
+// file's own external and embedded tracks, the range downloaded subtitles
+// occupy.
+func selectsDownloadedSubtitleV3(file *models.MediaFile, request playback.StartRequestV3) bool {
+	if file == nil {
+		return false
+	}
+	index := -1
+	if request.SubtitleTrackIndex != nil {
+		index = *request.SubtitleTrackIndex
+	} else if request.SubtitleTrackID != "" {
+		if fileID, kind, ordinal, ok := playback.ParseTrackIDV3(request.SubtitleTrackID); ok && kind == subtitleTrackKindV3 && fileID == file.ID {
+			index = ordinal
+		}
+	}
+	return index >= len(file.ExternalSubtitles)+len(file.SubtitleTracks)
 }
 
 // downloadedSubtitleEntriesV3 converts downloaded rows into inventory entries
@@ -5059,7 +5088,7 @@ func (h *PlaybackHandler) executeReplanV3(r *http.Request, record *playback.Atte
 			}
 		}
 	} else {
-		result, toneMapCapabilityErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: start, RequestedFile: plannerRequestedFile, EffectiveFile: effectiveFile, LowerVersion: lowerVersionForFileV3(lowerVersion, effectiveFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: audioIndex, Settings: plannerSettings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), effectiveFile), Now: time.Now(), AttemptedKeys: attemptedKeys, AdditionalSubtitles: h.downloadedSubtitleInventoryV3(r.Context(), effectiveFile)})
+		result, toneMapCapabilityErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: start, RequestedFile: plannerRequestedFile, EffectiveFile: effectiveFile, LowerVersion: lowerVersionForFileV3(lowerVersion, effectiveFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: audioIndex, Settings: plannerSettings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), effectiveFile), Now: time.Now(), AttemptedKeys: attemptedKeys})
 	}
 	if outputChange && result.Terminal != nil && effectiveFile.ID != currentEffectiveFile.ID {
 		// Returning to the requested edition is speculative during an output
@@ -5073,7 +5102,7 @@ func (h *PlaybackHandler) executeReplanV3(r *http.Request, record *playback.Atte
 		if err != nil {
 			return playback.DecisionResponseV3{}, *record, nil, &transportErrorV3{reason: "track_unavailable", message: err.Error()}
 		}
-		result, toneMapCapabilityErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: start, RequestedFile: plannerRequestedFile, EffectiveFile: effectiveFile, LowerVersion: lowerVersionForFileV3(lowerVersion, effectiveFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: audioIndex, Settings: plannerSettings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), effectiveFile), Now: time.Now(), AttemptedKeys: attemptedKeys, AdditionalSubtitles: h.downloadedSubtitleInventoryV3(r.Context(), effectiveFile)})
+		result, toneMapCapabilityErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: start, RequestedFile: plannerRequestedFile, EffectiveFile: effectiveFile, LowerVersion: lowerVersionForFileV3(lowerVersion, effectiveFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: audioIndex, Settings: plannerSettings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), effectiveFile), Now: time.Now(), AttemptedKeys: attemptedKeys})
 	}
 	if start.AllowsAlternateVersions() && terminalAllowsAlternateFileV3(result.Terminal) && replanAllowsAlternateFileV3(operation, start.QualityPreference) {
 		accessFilter := requestAccessFilter(r)
@@ -5121,7 +5150,7 @@ func (h *PlaybackHandler) executeReplanV3(r *http.Request, record *playback.Atte
 					if err := preflightPlaybackFile(r.Context(), candidateFile, h.MissingMarker, h.EventsHub); err != nil {
 						continue
 					}
-					candidateResult, candidateToneMapErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: candidateStart, RequestedFile: plannerRequestedFile, EffectiveFile: candidateFile, LowerVersion: lowerVersionForFileV3(lowerVersion, candidateFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: candidateAudioIndex, Settings: plannerSettings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), candidateFile), Now: time.Now(), AttemptedKeys: attemptedKeys, AdditionalSubtitles: h.downloadedSubtitleInventoryV3(r.Context(), candidateFile)})
+					candidateResult, candidateToneMapErr = h.planPlaybackWithCapabilitiesV3(r.Context(), playback.PlannerInputV3{Request: candidateStart, RequestedFile: plannerRequestedFile, EffectiveFile: candidateFile, LowerVersion: lowerVersionForFileV3(lowerVersion, candidateFile), ServerBitrateCapKbps: serverBitrateCapV3(r.Context()), AudioTrackIndex: candidateAudioIndex, Settings: plannerSettings, Registry: h.transformationRegistryV3(r.Context()), DVRPUStrippable: h.lazyDVRPUStrippableV3(r.Context(), candidateFile), Now: time.Now(), AttemptedKeys: attemptedKeys})
 				}
 				if candidateResult.Terminal == nil && subtitleDropped {
 					// Prefer a version that keeps the viewer's subtitle; hold
