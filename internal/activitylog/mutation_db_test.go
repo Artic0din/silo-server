@@ -37,7 +37,7 @@ func TestMutationCommitRollbackAndHistoryDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, actor) }()
-	defer func() { _, _ = pool.Exec(ctx, `DELETE FROM activity_log WHERE target_id=$1`, target) }()
+	defer func() { _, _ = pool.Exec(ctx, `DELETE FROM activity_log WHERE target_id LIKE $1`, target+"%") }()
 	hub := logstream.NewHub("test", nil)
 	tail, unsubscribe := hub.Subscribe(nil)
 	defer unsubscribe()
@@ -89,6 +89,41 @@ func TestMutationCommitRollbackAndHistoryDB(t *testing.T) {
 		}
 		if got := len(tail); got != map[bool]int{false: 0, true: 1}[commit] {
 			t.Fatalf("live rows %d", got)
+		}
+	}
+	// A group move must not incur one round trip per account. Verify one bulk
+	// insert still rolls back atomically and yields distinct post-commit entries.
+	targets := []string{target + "-a", target + "-b", target + "-c"}
+	for _, commit := range []bool{false, true} {
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := auditmutation.RecordMutations(ctx, tx, "user.updated", "user", targets, 204,
+			auditmutation.Changes(map[string]any{"access_group_id": 1}, map[string]any{"access_group_id": 2}))
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if len(entries) != 3 {
+			t.Fatalf("batch rows: %d", len(entries))
+		}
+		if commit {
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				auditmutation.CommitMutation(ctx, entry)
+			}
+		} else {
+			_ = tx.Rollback(ctx)
+		}
+		var count int
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM activity_log WHERE target_id=ANY($1::text[])`, targets).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != map[bool]int{false: 0, true: 3}[commit] {
+			t.Fatalf("batch durability: %d, commit=%v", count, commit)
 		}
 	}
 	rows, err := NewRepo(pool).List(ctx, ListOptions{Action: "user.updated", ActorUserID: &actor, TargetType: "user", TargetID: target, Limit: 10})

@@ -20,3 +20,16 @@ func TestUserChangeDetailsNeverIncludePasswordHash(t *testing.T) {
 		t.Fatalf("changes: %s", raw)
 	}
 }
+
+func TestNullablePolicyListsRetainMeaningfulEmptyTransitions(t *testing.T) {
+	changes := Changes(map[string]any{"library_ids": []int(nil), "allowed_permissions": []string(nil)},
+		map[string]any{"library_ids": []int{}, "allowed_permissions": []string{}})
+	if len(changes) != 2 {
+		t.Fatalf("unrestricted-to-empty policy changes lost: %+v", changes)
+	}
+	for _, change := range changes {
+		if *change.Before != "null" || *change.After != "[]" {
+			t.Fatalf("lost policy meaning: %+v", change)
+		}
+	}
+}

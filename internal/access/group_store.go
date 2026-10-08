@@ -569,16 +569,12 @@ func moveGroupMembersToDefault(ctx context.Context, tx pgx.Tx, id int64) ([]*aud
 	if err != nil {
 		return nil, err
 	}
-	var audits []*auditmutation.Entry
-	for _, member := range members {
-		entry, err := auditmutation.RecordMutation(ctx, tx, "user.updated", "user", fmt.Sprint(member), 204,
-			auditmutation.Changes(map[string]any{"access_group_id": id}, map[string]any{"access_group_id": defaultID}))
-		if err != nil {
-			return nil, err
-		}
-		audits = append(audits, entry)
+	targets := make([]string, len(members))
+	for i, member := range members {
+		targets[i] = fmt.Sprint(member)
 	}
-	return audits, nil
+	return auditmutation.RecordMutations(ctx, tx, "user.updated", "user", targets, 204,
+		auditmutation.Changes(map[string]any{"access_group_id": id}, map[string]any{"access_group_id": defaultID}))
 }
 
 // GetPolicyForUser returns the access-group policy for a user, or nil when

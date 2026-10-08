@@ -85,11 +85,21 @@ func UserValues(user *models.User) map[string]any {
 // transaction. The caller must call CommitMutation only after tx.Commit succeeds.
 // V1 retains its frozen request-audit behavior.
 func RecordMutation(ctx context.Context, tx pgx.Tx, action, targetType, targetID string, status int, changes []Change) (*Entry, error) {
+	entries, err := RecordMutations(ctx, tx, action, targetType, []string{targetID}, status, changes)
+	if err != nil || len(entries) == 0 {
+		return nil, err
+	}
+	return entries[0], nil
+}
+
+// RecordMutations records one shared policy change for multiple targets in one
+// database round trip. The owning transaction still commits every action together.
+func RecordMutations(ctx context.Context, tx pgx.Tx, action, targetType string, targetIDs []string, status int, changes []Change) ([]*Entry, error) {
 	lc := GetLogContext(ctx)
 	if lc == nil || lc.Request == nil || !strings.HasPrefix(lc.Request.URL.Path, "/api/v2/admin/") {
 		return nil, nil
 	}
-	if len(changes) == 0 {
+	if len(changes) == 0 || len(targetIDs) == 0 {
 		return nil, nil
 	}
 	r := lc.Request
@@ -102,20 +112,32 @@ func RecordMutation(ctx context.Context, tx pgx.Tx, action, targetType, targetID
 		ImpersonatorUserID: lc.ImpersonatorUserID, SessionID: lc.SessionID, RequestID: middleware.GetReqID(ctx),
 		NodeID: lc.NodeID, Method: r.Method, Path: path, PathPattern: pattern, StatusCode: status,
 		UserAgent: strings.ToValidUTF8(strings.ReplaceAll(r.UserAgent(), "\x00", ""), "�"), DurationMs: int(time.Since(lc.Started).Milliseconds()),
-		Action: action, TargetType: targetType, TargetID: targetID, Changes: changes}
+		Action: action, TargetType: targetType, Changes: changes}
 	raw, err := json.Marshal(changes)
 	if err != nil {
 		return nil, err
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO activity_log(timestamp,client_ip,user_id,impersonator_user_id,session_id,request_id,node_id,method,path,path_pattern,status_code,user_agent,duration_ms,action,target_type,target_id,changes)
- VALUES($1,$2::inet,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+	rows, err := tx.Query(ctx, `INSERT INTO activity_log(timestamp,client_ip,user_id,impersonator_user_id,session_id,request_id,node_id,method,path,path_pattern,status_code,user_agent,duration_ms,action,target_type,target_id,changes)
+ SELECT $1,$2::inet,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,target_id,$16 FROM unnest($17::text[]) AS target(target_id) RETURNING id,target_id`,
 		entry.Timestamp, entry.ClientIP, entry.UserID, entry.ImpersonatorUserID, entry.SessionID, entry.RequestID,
 		entry.NodeID, entry.Method, entry.Path, entry.PathPattern, entry.StatusCode, entry.UserAgent, entry.DurationMs,
-		action, targetType, targetID, raw).Scan(&entry.ID)
+		action, targetType, raw, targetIDs)
 	if err != nil {
-		return nil, fmt.Errorf("persisting audit action: %w", err)
+		return nil, fmt.Errorf("persisting audit actions: %w", err)
 	}
-	return entry, nil
+	defer rows.Close()
+	entries := make([]*Entry, 0, len(targetIDs))
+	for rows.Next() {
+		inserted := *entry
+		if err := rows.Scan(&inserted.ID, &inserted.TargetID); err != nil {
+			return nil, err
+		}
+		entries = append(entries, &inserted)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func RecordUserMutation(ctx context.Context, tx pgx.Tx, before, after *models.User, passwordChanged bool) (*Entry, error) {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 
@@ -134,6 +135,22 @@ func parseAuditLogOptionsFromRequest(r *http.Request) (activitylog.ListOptions, 
 	}
 
 	if strings.HasPrefix(r.URL.Path, "/api/v2/") {
+		for _, key := range []string{"action", "target_type", "target_id"} {
+			if utf8.RuneCountInString(r.URL.Query().Get(key)) > 64 {
+				return activitylog.ListOptions{}, invalidQueryError(key)
+			}
+		}
+		rawActor := r.URL.Query().Get("actor_user_id")
+		if rawActor != "" {
+			if len(rawActor) > 20 || rawActor[0] < '1' || rawActor[0] > '9' {
+				return activitylog.ListOptions{}, invalidQueryError("actor_user_id")
+			}
+			for _, digit := range rawActor {
+				if digit < '0' || digit > '9' {
+					return activitylog.ListOptions{}, invalidQueryError("actor_user_id")
+				}
+			}
+		}
 		opts.Action = strings.TrimSpace(r.URL.Query().Get("action"))
 		opts.TargetType = strings.TrimSpace(r.URL.Query().Get("target_type"))
 		opts.TargetID = strings.TrimSpace(r.URL.Query().Get("target_id"))
