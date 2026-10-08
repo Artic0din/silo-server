@@ -135,3 +135,76 @@ func TestHandleStartPlaybackV3DownloadedSubtitleLookupOutageStillStarts(t *testi
 		t.Fatalf("subtitle = %#v, want playback without the unreadable subtitle", response.PlaybackPlan.SelectedTracks.Subtitle)
 	}
 }
+
+// The same outage during a quality change made on a lower alternate, where
+// the server first maps the subtitle back to the requested edition, is
+// refused as retryable too rather than as a permanent track_unavailable.
+func TestHandleReplanPlaybackV3DownloadedSubtitleLookupOutageOnAnAlternateIsRetryable(t *testing.T) {
+	source := v3HandlerFixtureFile(t)
+	source.Resolution = "2160p"
+	source.Bitrate = 32_000
+	source.VideoTracks = append([]models.VideoTrack(nil), source.VideoTracks...)
+	source.VideoTracks[0].Level, source.VideoTracks[0].Bitrate = 51, 32_000
+	source.VideoTracks[0].Width, source.VideoTracks[0].Height = 3840, 2160
+	alternateValue := *source
+	alternate := &alternateValue
+	alternate.ID, alternate.Resolution, alternate.Bitrate = 84, "1080p", 8_000
+	alternate.VideoTracks = append([]models.VideoTrack(nil), source.VideoTracks...)
+	alternate.VideoTracks[0].Level, alternate.VideoTracks[0].Bitrate = 41, 8_000
+	alternate.VideoTracks[0].Width, alternate.VideoTracks[0].Height = 1920, 1080
+
+	repo := newMockSubtitleRepoForHandler()
+	downloaded := subtitles.DownloadedSubtitle{ID: 71, MediaFileID: alternate.ID, Format: subtitles.FormatSRT, Language: "eng"}
+	repo.list = []subtitles.DownloadedSubtitle{downloaded}
+	repo.subtitles[downloaded.ID] = &downloaded
+	files := map[int]*models.MediaFile{source.ID: source, alternate.ID: alternate}
+	handler := NewPlaybackHandler(playback.NewSessionManager(0, 0), mapPlaybackFileResolver{files: files})
+	handler.FileVersionFetcher = testPlaybackFileVersionFetcher{byContent: map[string][]*models.MediaFile{source.ContentID: {source, alternate}}}
+	handler.SettingsRepo = &mutablePlaybackSettingsV3{values: map[string]string{"allow_4k_transcode": "false"}}
+	handler.ItemAccess = allowAllPlaybackItemAccess{}
+	handler.SubtitleRepo = repo
+	// A 1080p client cannot play the 4K requested edition, so the start
+	// lands on the 1080p alternate.
+	startRequest := v3HandlerStartRequest()
+	startRequest.QualityPreference = "auto"
+	for _, delivery := range []string{playback.DeliveryClassOriginalHTTPV3, playback.DeliveryClassHLSV3} {
+		startRequest.ClientPlaybackContext.Deliveries[delivery] = playback.DeliveryCapabilityV3{
+			Enabled: true, SupportedOnDevice: true,
+			Subtitles: playback.DeliverySubtitleCapabilitiesV3{SidecarText: true},
+		}
+	}
+	rec := httptest.NewRecorder()
+	handler.HandleStartPlayback(rec, httptest.NewRequest(http.MethodPost, "/api/v1/playback/start", strings.NewReader(marshalV3StartRequest(t, startRequest))).WithContext(newAuthorizedPlaybackContext()))
+	var started playback.DecisionResponseV3
+	if json.Unmarshal(rec.Body.Bytes(), &started) != nil || started.PlaybackPlan == nil || started.PlaybackPlan.EffectiveMediaFileID != alternate.ID {
+		t.Fatalf("start did not land on the alternate: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	downloadedIndex := len(alternate.ExternalSubtitles) + len(alternate.SubtitleTracks)
+	subtitled := postPlaybackReplanV3(t, handler, started.SessionID, playback.ReplanRequestV3{
+		ProtocolVersion: playback.ProtocolV3, Operation: playback.ReplanOperationTrackChangeV3,
+		PlaybackAttemptID: startRequest.PlaybackAttemptID, ReplanRequestID: "alternate-outage-track-0001",
+		FailedPlanID: started.PlaybackPlan.PlanID, PlanAttemptID: "alternate-outage-track-attempt-0001",
+		PlanAttemptKey: started.PlaybackPlan.PlanAttemptKey, AttemptCount: 1, QualityPreference: "auto",
+		SelectedTracks: playback.SelectedTracksV3{
+			Audio:    started.PlaybackPlan.SelectedTracks.Audio,
+			Subtitle: &playback.TrackIdentityV3{ID: playback.TrackIDV3(alternate.ID, "subtitle", downloadedIndex), Index: &downloadedIndex},
+		},
+		Capabilities: startRequest.Capabilities, ClientPlaybackContext: startRequest.ClientPlaybackContext,
+	})
+	if subtitled.PlaybackPlan == nil || subtitled.PlaybackPlan.SelectedTracks.Subtitle == nil {
+		t.Fatalf("downloaded subtitle on the alternate was not selected: %#v", subtitled.Terminal)
+	}
+
+	repo.listErr = errors.New("database unavailable")
+	currentKey := playback.PlanAttemptKeyV3(*subtitled.PlaybackPlan, startRequest.ClientPlaybackContext.Output.OutputContextID, nil)
+	requireDownloadedSubtitleOutageV3(t, postPlaybackReplanV3(t, handler, started.SessionID, playback.ReplanRequestV3{
+		ProtocolVersion: playback.ProtocolV3, Operation: playback.ReplanOperationQualityChangeV3,
+		PlaybackAttemptID: startRequest.PlaybackAttemptID, ReplanRequestID: "alternate-outage-quality-0001",
+		FailedPlanID: subtitled.PlaybackPlan.PlanID, PlanAttemptID: "alternate-outage-quality-attempt-0001",
+		PlanAttemptKey: currentKey, AttemptedPlanKeys: []string{currentKey}, AttemptCount: 1,
+		QualityPreference: "1080p",
+		SelectedTracks:    playback.SelectedTracksV3{Audio: subtitled.PlaybackPlan.SelectedTracks.Audio},
+		Capabilities:      startRequest.Capabilities, ClientPlaybackContext: startRequest.ClientPlaybackContext,
+	}))
+}
