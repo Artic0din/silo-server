@@ -467,3 +467,37 @@ func TestAdminDeviceAndEntryPages(t *testing.T) {
 		t.Fatalf("entries = (%+v, %v)", entries, err)
 	}
 }
+
+func TestUpsertStorageSampleKeepsLargeCountsAndLastReconciliation(t *testing.T) {
+	repo, _, _ := newArtifactTestRepo(t)
+	ctx := context.Background()
+	reporter := fmt.Sprintf("sample-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM download_storage_samples WHERE reporter = $1`, reporter)
+	})
+	at := time.Now().Truncate(time.Second)
+	usage := downloadstorage.Usage{Dir: "/srv/a", MeasuredAt: at, Bytes: 5_400_000_000, FSTotalBytes: 2_000_000_000_000}
+	untracked := storageSampleUntracked{Files: 6, Bytes: 5_399_999_999, At: at}
+	if err := repo.UpsertStorageSample(ctx, 0, reporter, usage, &untracked); err != nil {
+		t.Fatalf("record sample with untracked bytes past int4: %v", err)
+	}
+	// A measurement without reconciliation keeps the last untracked counts.
+	usage.Bytes = 6_000_000_000
+	if err := repo.UpsertStorageSample(ctx, 0, reporter, usage, nil); err != nil {
+		t.Fatal(err)
+	}
+	samples, err := repo.storageSamples(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range samples[0] {
+		if s.reporter != reporter {
+			continue
+		}
+		if s.usage.Bytes != 6_000_000_000 || s.untrackedFiles != 6 || s.untrackedBytes != 5_399_999_999 || s.reconciledAt == nil {
+			t.Fatalf("sample = %+v", s)
+		}
+		return
+	}
+	t.Fatal("sample not stored")
+}

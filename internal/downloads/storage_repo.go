@@ -201,7 +201,7 @@ func (r *ArtifactRepository) UpsertStorageSample(ctx context.Context, nodeID int
 	}
 	_, err = r.pool.Exec(ctx,
 		`INSERT INTO download_storage_samples (node_id, reporter, usage, untracked_files, untracked_bytes, reconciled_at, updated_at)
-		 VALUES ($1, $2, $3, COALESCE($4, 0), COALESCE($5, 0), $6, now())
+		 VALUES ($1, $2, $3, COALESCE($4::integer, 0), COALESCE($5::bigint, 0), $6, now())
 		 ON CONFLICT (COALESCE(node_id, 0), reporter) DO UPDATE
 		 SET usage = EXCLUDED.usage, updated_at = now(),
 		     untracked_files = CASE WHEN $6::timestamptz IS NULL THEN download_storage_samples.untracked_files ELSE EXCLUDED.untracked_files END,
