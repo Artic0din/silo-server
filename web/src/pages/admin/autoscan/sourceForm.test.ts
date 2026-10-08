@@ -79,6 +79,18 @@ describe("editedSourceBody", () => {
     ).toEqual(source.source_config);
   });
 
+  it("still migrates a row holding legacy CephFS keys on its first save", () => {
+    const source = pollSource({
+      plugin_id: "silo.autoscan.cephfs",
+      capability_id: "cephfs",
+      source_config: { tv_nested_paths: "/b" },
+    });
+    const draft = { ...draftFromSource(source, descriptor), label: "Renamed" };
+    expect(editedSourceBody(source, draft, { tv_flat_paths: "/b" }).source_config).toEqual({
+      tv_flat_paths: "/b",
+    });
+  });
+
   it("counts a webhook provider change as a config edit", () => {
     const source = webhookSource();
     const draft = draftFromSource(source, descriptor);

@@ -225,14 +225,22 @@ export function draftConnectionId(draft: Pick<SourceDraft, "connectionId">): str
 }
 
 /**
- * Whether the dialog changed the source's config. The schema form marks the
- * draft dirty; the webhook provider has its own control, so it is compared
- * with the stored value instead.
+ * Whether the save has to send the config built from the form: the schema
+ * form marked the draft dirty, the webhook provider (which has its own
+ * control) differs from the stored one, or the row still holds legacy keys
+ * that its first save migrates forward.
  */
 function configEdited(source: AutoscanSource, draft: SourceDraft): boolean {
   if (draft.configDirty) return true;
+  const stored = source.source_config ?? {};
+  if (
+    ownsLegacyAliases(source) &&
+    Object.keys(LEGACY_CONFIG_KEY_ALIASES).some((key) => key in stored)
+  ) {
+    return true;
+  }
   const chosen = draft.sourceConfig[WEBHOOK_PROVIDER_KEY];
-  return chosen !== undefined && chosen !== source.source_config?.[WEBHOOK_PROVIDER_KEY];
+  return chosen !== undefined && chosen !== stored[WEBHOOK_PROVIDER_KEY];
 }
 
 /**
