@@ -177,6 +177,8 @@ export interface ActionBarProps {
   compactMobile?: boolean;
   contentId?: string;
   canAddToCollection?: boolean;
+  /** The item's title, named by Add to collection. */
+  itemTitle?: string;
   watchTogether?: ActionBarWatchTogether;
   /** Replaces the Play action. */
   primaryAction?: ActionBarPrimaryAction;
@@ -253,6 +255,7 @@ export default function ActionBar({
   compactMobile = false,
   contentId,
   canAddToCollection = true,
+  itemTitle,
   watchTogether,
   primaryAction,
   secondaryActions,
@@ -1051,6 +1054,7 @@ export default function ActionBar({
             open={addToCollectionOpen}
             onOpenChange={setAddToCollectionOpen}
             mediaItemId={contentId}
+            itemTitle={itemTitle}
           />
         )}
       </div>

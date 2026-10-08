@@ -27,6 +27,7 @@ export function setAppDocumentTitle(name: string) {
 
 const SETTINGS_TITLES: Record<string, string> = {
   account: "Account Settings",
+  sessions: "Signed-in sessions",
   interface: "Navigation & Card Settings",
   accessibility: "Accessibility Settings",
   playback: "Playback Settings",
@@ -53,6 +54,7 @@ const ADMIN_TITLES: Record<string, string> = {
   diagnostics: "Admin Client Diagnostics",
   history: "Admin Playback History",
   "history-import": "Admin History Import",
+  "home-rows": "Admin Home rows",
   "marker-history": "Admin Marker History",
   libraries: "Admin Libraries",
   logs: "Admin Logs",
@@ -62,7 +64,6 @@ const ADMIN_TITLES: Record<string, string> = {
   policy: "Admin Policy",
   recommendations: "Admin Recommendations",
   requests: "Admin Requests",
-  sections: "Admin Sections",
   subtitles: "Admin Subtitles",
   settings: "Admin Settings",
   tasks: "Admin Tasks",
