@@ -42,6 +42,18 @@ type NodeAwarePreparer struct {
 	// flight when an operator changed the node's policy writes the report it
 	// was sent to collect, restoring the pre-edit inventory for a full TTL.
 	capabilityInvalidations map[string]uint64
+	// storageFull reports a node over its prepared-file budget or disk
+	// ceiling with nothing left to free; such a node gets no new jobs.
+	storageFull func(nodeID int) bool
+}
+
+// SetStorageGate wires the storage check placement applies to every job.
+func (p *NodeAwarePreparer) SetStorageGate(full func(nodeID int) bool) {
+	p.storageFull = full
+}
+
+func (p *NodeAwarePreparer) hasStorage(n *nodepool.Node) bool {
+	return n != nil && (p.storageFull == nil || !p.storageFull(n.ID))
 }
 
 // remoteToneMapCapabilities caches one node's validated inventory; an empty
@@ -160,7 +172,7 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 				tracksCapable = p.preparedTracksCapableNodeURLs(ctx)
 			}
 			node, release = selector.ReserveTranscodeWorkWith("download-prepare-"+artifactID, func(candidate *nodepool.Node) bool {
-				if candidate == nil {
+				if !p.hasStorage(candidate) {
 					return false
 				}
 				nodeURL := strings.TrimRight(candidate.URL, "/")
@@ -182,6 +194,8 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 				return true
 			})
 		}
+	} else if selector, ok := p.planner.(eligibleTranscodeWorkPlanner); ok && p.storageFull != nil {
+		node, release = selector.ReserveTranscodeWorkWith("download-prepare-"+artifactID, p.hasStorage)
 	} else {
 		node, release = p.planner.ReserveTranscodeWork("download-prepare-" + artifactID)
 	}

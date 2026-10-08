@@ -61,6 +61,13 @@ func (r *Repository) ReportStatus(ctx context.Context, userID int, profileID, de
 	if err != nil {
 		return nil, fmt.Errorf("recording download status event: %w", err)
 	}
+	if event.Status == StatusCompleted && updated.ArtifactID != "" {
+		// The cache period of a prepared file starts when the last device
+		// waiting on it finishes, not when it was last served.
+		if _, err := tx.Exec(ctx, `UPDATE download_artifacts SET last_used_at = now() WHERE id = $1`, updated.ArtifactID); err != nil {
+			return nil, fmt.Errorf("touching completed download's artifact: %w", err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

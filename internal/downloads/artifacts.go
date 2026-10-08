@@ -17,6 +17,7 @@ import (
 
 	"github.com/Silo-Server/silo-server/internal/config"
 	"github.com/Silo-Server/silo-server/internal/downloadprepare"
+	"github.com/Silo-Server/silo-server/internal/downloadstorage"
 	"github.com/Silo-Server/silo-server/internal/idgen"
 	"github.com/Silo-Server/silo-server/internal/models"
 	"github.com/Silo-Server/silo-server/internal/playback"
@@ -112,6 +113,15 @@ type ArtifactManager struct {
 	ffmpegLogs     playback.FFmpegLogSink
 	lastDiskSweep  time.Time
 	lastStaleSweep time.Time
+	// Storage maintenance state (see storage_maintenance.go).
+	storageNodes        StorageNodes
+	storageNotify       func(context.Context)
+	serverProber        *downloadstorage.Prober
+	lastStorageSweep    time.Time
+	lastReconcile       time.Time
+	lastServerSampleAt  time.Time
+	lastCeilingEviction map[int]time.Time
+	storageFull         map[int]bool
 	// localAttempts cancels the attempts this replica runs, by artifact id.
 	localAttempts map[string]*localAttempt
 }
@@ -154,13 +164,7 @@ const maintenanceInterval = time.Hour
 // maintenanceDue reports whether the sweep guarded by last is due, advancing
 // the stamp when it is.
 func (m *ArtifactManager) maintenanceDue(last *time.Time) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !last.IsZero() && time.Since(*last) < maintenanceInterval {
-		return false
-	}
-	*last = time.Now()
-	return true
+	return m.maintenanceDueEvery(last, maintenanceInterval)
 }
 
 // NewArtifactManager constructs an ArtifactManager. liveCfg reads the current
@@ -181,10 +185,17 @@ func NewArtifactManager(
 	if owner == "" {
 		owner = "node"
 	}
-	return &ArtifactManager{
+	m := &ArtifactManager{
 		repo: repo, downloads: downloadRepo, fileRepo: fileRepo, preparer: preparer,
 		owner: owner, liveCfg: liveCfg, notify: notify,
+		serverProber:        downloadstorage.NewProber(0),
+		lastCeilingEviction: make(map[int]time.Time),
+		storageFull:         make(map[int]bool),
 	}
+	if gated, ok := preparer.(interface{ SetStorageGate(func(int) bool) }); ok {
+		gated.SetStorageGate(m.NodeStorageFull)
+	}
+	return m
 }
 
 // SetSettingsReader supplies live admin settings used when a prepared
@@ -237,6 +248,9 @@ func (m *ArtifactManager) Ready(ctx context.Context, id string) (*Artifact, erro
 	a, err := m.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if a.Status == ArtifactExpired {
+		return nil, fmt.Errorf("artifact is expired: %w", errors.Join(ErrDownloadNotActive, ErrPreparedFileExpired))
 	}
 	if !artifactReady(a) {
 		return nil, fmt.Errorf("artifact is %s: %w", a.Status, ErrDownloadNotActive)
@@ -322,8 +336,10 @@ func (m *ArtifactManager) ensureResolved(ctx context.Context, file *models.Media
 	// A terminally-failed dedup row would otherwise strand every new download
 	// linked to it in 'preparing' forever (no drain is triggered for an existing
 	// row). Requeue it for a fresh attempt so the new download can resolve — or
-	// fail cleanly via reconciliation once the encode is exhausted again.
-	if row.Status == ArtifactFailed {
+	// fail cleanly via reconciliation once the encode is exhausted again. An
+	// expired row is the same recipe whose bytes were cleaned up: prepare it
+	// again.
+	if row.Status == ArtifactFailed || row.Status == ArtifactExpired {
 		switch err := m.repo.Requeue(ctx, row.ID); {
 		case errors.Is(err, ErrNotFound):
 			// The failed row was swept between EnsureQueued and Requeue:
@@ -622,6 +638,15 @@ func (m *ArtifactManager) recoverQueueState(ctx context.Context) {
 			changed[d.ArtifactID] = struct{}{}
 		}
 	}
+	// A replica that predates expiry links new downloads to an expired row
+	// as if it were queued. Requeue those so they are prepared.
+	if requeued, err := m.repo.RequeueExpiredWithWaiters(ctx); err != nil {
+		slog.WarnContext(ctx, "requeuing expired artifacts with waiting downloads failed", "component", "downloads", "error", err)
+	} else {
+		for _, id := range requeued {
+			changed[id] = struct{}{}
+		}
+	}
 	for id := range changed {
 		m.notifyPreparationChanged(ctx, id)
 	}
@@ -660,8 +685,10 @@ func (m *ArtifactManager) recoverReadyArtifacts(ctx context.Context) {
 				case err != nil:
 					slog.WarnContext(ctx, "recovering missing download artifact failed", "component", "downloads", "artifact_id", a.ID, "error", err)
 				case result == artifactRetired:
+					m.recordMissing(ctx, a)
 					slog.InfoContext(ctx, "download artifact output missing and unused, retired", "component", "downloads", "artifact_id", a.ID, "path", a.OutputPath)
 				case result == artifactRequeued:
+					m.recordMissing(ctx, a)
 					for _, download := range linked {
 						m.publish(ctx, download)
 					}
@@ -810,6 +837,9 @@ func (m *ArtifactManager) requeueRemoteArtifactWithFence(ctx context.Context, a 
 	}
 	if err != nil {
 		return artifactUnchanged, err
+	}
+	if result != artifactUnchanged {
+		m.recordMissing(ctx, a)
 	}
 	switch result {
 	case artifactRetired:
@@ -1201,67 +1231,41 @@ func preparedSourceAudioChannels(file *models.MediaFile, audioTrackIndex int, ta
 	return channels
 }
 
-// Hygiene retention windows. These remove only rows nothing can serve again —
+// Hygiene retention windows. These remove only rows nothing can serve again:
 // terminally-failed jobs (linked downloads already flipped to failed by
-// reconciliation) and ready artifacts whose every referencing download row was
-// deleted — plus ephemeral web rows past their convenience-record lifetime.
-// The server-disk *quota* is download.artifact_max_bytes (see the download
-// limits & restrictions design); this sweep is not a quota.
+// reconciliation) and ephemeral web rows past their convenience-record
+// lifetime. Prepared files themselves are a cache governed by
+// download.artifact_cache_hours and each location's budget; see
+// storage_maintenance.go.
 const (
 	failedArtifactRetention     = 24 * time.Hour
-	unlinkedArtifactRetention   = 30 * 24 * time.Hour
 	ephemeralDownloadRetention  = 7 * 24 * time.Hour
 	defaultRemoteRecoveryBudget = 15 * time.Second
 	defaultRemoteCleanupBudget  = 15 * time.Second
 )
 
-// Cleanup runs the hygiene sweep, then evicts ready artifacts (LRU first) once
-// the total exceeds the byte budget, never removing one still linked by any
-// active download row (managed or ephemeral) — only artifacts whose links are
-// all terminal are evictable.
+// Cleanup deletes the bytes of abandoned node attempts, runs the hourly
+// hygiene sweep, and then storage maintenance: cached files past their cache
+// period expire, and each location's budget and disk ceiling are enforced.
+// Only files no in-flight download needs are ever removed.
 func (m *ArtifactManager) Cleanup(ctx context.Context) error {
 	m.cleanupRemoteOrphans(ctx)
 	m.sweepStale(ctx)
-	budget := m.downloadConfig().ArtifactMaxBytes
-	if budget <= 0 {
-		return nil // unlimited
-	}
-	total, err := m.repo.TotalReadyBytes(ctx)
-	if err != nil {
-		return err
-	}
-	if total <= budget {
-		return nil
-	}
-	candidates, err := m.repo.ListReady(ctx) // least-recently-used first
-	if err != nil {
-		return err
-	}
-	for _, a := range candidates {
-		if total <= budget {
-			break
-		}
-		active, err := m.repo.HasActiveLink(ctx, a.ID)
-		if err != nil {
-			slog.WarnContext(ctx, "artifact link check failed", "component", "downloads", "artifact_id", a.ID, "error", err)
-			continue
-		}
-		if active {
-			continue
-		}
-		if !m.deleteArtifactBytes(ctx, a) {
-			continue
-		}
-		if err := m.repo.DeleteArtifact(ctx, a.ID); err != nil {
-			slog.WarnContext(ctx, "deleting evicted artifact row failed", "component", "downloads", "artifact_id", a.ID, "error", err)
-			continue
-		}
-		slog.InfoContext(ctx, "evicted download artifact (LRU)", "component", "downloads", "artifact_id", a.ID, "bytes", a.FileSize)
-		total -= a.FileSize
-	}
+	m.maintainStorage(ctx, false, "")
 	return nil
 }
 
+// CleanupLocation runs storage maintenance now for one location ("" for all)
+// and returns the bytes it freed. An administrator uses it after lowering a
+// budget or to see freed space without waiting for the next pass.
+func (m *ArtifactManager) CleanupLocation(ctx context.Context, location string) int64 {
+	if location != "" {
+		if _, ok := ParseLocationKey(location); !ok {
+			return 0
+		}
+	}
+	return m.maintainStorage(ctx, true, location)
+}
 func (m *ArtifactManager) cleanupRemoteOrphans(ctx context.Context) {
 	lifecycle, ok := m.preparer.(remoteArtifactLifecycle)
 	if !ok {
@@ -1325,9 +1329,10 @@ func (m *ArtifactManager) cleanupRemoteOrphans(ctx context.Context) {
 }
 
 // sweepStale is the age-based hygiene pass: cold terminally-failed artifacts
-// (with their leftover .part files), orphaned ready artifacts no download row
-// references, and expired ephemeral download rows. Best-effort; every step
-// logs and continues.
+// (with their leftover .part files), expired rows no download references any
+// more, expired ephemeral download rows, revoked rows their device never
+// confirmed, and old clean-up history. Best-effort; every step logs and
+// continues.
 func (m *ArtifactManager) sweepStale(ctx context.Context) {
 	if !m.maintenanceDue(&m.lastStaleSweep) {
 		return
@@ -1340,18 +1345,24 @@ func (m *ArtifactManager) sweepStale(ctx context.Context) {
 			m.removeArtifact(ctx, a, "failed")
 		}
 	}
-	if orphans, err := m.repo.ListUnlinkedReadyBefore(ctx, now.Add(-unlinkedArtifactRetention)); err != nil {
-		slog.WarnContext(ctx, "unlinked-artifact sweep list failed", "component", "downloads", "error", err)
-	} else {
-		for _, a := range orphans {
-			m.removeArtifact(ctx, a, "unlinked")
-		}
+	if n, err := m.repo.DeleteUnreferencedExpired(ctx); err != nil {
+		slog.WarnContext(ctx, "expired-artifact sweep failed", "component", "downloads", "error", err)
+	} else if n > 0 {
+		slog.InfoContext(ctx, "deleted expired prepared-file records no download references", "component", "downloads", "rows", n)
+	}
+	if _, err := m.repo.PruneStorageEvents(ctx, now.Add(-storageEventRetention)); err != nil {
+		slog.WarnContext(ctx, "storage history prune failed", "component", "downloads", "error", err)
 	}
 	if m.downloads != nil {
 		if n, err := m.downloads.PruneEphemeralOlderThan(ctx, now.Add(-ephemeralDownloadRetention)); err != nil {
 			slog.WarnContext(ctx, "ephemeral download prune failed", "component", "downloads", "error", err)
 		} else if n > 0 {
 			slog.InfoContext(ctx, "pruned expired ephemeral downloads", "component", "downloads", "rows", n)
+		}
+		if n, err := m.downloads.PruneRevokedOlderThan(ctx, now.Add(-revokedDownloadRetention)); err != nil {
+			slog.WarnContext(ctx, "revoked download prune failed", "component", "downloads", "error", err)
+		} else if n > 0 {
+			slog.InfoContext(ctx, "pruned revoked downloads their devices never confirmed", "component", "downloads", "rows", n)
 		}
 	}
 }
