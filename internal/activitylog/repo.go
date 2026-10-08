@@ -177,6 +177,14 @@ func (r *Repo) List(ctx context.Context, opts ListOptions) (ListResult, error) {
 		args = append(args, opts.PlaybackSessionID)
 		argIdx++
 	}
+	// Explicit nonempty predicates preserve partial-index eligibility even
+	// when PostgreSQL chooses a generic prepared plan for bound filter values.
+	if opts.Action != "" {
+		conditions = append(conditions, "action <> ''")
+	}
+	if opts.TargetType != "" || opts.TargetID != "" {
+		conditions = append(conditions, "(target_type <> '' OR target_id <> '')")
+	}
 	for _, filter := range []struct{ column, value string }{{"action", opts.Action}, {"target_type", opts.TargetType}, {"target_id", opts.TargetID}} {
 		if filter.value != "" {
 			conditions = append(conditions, fmt.Sprintf("%s = $%d", filter.column, argIdx))
@@ -185,7 +193,7 @@ func (r *Repo) List(ctx context.Context, opts ListOptions) (ListResult, error) {
 		}
 	}
 	if opts.ActorUserID != nil {
-		conditions = append(conditions, fmt.Sprintf("COALESCE(impersonator_user_id,user_id) = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("(impersonator_user_id = $%d OR (impersonator_user_id IS NULL AND user_id = $%d))", argIdx, argIdx))
 		args = append(args, *opts.ActorUserID)
 		argIdx++
 	}

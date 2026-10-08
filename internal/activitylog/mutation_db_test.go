@@ -130,6 +130,24 @@ func TestMutationCommitRollbackAndHistoryDB(t *testing.T) {
 	if err != nil || len(rows.Entries) != 1 {
 		t.Fatalf("history %+v, %v", rows, err)
 	}
+	var impersonator int
+	if err := pool.QueryRow(ctx, `INSERT INTO users(username,email,password_hash,role) VALUES($1,$2,$3,'admin') RETURNING id`, "audit-impersonator-"+target, "audit-impersonator-"+target+"@example.test", string(hash)).Scan(&impersonator); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, impersonator) }()
+	if _, err := pool.Exec(ctx, `UPDATE activity_log SET impersonator_user_id=$1 WHERE target_id=$2`, impersonator, target); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []int{actor, impersonator} {
+		filtered, err := NewRepo(pool).List(ctx, ListOptions{ActorUserID: &account, TargetID: target, Limit: 10})
+		expected := 0
+		if account == impersonator {
+			expected = 1
+		}
+		if err != nil || len(filtered.Entries) != expected {
+			t.Fatalf("actor precedence for%d: %+v, %v", account, filtered, err)
+		}
+	}
 	if len(rows.Entries[0].Changes) != 1 || rows.Entries[0].Changes[0].Field != "permissions" {
 		t.Fatal("missing persisted changes")
 	}

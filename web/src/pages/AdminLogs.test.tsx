@@ -274,3 +274,35 @@ it("shows the actor, affected account and safe permission/password changes", () 
     target_id: "2",
   });
 });
+
+it.each([
+  ["access_group", "library_ids", "[]", "all libraries → none"],
+  ["access_group", "allowed_permissions", "[]", "all assignable → none"],
+  ["user", "access_group_id", "5", "none → 5"],
+  ["user", "max_streams", "3", "inherit → 3"],
+])("shows the meaning of null for %s %s", (targetType, field, after, expected) => {
+  vi.mocked(useAdminLogStream).mockReturnValue({
+    rows: [
+      {
+        id: 901,
+        timestamp: "2026-10-08T10:00:00Z",
+        client_ip: "192.0.2.1",
+        method: "PUT",
+        path: "/api/v2/admin/users/2",
+        status_code: 204,
+        duration_ms: 1,
+        user_id: 1,
+        action: `${targetType}.updated`,
+        target_type: targetType,
+        target_id: "2",
+        changes: [{ field, before: "null", after }],
+      },
+    ],
+    isConnecting: false,
+    isLive: true,
+    connectionState: "live",
+    reconnect: vi.fn(),
+  });
+  mount("/admin/logs?tab=audit");
+  expect(screen.getByText(field.replaceAll("_", " ")).parentElement).toHaveTextContent(expected);
+});

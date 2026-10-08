@@ -3030,3 +3030,11 @@ and `target_id` alongside existing filters. History cursors bind these filters.
 Live rows publish after commit; history remains authoritative if a frame is
 missed. Existing live delivery does not promise gap-free or late-commit traversal.
 The frozen v1 read/socket projections retain their previous fields.
+
+Audit detail index readiness: the additive migration creates metadata-only
+partitioned indexes for action and target filters. Primary API startup and
+`--migrate-only` build historical leaf indexes concurrently and attach them before
+reporting readiness. A failed or canceled build leaves startup incomplete and is
+safe to retry; ordinary request writers remain available on existing API nodes.
+Future partitions inherit the completed parent indexes. Proxy/transcode nodes do
+not run this schema maintenance.

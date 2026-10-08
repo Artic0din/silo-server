@@ -563,11 +563,19 @@ const OperationalLogRow = memo(function OperationalLogRow({
   );
 });
 
-function auditChangeValue(value: string | undefined): string {
+function auditChangeValue(value: string | undefined, targetType?: string, field?: string): string {
   if (value === undefined) return "absent";
   try {
     const parsed: unknown = JSON.parse(value);
-    if (parsed === null) return "inherit";
+    if (parsed === null) {
+      if (field === "access_group_id") return "none";
+      if (targetType === "access_group") {
+        if (field === "library_ids") return "all libraries";
+        if (field === "allowed_permissions") return "all assignable";
+        return "unset";
+      }
+      return "inherit";
+    }
     if (Array.isArray(parsed)) return parsed.length ? parsed.join(", ") : "none";
     return String(parsed);
   } catch {
@@ -587,7 +595,7 @@ const AuditLogRow = memo(function AuditLogRow({ entry }: { entry: AuditLogEntry 
             <span className="font-medium">{change.field.replaceAll("_", " ")}</span>:{" "}
             {change.before === undefined && change.after === undefined
               ? "changed"
-              : `${auditChangeValue(change.before)} → ${auditChangeValue(change.after)}`}
+              : `${auditChangeValue(change.before, entry.target_type, change.field)} → ${auditChangeValue(change.after, entry.target_type, change.field)}`}
           </div>
         ))}
       </TableCell>
