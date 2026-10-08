@@ -51,6 +51,7 @@ import {
   isDownloadPreparationProgressEvent,
   type AdminDownloadPreparationList,
 } from "@/api/v2/adminDownloadPreparations";
+import { adminDownloadStorageRootKey } from "@/api/v2/adminDownloadStorage";
 import { adminStatsKey } from "@/hooks/queries/admin/stats";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsActingAdmin } from "@/hooks/useIsActingAdmin";
@@ -699,6 +700,11 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
   ) {
     switch (message.channel) {
       case "download_preparations":
+        if (message.event === "download_storage.changed") {
+          // Clean-up or a revoke changed what the storage views show.
+          refreshQueries({ queryKey: adminDownloadStorageRootKey(realtimeAuthority) });
+          break;
+        }
         if (
           message.event === "download_preparation.progress" &&
           isDownloadPreparationProgressEvent(message.data) &&
