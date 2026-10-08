@@ -102,9 +102,12 @@ func (f *fakeAdminDownloadStorage) DeleteStorageFiles(_ context.Context, ids []s
 	return out, nil
 }
 
-func (f *fakeAdminDownloadStorage) CleanupLocation(_ context.Context, location string) int64 {
+func (f *fakeAdminDownloadStorage) CleanupLocation(_ context.Context, location string) (int64, error) {
+	if location == "node:404" {
+		return 0, downloads.ErrStorageLocationNotFound
+	}
 	f.cleaned = location
-	return 41_700_000_000
+	return 41_700_000_000, nil
 }
 
 func (*fakeAdminDownloadStorage) DeleteUntrackedFiles(_ context.Context, location string, _ int) (int, int64, error) {
@@ -199,18 +202,31 @@ func TestAdminDownloadStorageDeleteForwardsActorAndInUse(t *testing.T) {
 	}
 }
 
-func TestAdminDownloadStorageUntrackedUnknownNodeIsNotFound(t *testing.T) {
+func TestAdminDownloadStorageRefusesUnknownLocationsAndOversizedIDs(t *testing.T) {
 	deps := fixtureDeps()
 	deps.AdminDownloadStorage = new(fakeAdminDownloadStorage)
 	h := newTestHandler(t, deps)
-	req := httptest.NewRequest(http.MethodPost, Prefix+"/admin/downloads/storage/locations/node:404/untracked/delete", nil)
-	for k, v := range bearer(adminToken) {
-		req.Header.Set(k, v)
-	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{http.MethodPost, "/admin/downloads/storage/locations/node:404/untracked/delete", http.StatusNotFound},
+		{http.MethodPost, "/admin/downloads/storage/locations/node:404/cleanup", http.StatusNotFound},
+		// Ten digits pass the pattern but not int4.
+		{http.MethodGet, "/admin/downloads/storage/files?location=node:9999999999", http.StatusUnprocessableEntity},
+		{http.MethodGet, "/admin/downloads/storage/files?library_id=9999999999", http.StatusUnprocessableEntity},
+		{http.MethodGet, "/admin/downloads/storage/events?location=node:9999999999", http.StatusUnprocessableEntity},
+		{http.MethodGet, "/admin/downloads/entries?user_id=9999999999", http.StatusUnprocessableEntity},
+	} {
+		req := httptest.NewRequest(tc.method, Prefix+tc.path, nil)
+		for k, v := range bearer(adminToken) {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Errorf("%s %s = %d, want %d: %s", tc.method, tc.path, rec.Code, tc.status, rec.Body.String())
+		}
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"time"
+
+	"github.com/Silo-Server/silo-server/internal/nodepool"
 )
 
 // adminDeleteGrace protects a prepared file a download create is linking at
@@ -167,28 +169,33 @@ func (m *ArtifactManager) DeleteUntrackedFiles(ctx context.Context, location str
 	if nodeID == 0 {
 		summary, err = m.reconcileServer(ctx, true, &actor)
 	} else {
-		source := m.nodeSource()
-		if source == nil {
-			return 0, 0, ErrStorageLocationNotFound
+		n, findErr := m.storageNode(ctx, nodeID)
+		if findErr != nil {
+			return 0, 0, findErr
 		}
-		nodes, listErr := source.List(ctx)
-		if listErr != nil {
-			return 0, 0, listErr
-		}
-		found := false
-		for _, n := range nodes {
-			if n.ID == nodeID {
-				found = true
-				summary, err = m.reconcileNode(ctx, n, true, &actor)
-				break
-			}
-		}
-		if !found {
-			return 0, 0, ErrStorageLocationNotFound
-		}
+		summary, err = m.reconcileNode(ctx, n, true, &actor)
 	}
 	if summary.Files > 0 {
 		m.notifyStorageChanged(ctx)
 	}
 	return summary.Files, summary.Bytes, err
+}
+
+// storageNode returns the node a location key names, or
+// ErrStorageLocationNotFound.
+func (m *ArtifactManager) storageNode(ctx context.Context, nodeID int) (*nodepool.Node, error) {
+	source := m.nodeSource()
+	if source == nil {
+		return nil, ErrStorageLocationNotFound
+	}
+	nodes, err := source.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range nodes {
+		if n.ID == nodeID {
+			return n, nil
+		}
+	}
+	return nil, ErrStorageLocationNotFound
 }

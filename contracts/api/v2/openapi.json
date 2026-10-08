@@ -71175,7 +71175,7 @@
             "bearerAuth": []
           }
         ],
-        "summary": "List one location's prepared-file directory now and delete the files no prepared-file record accounts for and that nothing has written to for an hour.",
+        "summary": "List one location's prepared-file directory now and delete the files no prepared-file record accounts for and that nothing has written to for an hour. Only files named like Silo's prepared files are considered.",
         "tags": [
           "admin"
         ],
@@ -151099,6 +151099,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "503": {
             "content": {

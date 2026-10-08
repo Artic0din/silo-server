@@ -139,7 +139,7 @@ func registerDownloadRegistry(reg *Registry) {
 	Register(reg, Operation{Operation: humaOp(http.MethodGet, Prefix+"/capabilities/downloads", "getDownloadCapability", "downloads", "Discover download policy and ordered registry status support."), Class: ClassProfileScoped, ServiceBacked: true}, reg.getDownloadCapability)
 	prepare := Operation{Operation: humaOp(http.MethodPost, Prefix+"/downloads/{id}/prepare", "prepareDownloadAgain", "downloads", "Prepare a finished download's file again after the server cleaned up its copy; the entry returns to preparing and becomes ready like a new download."), Class: ClassProfileScoped, ServiceBacked: true, DemoRestricted: true, RetrySafety: RetrySafetyNaturalIdempotent}
 	prepare.Description = "Use after the file route answers 409 prepared_file_expired. The revision does not change: the recipe is the same. An entry whose file is still on the server, an original-quality entry, or one already preparing returns unchanged."
-	prepare.Errors = []int{409}
+	prepare.Errors = []int{409, 429, 501}
 	Register(reg, prepare, reg.prepareDownloadAgain)
 }
 
@@ -164,7 +164,8 @@ func (reg *Registry) prepareDownloadAgain(ctx context.Context, in *DownloadPrepa
 	}
 	row, err := reg.deps.DownloadPrepareAgain.PrepareAgain(ctx, user, profile, in.DeviceID, in.ID, handlers.AccessFilterFromContext(ctx, ""))
 	if err != nil {
-		return nil, downloadProblem(err)
+		// The caps and delivery checks a new download meets answer the same way here.
+		return nil, downloadCreationProblem(err)
 	}
 	return &DownloadEntryOutput{Body: downloadEntryOf(row)}, nil
 }

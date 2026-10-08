@@ -114,14 +114,15 @@ type ArtifactManager struct {
 	lastDiskSweep  time.Time
 	lastStaleSweep time.Time
 	// Storage maintenance state (see storage_maintenance.go).
-	storageNodes        StorageNodes
-	storageNotify       func(context.Context)
-	serverProber        *downloadstorage.Prober
-	lastStorageSweep    time.Time
-	lastReconcile       time.Time
-	lastServerSampleAt  time.Time
-	lastCeilingEviction map[int]time.Time
-	storageFull         map[int]bool
+	storageNodes       StorageNodes
+	storageNotify      func(context.Context)
+	serverProber       *downloadstorage.Prober
+	lastStorageSweep   time.Time
+	lastReconcile      time.Time
+	lastServerSampleAt time.Time
+	// storageFull marks nodes over their budget or the disk ceiling with
+	// nothing left to free; refreshStorageFull replaces it on every pass.
+	storageFull map[int]bool
 	// localAttempts cancels the attempts this replica runs, by artifact id.
 	localAttempts map[string]*localAttempt
 }
@@ -188,9 +189,8 @@ func NewArtifactManager(
 	m := &ArtifactManager{
 		repo: repo, downloads: downloadRepo, fileRepo: fileRepo, preparer: preparer,
 		owner: owner, liveCfg: liveCfg, notify: notify,
-		serverProber:        downloadstorage.NewProber(0),
-		lastCeilingEviction: make(map[int]time.Time),
-		storageFull:         make(map[int]bool),
+		serverProber: downloadstorage.NewProber(0),
+		storageFull:  make(map[int]bool),
 	}
 	if gated, ok := preparer.(interface{ SetStorageGate(func(int) bool) }); ok {
 		gated.SetStorageGate(m.NodeStorageFull)
@@ -1257,14 +1257,21 @@ func (m *ArtifactManager) Cleanup(ctx context.Context) error {
 
 // CleanupLocation runs storage maintenance now for one location ("" for all)
 // and returns the bytes it freed. An administrator uses it after lowering a
-// budget or to see freed space without waiting for the next pass.
-func (m *ArtifactManager) CleanupLocation(ctx context.Context, location string) int64 {
+// budget or to see freed space without waiting for the next pass. A key that
+// names no location is ErrStorageLocationNotFound.
+func (m *ArtifactManager) CleanupLocation(ctx context.Context, location string) (int64, error) {
 	if location != "" {
-		if _, ok := ParseLocationKey(location); !ok {
-			return 0
+		nodeID, ok := ParseLocationKey(location)
+		if !ok {
+			return 0, ErrStorageLocationNotFound
+		}
+		if nodeID > 0 {
+			if _, err := m.storageNode(ctx, nodeID); err != nil {
+				return 0, err
+			}
 		}
 	}
-	return m.maintainStorage(ctx, true, location)
+	return m.maintainStorage(ctx, true, location), nil
 }
 func (m *ArtifactManager) cleanupRemoteOrphans(ctx context.Context) {
 	lifecycle, ok := m.preparer.(remoteArtifactLifecycle)
@@ -1352,6 +1359,9 @@ func (m *ArtifactManager) sweepStale(ctx context.Context) {
 	}
 	if _, err := m.repo.PruneStorageEvents(ctx, now.Add(-storageEventRetention)); err != nil {
 		slog.WarnContext(ctx, "storage history prune failed", "component", "downloads", "error", err)
+	}
+	if _, err := m.repo.PruneServerStorageSamples(ctx, now.Add(-serverSampleRetention)); err != nil {
+		slog.WarnContext(ctx, "storage sample prune failed", "component", "downloads", "error", err)
 	}
 	if m.downloads != nil {
 		if n, err := m.downloads.PruneEphemeralOlderThan(ctx, now.Add(-ephemeralDownloadRetention)); err != nil {

@@ -140,7 +140,7 @@ func (r *ArtifactRepository) CancelPreparations(ctx context.Context, ids []strin
 		`WITH target AS (
 		     SELECT id, status IN `+runningArtifactStatuses+` AS running
 		     FROM download_artifacts
-		     WHERE id = ANY($1) AND status NOT IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready')
+		     WHERE id = ANY($1) AND `+preparingArtifactPredicate+`
 		     FOR UPDATE
 		 )
 		 DELETE FROM download_artifacts a USING target t
@@ -198,7 +198,7 @@ func scanStoppedArtifacts(rows pgx.Rows) ([]stoppedArtifact, error) {
 func (r *ArtifactRepository) failedPreparations(ctx context.Context, ids []string) (map[string]bool, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, status = 'failed' FROM download_artifacts
-		 WHERE id = ANY($1) AND status NOT IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready')`, ids)
+		 WHERE id = ANY($1) AND `+preparingArtifactPredicate, ids)
 	if err != nil {
 		return nil, fmt.Errorf("reading preparation states: %w", err)
 	}

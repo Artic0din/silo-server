@@ -423,6 +423,11 @@ const missingArtifactRetireGrace = 10 * time.Minute
 // re-download asks for the file to be prepared again.
 const inFlightLinkPredicate = `d.status NOT IN ('completed', 'cancelled', 'failed', 'revoked')`
 
+// liveLinkPredicate matches a download that still refers to its artifact's
+// recipe: in flight, or finished (its manifest and a prepare-again read the
+// recipe). Only such a link keeps a row that holds no bytes.
+const liveLinkPredicate = `d.status NOT IN ('cancelled', 'failed', 'revoked')`
+
 // unusedReadyArtifactPredicate selects ready rows that no in-flight download
 // references and that nothing has used within the grace interval ($2, seconds).
 const unusedReadyArtifactPredicate = `a.status IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready')
@@ -676,12 +681,15 @@ func scanArtifacts(rows pgx.Rows) ([]*Artifact, error) {
 }
 
 // ListFailedBefore returns terminally-failed artifacts cold since cutoff
-// (last_used_at). Their linked downloads were already flipped to 'failed' by
-// reconciliation, so the rows serve nothing and only block re-attempts.
+// (last_used_at). Their waiting downloads were already flipped to 'failed' by
+// reconciliation. A row a finished download still refers to is not listed: an
+// expired file whose re-preparation failed keeps its recipe for that
+// download's manifest and a later prepare-again.
 func (r *ArtifactRepository) ListFailedBefore(ctx context.Context, cutoff time.Time) ([]*Artifact, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT `+artifactColumns+` FROM download_artifacts
-		 WHERE status = 'failed' AND last_used_at < $1`, cutoff)
+		`SELECT `+artifactColumns+` FROM download_artifacts a
+		 WHERE a.status = 'failed' AND a.last_used_at < $1
+		   AND NOT EXISTS (SELECT 1 FROM downloads d WHERE d.artifact_id = a.id AND `+liveLinkPredicate+`)`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("listing failed artifacts: %w", err)
 	}

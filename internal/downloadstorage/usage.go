@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -68,6 +69,21 @@ type Usage struct {
 
 // TotalBytes is every byte the directory holds: finished, partial, and other files.
 func (u Usage) TotalBytes() int64 { return u.Bytes + u.PartialBytes + u.OtherBytes }
+
+// errorText describes a filesystem error without the path it names, so Error
+// can be served wherever the usage is, including a node's unauthenticated
+// health check.
+func errorText(err error) string {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Op + ": " + pathErr.Err.Error()
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno.Error()
+	}
+	return "the directory could not be read"
+}
 
 // RedactPath returns a copy without the directory path.
 func (u Usage) RedactPath() Usage {
@@ -139,7 +155,7 @@ func Inspect(dir, scratchDir string, now time.Time) Listing {
 	u := Usage{Dir: dir, MeasuredAt: now}
 	files, err := ListFiles(dir)
 	if err != nil {
-		u.Error = err.Error()
+		u.Error = errorText(err)
 		return Listing{Usage: u}
 	}
 	for _, f := range files {
@@ -157,7 +173,7 @@ func Inspect(dir, scratchDir string, now time.Time) Listing {
 	existing := nearestExisting(dir)
 	stats, err := statFS(existing)
 	if err != nil {
-		u.Error = err.Error()
+		u.Error = errorText(&fs.PathError{Op: "statfs", Path: existing, Err: err})
 		return Listing{Usage: u, Files: files}
 	}
 	u.FSUsedBytes, u.FSTotalBytes, u.FSType = stats.used, stats.total, stats.fsType

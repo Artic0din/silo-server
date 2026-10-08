@@ -181,6 +181,21 @@ type storageSampleUntracked struct {
 	At    time.Time
 }
 
+// serverSampleRetention is how long a replica's measurement of the server's
+// directory outlives the replica: replicas that restart under a new name stop
+// updating their rows.
+const serverSampleRetention = 7 * 24 * time.Hour
+
+// PruneServerStorageSamples deletes server measurements no replica has
+// updated since cutoff.
+func (r *ArtifactRepository) PruneServerStorageSamples(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM download_storage_samples WHERE node_id IS NULL AND updated_at < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("pruning server storage samples: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // UpsertStorageSample records the latest measurement of one location's
 // directory. nodeID 0 is the API server, reported per replica under reporter.
 // A nil untracked keeps the last reconciliation result.
@@ -219,15 +234,17 @@ func (r *ArtifactRepository) UpsertStorageSample(ctx context.Context, nodeID int
 // expected to hold: finished files of ready rows, plus, on the API server, the
 // files of jobs that are queued or running there (a running encode writes
 // <name>.part). A file outside this set is untracked once it is old enough.
+// For a node the set covers every node's files, because nodes may share one
+// volume, and a file another node owns is not this node's to delete.
 func (r *ArtifactRepository) trackedArtifactFiles(ctx context.Context, nodeID int) (map[string]bool, error) {
 	var rows pgx.Rows
 	var err error
 	if nodeID > 0 {
 		rows, err = r.pool.Query(ctx,
 			`SELECT origin_artifact_id || '.mp4' FROM download_artifacts
-			 WHERE origin_node_id = $1 AND status IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready')
+			 WHERE origin_node_id > 0 AND status IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready')
 			 UNION ALL
-			 SELECT origin_artifact_id || '.mp4' FROM download_artifact_orphans WHERE origin_node_id = $1`, nodeID)
+			 SELECT origin_artifact_id || '.mp4' FROM download_artifact_orphans WHERE origin_node_id > 0`)
 	} else {
 		rows, err = r.pool.Query(ctx,
 			`SELECT output_path FROM download_artifacts

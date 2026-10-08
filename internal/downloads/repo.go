@@ -525,6 +525,7 @@ func (r *Repository) ReplaceManagedEntry(ctx context.Context, existing *Download
 			completed_at = NULL,
 			revision = revision + 1,
  status_event_at = NULL,
+			revoked_at = NULL, revoked_by = NULL, revoked_reason = '',
 			updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND profile_id = $3 AND device_id = $4 AND revision = $5
 		RETURNING ` + downloadColumns

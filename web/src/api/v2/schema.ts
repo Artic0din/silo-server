@@ -1495,7 +1495,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** List one location's prepared-file directory now and delete the files no prepared-file record accounts for and that nothing has written to for an hour. */
+    /** List one location's prepared-file directory now and delete the files no prepared-file record accounts for and that nothing has written to for an hour. Only files named like Silo's prepared files are considered. */
     post: operations["deleteAdminDownloadStorageUntrackedFiles"];
     delete?: never;
     options?: never;
@@ -97944,6 +97944,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Implemented */
+      501: {
         headers: {
           [name: string]: unknown;
         };

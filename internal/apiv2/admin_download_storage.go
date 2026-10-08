@@ -22,7 +22,7 @@ type AdminDownloadStorageService interface {
 	StorageFilesPage(context.Context, downloads.StorageFileFilter, *downloads.StorageFilePosition, int) ([]downloads.StorageFile, error)
 	StorageEventsPage(context.Context, downloads.StorageEventFilter, *downloads.StorageEventPosition, int) ([]downloads.StorageEventBatch, error)
 	DeleteStorageFiles(ctx context.Context, ids []string, includeInUse bool, actor int) ([]downloads.StorageDeleteResult, error)
-	CleanupLocation(ctx context.Context, location string) int64
+	CleanupLocation(ctx context.Context, location string) (int64, error)
 	DeleteUntrackedFiles(ctx context.Context, location string, actor int) (int, int64, error)
 }
 
@@ -312,6 +312,32 @@ func (c AdminDownloadStorageCapabilitiesOutputBody) capabilityState() string {
 	return configuredCapabilityState(c.Available)
 }
 
+// int32Param parses an optional decimal id the database keeps as int4. The
+// schema's pattern admits ten digits, so a larger value is refused here rather
+// than failing inside the query.
+func int32Param(value, what string) (int, *Problem) {
+	if value == "" {
+		return 0, nil
+	}
+	id, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		return 0, NewProblem(TypeValidationFailed, "Invalid "+what+".")
+	}
+	return int(id), nil
+}
+
+// storageLocationParam checks an optional location filter: server, node:<id>
+// with an id the database can hold, or, where history allows it, device.
+func storageLocationParam(location string, allowDevice bool) *Problem {
+	if location == "" || (allowDevice && location == downloads.LocationDevice) {
+		return nil
+	}
+	if _, ok := downloads.ParseLocationKey(location); !ok {
+		return NewProblem(TypeValidationFailed, "Invalid storage location.")
+	}
+	return nil
+}
+
 func registerAdminDownloadStorage(reg *Registry) {
 	cursors := NewCursors(reg.deps.CursorSecret)
 	get := func(path, id, summary string) Operation {
@@ -368,9 +394,12 @@ func registerAdminDownloadStorage(reg *Registry) {
 		if p != nil {
 			return nil, p
 		}
+		if p := storageLocationParam(in.Location, false); p != nil {
+			return nil, p
+		}
 		filter := downloads.StorageFileFilter{Location: in.Location, State: in.State, Format: in.Format, Query: strings.TrimSpace(in.Query), Sort: in.Sort}
-		if in.LibraryID != "" {
-			filter.LibraryID, _ = strconv.Atoi(in.LibraryID)
+		if filter.LibraryID, p = int32Param(in.LibraryID, "library ID"); p != nil {
+			return nil, p
 		}
 		scope := adminScope(ctx, "listAdminDownloadStorageFiles", fmt.Sprintf("%+v/%d", filter, in.Limit), in.Sort)
 		var after *downloads.StorageFilePosition
@@ -425,17 +454,28 @@ func registerAdminDownloadStorage(reg *Registry) {
 		return out, nil
 	})
 
-	Register(reg, post("/storage/locations/{location}/cleanup", "cleanUpAdminDownloadStorageLocation", "Run prepared-file clean-up at one location now: expire files past their cache period and enforce the budget and disk ceiling.", RetrySafetyNaturalIdempotent), func(ctx context.Context, in *AdminDownloadStorageLocationInput) (*AdminDownloadStorageCleanupOutput, error) {
+	cleanup := post("/storage/locations/{location}/cleanup", "cleanUpAdminDownloadStorageLocation", "Run prepared-file clean-up at one location now: expire files past their cache period and enforce the budget and disk ceiling.", RetrySafetyNaturalIdempotent)
+	cleanup.Errors = []int{404}
+	Register(reg, cleanup, func(ctx context.Context, in *AdminDownloadStorageLocationInput) (*AdminDownloadStorageCleanupOutput, error) {
 		svc, p := storage()
 		if p != nil {
 			return nil, p
 		}
+		freed, err := svc.CleanupLocation(ctx, in.Location)
+		if err != nil {
+			if errors.Is(err, downloads.ErrStorageLocationNotFound) {
+				return nil, NewProblem(TypeNotFound, "Storage location not found.")
+			}
+			return nil, serviceProblem(err)
+		}
 		out := new(AdminDownloadStorageCleanupOutput)
-		out.Body.FreedBytes = max(svc.CleanupLocation(ctx, in.Location), 0)
+		out.Body.FreedBytes = max(freed, 0)
 		return out, nil
 	})
 
-	Register(reg, post("/storage/locations/{location}/untracked/delete", "deleteAdminDownloadStorageUntrackedFiles", "List one location's prepared-file directory now and delete the files no prepared-file record accounts for and that nothing has written to for an hour.", RetrySafetyNaturalIdempotent), func(ctx context.Context, in *AdminDownloadStorageLocationInput) (*AdminDownloadStorageUntrackedOutput, error) {
+	untracked := post("/storage/locations/{location}/untracked/delete", "deleteAdminDownloadStorageUntrackedFiles", "List one location's prepared-file directory now and delete the files no prepared-file record accounts for and that nothing has written to for an hour. Only files named like Silo's prepared files are considered.", RetrySafetyNaturalIdempotent)
+	untracked.Errors = []int{404, 503}
+	Register(reg, untracked, func(ctx context.Context, in *AdminDownloadStorageLocationInput) (*AdminDownloadStorageUntrackedOutput, error) {
 		svc, p := storage()
 		if p != nil {
 			return nil, p
@@ -455,6 +495,9 @@ func registerAdminDownloadStorage(reg *Registry) {
 	Register(reg, get("/storage/events", "listAdminDownloadStorageEvents", "Read the prepared-file clean-up and device revocation history, newest first, one batch per row."), func(ctx context.Context, in *AdminDownloadStorageEventsInput) (*AdminDownloadStorageEventsOutput, error) {
 		svc, p := storage()
 		if p != nil {
+			return nil, p
+		}
+		if p := storageLocationParam(in.Location, true); p != nil {
 			return nil, p
 		}
 		filter := downloads.StorageEventFilter{Reason: in.Reason, Location: in.Location}
@@ -532,8 +575,8 @@ func registerAdminDownloadStorage(reg *Registry) {
 			return nil, p
 		}
 		filter := downloads.AdminEntryFilter{ProfileID: strings.TrimSpace(in.ProfileID), DeviceID: strings.TrimSpace(in.DeviceID), Status: strings.TrimSpace(in.Status)}
-		if in.UserID != "" {
-			filter.UserID, _ = strconv.Atoi(in.UserID)
+		if filter.UserID, p = int32Param(in.UserID, "account ID"); p != nil {
+			return nil, p
 		}
 		scope := adminScope(ctx, "listAdminDownloadEntries", fmt.Sprintf("%d/%q/%q/%q/%d", filter.UserID, filter.ProfileID, filter.DeviceID, filter.Status, in.Limit), adminUserDownloadsSort)
 		var after *downloads.RegistryPosition
@@ -569,8 +612,8 @@ func registerAdminDownloadStorage(reg *Registry) {
 		}
 		req := downloads.RevokeRequest{IDs: in.Body.IDs, ProfileID: strings.TrimSpace(in.Body.ProfileID), DeviceID: strings.TrimSpace(in.Body.DeviceID),
 			PauseMonitors: in.Body.PauseMonitors, Reason: in.Body.Reason, Actor: claimsFrom(ctx).UserID}
-		if in.Body.UserID != "" {
-			req.UserID, _ = strconv.Atoi(in.Body.UserID)
+		if req.UserID, p = int32Param(in.Body.UserID, "account ID"); p != nil {
+			return nil, p
 		}
 		if len(req.IDs) > 0 && (req.UserID != 0 || req.ProfileID != "" || req.DeviceID != "") {
 			return nil, NewProblem(TypeValidationFailed, "Send download ids or one device, not both.")

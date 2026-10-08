@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-// maxRevokeReasonLength bounds the note an administrator attaches to a revoke.
+// maxRevokeReasonLength bounds, in characters, the note an administrator
+// attaches to a revoke.
 const maxRevokeReasonLength = 500
 
 // RevokeRequest selects device copies for an administrator to revoke: the
@@ -48,9 +49,11 @@ func (s *Service) RevokeDeviceDownloads(ctx context.Context, req RevokeRequest) 
 	if len(req.IDs) == 0 && (req.UserID <= 0 || req.ProfileID == "" || req.DeviceID == "") {
 		return nil, ErrInvalidRevoke
 	}
+	// Characters, not bytes: cutting a byte slice could split a character,
+	// and Postgres refuses invalid UTF-8.
 	req.Reason = strings.TrimSpace(req.Reason)
-	if len(req.Reason) > maxRevokeReasonLength {
-		req.Reason = req.Reason[:maxRevokeReasonLength]
+	if reason := []rune(req.Reason); len(reason) > maxRevokeReasonLength {
+		req.Reason = string(reason[:maxRevokeReasonLength])
 	}
 	result, err := s.repo.RevokeManaged(ctx, req, newStorageBatchID())
 	if err != nil {
@@ -69,9 +72,11 @@ func (s *Service) RevokeDeviceDownloads(ctx context.Context, req RevokeRequest) 
 	return result, nil
 }
 
-// cancelAbandonedPreparations cancels unfinished preparations that no
-// in-flight download waits on any more, so revoked rows do not leave a node
-// encoding for nobody.
+// cancelAbandonedPreparations cancels unfinished preparations that no other
+// download needs any more, so revoked rows do not leave a node encoding for
+// nobody. A preparation a finished download still refers to is left alone:
+// canceling deletes the row, and that download's manifest and any later
+// prepare-again read its recipe.
 func (m *ArtifactManager) cancelAbandonedPreparations(ctx context.Context, revoked []*Download) {
 	seen := make(map[string]bool)
 	var abandoned []string
@@ -80,12 +85,12 @@ func (m *ArtifactManager) cancelAbandonedPreparations(ctx context.Context, revok
 			continue
 		}
 		seen[d.ArtifactID] = true
-		waiting, err := m.repo.hasInFlightLink(ctx, d.ArtifactID)
+		needed, err := m.repo.hasLiveLink(ctx, d.ArtifactID)
 		if err != nil {
 			slog.WarnContext(ctx, "checking a revoked download's preparation failed", "component", "downloads", "artifact_id", d.ArtifactID, "error", err)
 			continue
 		}
-		if waiting {
+		if needed {
 			continue
 		}
 		a, err := m.repo.GetByID(ctx, d.ArtifactID)
@@ -102,11 +107,13 @@ func (m *ArtifactManager) cancelAbandonedPreparations(ctx context.Context, revok
 	}
 }
 
-// hasInFlightLink reports whether a download still waits on or fetches an artifact.
-func (r *ArtifactRepository) hasInFlightLink(ctx context.Context, artifactID string) (bool, error) {
+// hasLiveLink reports whether a download other than a revoked, failed, or
+// canceled one refers to an artifact: one waiting on it, fetching it, or
+// finished with it.
+func (r *ArtifactRepository) hasLiveLink(ctx context.Context, artifactID string) (bool, error) {
 	var exists bool
 	err := r.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM downloads d WHERE d.artifact_id = $1 AND `+inFlightLinkPredicate+`)`, artifactID,
+		`SELECT EXISTS(SELECT 1 FROM downloads d WHERE d.artifact_id = $1 AND `+liveLinkPredicate+`)`, artifactID,
 	).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking artifact links: %w", err)

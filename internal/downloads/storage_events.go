@@ -32,11 +32,12 @@ func ParseLocationKey(key string) (nodeID int, ok bool) {
 	if !found {
 		return 0, false
 	}
-	id, err := strconv.Atoi(rest)
-	if err != nil || id <= 0 || strconv.Itoa(id) != rest {
+	// Node ids are int4 in the database.
+	id, err := strconv.ParseInt(rest, 10, 32)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != rest {
 		return 0, false
 	}
-	return id, true
+	return int(id), true
 }
 
 func locationKeyForNode(nodeID int) string {
@@ -111,6 +112,21 @@ func (r *ArtifactRepository) RecordFileEvent(ctx context.Context, batchID, reaso
 		return fmt.Errorf("recording storage event: %w", err)
 	}
 	return nil
+}
+
+// LastStorageEventAt returns when files were last removed at a location for
+// reason, or the zero time when history has none.
+func (r *ArtifactRepository) LastStorageEventAt(ctx context.Context, location, reason string) (time.Time, error) {
+	var at *time.Time
+	if err := r.pool.QueryRow(ctx,
+		`SELECT max(occurred_at) FROM download_storage_events WHERE location_key = $1 AND reason = $2`,
+		location, reason).Scan(&at); err != nil {
+		return time.Time{}, fmt.Errorf("reading the last storage event: %w", err)
+	}
+	if at == nil {
+		return time.Time{}, nil
+	}
+	return *at, nil
 }
 
 // PruneStorageEvents deletes history older than cutoff.

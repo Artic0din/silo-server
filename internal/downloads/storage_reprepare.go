@@ -41,7 +41,22 @@ func (s *Service) PrepareAgain(ctx context.Context, userID int, profileID, devic
 	if s.artifacts == nil || (dl.Format == FormatTranscode && !cfg.TranscodeEnabled) {
 		return nil, ErrFormatUnavailable
 	}
-	updated, requeued, err := s.artifacts.repo.PrepareDownloadAgain(ctx, dl)
+	// A finished or ready entry becomes preparing again, so it counts toward
+	// the concurrent cap like a new download would, checked under the same
+	// per-account lock. It creates no download, so the period quota is
+	// untouched.
+	var updated *Download
+	var requeued bool
+	err = s.repo.WithUserQuotaLock(ctx, userID, func(ctx context.Context) error {
+		if dl.Status == StatusCompleted || dl.Status == StatusReady {
+			if err := s.limiter.CheckCounts(ctx, userID, 1, 0); err != nil {
+				return err
+			}
+		}
+		var err error
+		updated, requeued, err = s.artifacts.repo.PrepareDownloadAgain(ctx, dl)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

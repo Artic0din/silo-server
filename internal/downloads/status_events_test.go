@@ -48,7 +48,8 @@ func statusEventTestRepo(t *testing.T) *Repository {
 	_, err = pool.Exec(t.Context(), `CREATE TABLE downloads(
  id text PRIMARY KEY,user_id integer NOT NULL,profile_id text,device_id text,media_file_id integer NOT NULL,content_id text NOT NULL,episode_id text,batch_id text,
  kind text NOT NULL,status text NOT NULL,format text NOT NULL,quality text NOT NULL,effective_quality text NOT NULL,target_bitrate_kbps integer NOT NULL,revision integer NOT NULL,
- artifact_id text,file_size bigint NOT NULL,bytes_sent bigint NOT NULL,error_message text NOT NULL,created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL,completed_at timestamptz)`)
+ artifact_id text,file_size bigint NOT NULL,bytes_sent bigint NOT NULL,error_message text NOT NULL,created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL,completed_at timestamptz,
+ revoked_at timestamptz,revoked_by integer,revoked_reason text NOT NULL DEFAULT '')`)
 	if err != nil {
 		t.Fatal(err)
 	}

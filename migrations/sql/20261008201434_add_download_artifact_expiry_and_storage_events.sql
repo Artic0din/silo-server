@@ -22,6 +22,14 @@ ALTER TABLE public.download_artifacts VALIDATE CONSTRAINT download_artifacts_sta
 CREATE INDEX CONCURRENTLY IF NOT EXISTS download_artifacts_expired_idx
     ON public.download_artifacts (last_used_at) WHERE status = 'expired';
 
+-- The preparation list, its counts, and queue positions read rows that are
+-- still being prepared. Expired rows are not, so they leave that index along
+-- with the ready ones.
+DROP INDEX CONCURRENTLY IF EXISTS public.download_artifacts_unready_idx;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS download_artifacts_unready_idx
+    ON public.download_artifacts (created_at)
+    WHERE status NOT IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready', 'expired');
+
 -- What storage clean-up and revocation removed, and why. Rows are grouped by
 -- batch_id: one clean-up pass per location and reason, or one admin action.
 -- Kept 90 days.
@@ -58,6 +66,10 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS download_storage_events_occurred_idx
 -- +goose Down
 DROP TABLE IF EXISTS public.download_storage_events;
 DROP INDEX CONCURRENTLY IF EXISTS public.download_artifacts_expired_idx;
+DROP INDEX CONCURRENTLY IF EXISTS public.download_artifacts_unready_idx;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS download_artifacts_unready_idx
+    ON public.download_artifacts (created_at)
+    WHERE status NOT IN ('ready', 'tone_map_ready', 'audio_v2_ready', 'tracks_v1_ready');
 -- Expired rows have no bytes; returning them to the queue lets a worker
 -- rebuild any a download still needs before the status is narrowed again.
 UPDATE public.download_artifacts

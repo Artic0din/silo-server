@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,10 @@ const (
 	// expirePassBudget bounds one maintenance pass, so a large backlog after an
 	// upgrade drains over several ticks instead of stalling the task.
 	expirePassBudget = 30 * time.Second
+	// ceilingMeasurementMaxAge is how old a measurement may be for the disk
+	// ceiling to act on it: a node that stopped reporting may have freed space
+	// since. Nodes re-measure every five minutes.
+	ceilingMeasurementMaxAge = 15 * time.Minute
 	// revokedDownloadRetention is how long a revoked row waits for its device to
 	// confirm the local copy is gone before it is pruned anyway.
 	revokedDownloadRetention = 90 * 24 * time.Hour
@@ -190,6 +195,7 @@ func (m *ArtifactManager) maintainStorage(ctx context.Context, force bool, only 
 	} else if !ran && force {
 		slog.InfoContext(ctx, "download storage maintenance is running on another replica", "component", "downloads")
 	}
+	m.refreshStorageFull(ctx)
 	if force || m.maintenanceDueEvery(&m.lastReconcile, storageReconcileInterval) {
 		m.reconcileStorage(ctx, only)
 	}
@@ -256,30 +262,8 @@ func (m *ArtifactManager) enforceStorage(ctx context.Context, only string) int64
 		// Past their cache period: nothing waits on them and nobody used them.
 		expired := m.expireAtLocation(ctx, loc, cacheCutoff, -1, StorageReasonCacheExpired)
 		freed += expired
-		ready := readyByNode[loc.NodeID] - expired
-		need, reason := int64(0), ""
-		if loc.Budget > 0 && ready > loc.Budget {
-			need, reason = ready-loc.Budget, StorageReasonBudget
-		}
-		if over := m.overCeiling(loc, expired); over > need {
-			need, reason = over, StorageReasonDiskCeiling
-		}
-		full := false
-		if need > 0 {
-			got := m.expireAtLocation(ctx, loc, graceCutoff, need, reason)
-			freed += got
-			full = got < need
-			if reason == StorageReasonDiskCeiling {
-				m.mu.Lock()
-				if m.lastCeilingEviction == nil {
-					m.lastCeilingEviction = make(map[int]time.Time)
-				}
-				m.lastCeilingEviction[loc.NodeID] = time.Now()
-				m.mu.Unlock()
-			}
-		}
-		if loc.NodeID > 0 {
-			m.setNodeStorageFull(loc.NodeID, full)
+		if need, reason := m.overage(ctx, loc, readyByNode[loc.NodeID]-expired, expired); need > 0 {
+			freed += m.expireAtLocation(ctx, loc, graceCutoff, need, reason)
 		}
 	}
 	m.publishStorageGauges(ctx, locations)
@@ -305,19 +289,38 @@ func (m *ArtifactManager) publishStorageGauges(ctx context.Context, locations []
 	}
 }
 
+// overage is how many bytes a location must free to get back under its budget
+// and the disk ceiling, and which of the two asks for more. ready is what its
+// prepared files hold now; justFreed is what this pass already freed there.
+func (m *ArtifactManager) overage(ctx context.Context, loc storageLocation, ready, justFreed int64) (int64, string) {
+	need, reason := int64(0), ""
+	if loc.Budget > 0 && ready > loc.Budget {
+		need, reason = ready-loc.Budget, StorageReasonBudget
+	}
+	// The last ceiling eviction comes from history, so a pass on any replica
+	// knows about one another replica made.
+	last, err := m.repo.LastStorageEventAt(ctx, loc.key(), StorageReasonDiskCeiling)
+	if err != nil {
+		slog.WarnContext(ctx, "reading the last disk ceiling clean-up failed", "component", "downloads", "location", loc.key(), "error", err)
+		return need, reason
+	}
+	if over := m.overCeiling(loc, justFreed, last, time.Now()); over > need {
+		need, reason = over, StorageReasonDiskCeiling
+	}
+	return need, reason
+}
+
 // overCeiling is how many bytes a location must free to get back under the
 // disk ceiling, judged from its latest measurement less what was just freed.
-// A measurement taken before the last ceiling eviction still counts the bytes
-// that eviction removed, so it is not acted on twice.
-func (m *ArtifactManager) overCeiling(loc storageLocation, justFreed int64) int64 {
+// A measurement taken before the last ceiling eviction (lastEviction) still
+// counts the bytes that eviction removed, so it is not acted on twice, and one
+// older than ceilingMeasurementMaxAge may no longer be true.
+func (m *ArtifactManager) overCeiling(loc storageLocation, justFreed int64, lastEviction, now time.Time) int64 {
 	u := loc.Usage
-	if u == nil || u.Stale || u.Error != "" || u.FSTotalBytes <= 0 {
+	if u == nil || u.Stale || u.Error != "" || u.FSTotalBytes <= 0 || now.Sub(u.MeasuredAt) > ceilingMeasurementMaxAge {
 		return 0
 	}
-	m.mu.Lock()
-	last := m.lastCeilingEviction[loc.NodeID]
-	m.mu.Unlock()
-	if !last.IsZero() && !u.MeasuredAt.After(last) {
+	if !lastEviction.IsZero() && !u.MeasuredAt.After(lastEviction) {
 		return 0
 	}
 	limit := u.FSTotalBytes / 100 * int64(m.diskCeilingPercent())
@@ -378,23 +381,42 @@ func (m *ArtifactManager) expireArtifact(ctx context.Context, a *Artifact, reaso
 	return true
 }
 
-// setNodeStorageFull records whether a node is over its budget or ceiling with
-// nothing left to free, so placement stops sending it new preparations.
-func (m *ArtifactManager) setNodeStorageFull(nodeID int, full bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if full {
-		if m.storageFull == nil {
-			m.storageFull = make(map[int]bool)
-		}
-		m.storageFull[nodeID] = true
-	} else {
-		delete(m.storageFull, nodeID)
+// refreshStorageFull recomputes which nodes are over their budget or the disk
+// ceiling with nothing left to free, from the database and the nodes' latest
+// measurements. Every replica runs it, so placement agrees with the last
+// clean-up pass whichever replica ran that pass.
+func (m *ArtifactManager) refreshStorageFull(ctx context.Context) {
+	readyByNode, err := m.repo.ReadyBytesByLocation(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "reading prepared-file totals failed", "component", "downloads", "error", err)
+		return
 	}
+	locations, err := m.storageLocations(ctx, readyByNode)
+	if err != nil {
+		slog.WarnContext(ctx, "listing download storage locations failed", "component", "downloads", "error", err)
+		return
+	}
+	graceCutoff := time.Now().Add(-missingArtifactRetireGrace)
+	full := make(map[int]bool)
+	for _, loc := range locations {
+		if loc.NodeID == 0 {
+			continue
+		}
+		if need, _ := m.overage(ctx, loc, readyByNode[loc.NodeID], 0); need <= 0 {
+			continue
+		}
+		// Over, but clean-up can still free something: not full yet.
+		if left, err := m.repo.ListExpirable(ctx, loc.NodeID, graceCutoff, 1); err == nil && len(left) == 0 {
+			full[loc.NodeID] = true
+		}
+	}
+	m.mu.Lock()
+	m.storageFull = full
+	m.mu.Unlock()
 }
 
-// NodeStorageFull reports whether the last maintenance pass found a node over
-// its storage budget or disk ceiling with nothing left to free.
+// NodeStorageFull reports whether a node was last found over its storage
+// budget or disk ceiling with nothing left to free.
 func (m *ArtifactManager) NodeStorageFull(nodeID int) bool {
 	if m == nil {
 		return false
@@ -404,14 +426,27 @@ func (m *ArtifactManager) NodeStorageFull(nodeID int) bool {
 	return m.storageFull[nodeID]
 }
 
-// findUntracked returns the files in a listing that no row accounts for and
-// that are old enough that no encode can still be writing or committing them.
-// A partial file is untracked once nothing has written to it for that long:
-// an encode in progress keeps its .part file's modification time current.
-func findUntracked(files []downloadstorage.File, tracked map[string]bool, now time.Time) []downloadstorage.File {
+// Names Silo gives prepared files. The server writes
+// <media file>_<format>_<hash prefix>_<id>.mp4 (artifactOutputPath; a legacy
+// hash need not be hex), and encodes there write <name>.part first. A node
+// writes <id>-<uuid>.mp4 (the remote attempt id) with .part and receipt files
+// beside it. Only a name of its location's shape can be untracked: anything
+// else in the directory is not a file Silo wrote, so Silo never deletes it,
+// however the directory was configured.
+var (
+	serverArtifactFileName = regexp.MustCompile(`^[0-9]+_(remux|transcode)_[^/]{0,16}_[0-9]+\.mp4(\.part)?$`)
+	nodeArtifactFileName   = regexp.MustCompile(`^[0-9]+(-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\.mp4(\.part|\.receipt\.json(\.[0-9]+)?)?$`)
+)
+
+// findUntracked returns the files in a listing that are named like the
+// location's prepared files, that no row accounts for, and that are old enough
+// that no encode can still be writing or committing them. A partial file is
+// untracked once nothing has written to it for that long: an encode in
+// progress keeps its .part file's modification time current.
+func findUntracked(files []downloadstorage.File, owned *regexp.Regexp, tracked map[string]bool, now time.Time) []downloadstorage.File {
 	var out []downloadstorage.File
 	for _, f := range files {
-		if now.Sub(f.ModTime) < untrackedMinAge {
+		if !owned.MatchString(f.Name) || now.Sub(f.ModTime) < untrackedMinAge {
 			continue
 		}
 		switch f.Kind {
@@ -480,7 +515,7 @@ func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, acto
 	if err != nil {
 		return storageSampleUntracked{}, err
 	}
-	untracked := findUntracked(listing.Files, tracked, time.Now())
+	untracked := findUntracked(listing.Files, serverArtifactFileName, tracked, time.Now())
 	if remove {
 		var removed, left []downloadstorage.File
 		for _, f := range untracked {
@@ -497,7 +532,8 @@ func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, acto
 			m.serverProber.Refresh(dir, m.transcodeDir())
 		}
 		remaining := sumUntracked(left)
-		return summary, m.repo.UpsertStorageSample(ctx, 0, m.owner, listing.Usage, &remaining)
+		m.recordSampleAfterRemoval(ctx, 0, m.owner, listing.Usage, &remaining)
+		return summary, nil
 	}
 	summary := sumUntracked(untracked)
 	return summary, m.repo.UpsertStorageSample(ctx, 0, m.owner, listing.Usage, &summary)
@@ -521,7 +557,7 @@ func (m *ArtifactManager) reconcileNode(ctx context.Context, n *nodepool.Node, r
 	if err != nil {
 		return storageSampleUntracked{}, err
 	}
-	untracked := findUntracked(listing.Files, tracked, time.Now())
+	untracked := findUntracked(listing.Files, nodeArtifactFileName, tracked, time.Now())
 	if !remove {
 		summary := sumUntracked(untracked)
 		return summary, m.repo.UpsertStorageSample(ctx, n.ID, "", listing.Usage, &summary)
@@ -548,7 +584,17 @@ func (m *ArtifactManager) reconcileNode(ctx context.Context, n *nodepool.Node, r
 	summary := sumUntracked(removed)
 	m.recordUntrackedRemoval(ctx, NodeLocationKey(n.ID), summary, actor)
 	remaining := sumUntracked(left)
-	return summary, m.repo.UpsertStorageSample(ctx, n.ID, "", listing.Usage, &remaining)
+	m.recordSampleAfterRemoval(ctx, n.ID, "", listing.Usage, &remaining)
+	return summary, nil
+}
+
+// recordSampleAfterRemoval stores the untracked count left after a removal.
+// The files are already gone, so a failure here is logged rather than
+// reported: the next reconciliation records the count again.
+func (m *ArtifactManager) recordSampleAfterRemoval(ctx context.Context, nodeID int, reporter string, usage downloadstorage.Usage, left *storageSampleUntracked) {
+	if err := m.repo.UpsertStorageSample(ctx, nodeID, reporter, usage, left); err != nil {
+		slog.WarnContext(ctx, "recording download storage sample failed", "component", "downloads", "node_id", nodeID, "error", err)
+	}
 }
 
 // nodeArtifactIDFromFile recovers the node artifact id a file belongs to:

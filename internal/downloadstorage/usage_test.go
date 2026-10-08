@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,8 +74,13 @@ func TestMeasureUnreadableDirectoryReportsError(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "a-file")
 	writeFile(t, dir, "a-file", 1)
-	if u := Measure(file, "", time.Now()); u.Error == "" {
+	u := Measure(file, "", time.Now())
+	if u.Error == "" {
 		t.Fatal("measuring a regular file as a directory must report an error")
+	}
+	// A node serves the error on its unauthenticated health check.
+	if strings.Contains(u.Error, dir) {
+		t.Fatalf("error %q names the directory", u.Error)
 	}
 }
 
