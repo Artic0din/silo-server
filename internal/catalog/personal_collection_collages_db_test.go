@@ -230,6 +230,35 @@ func TestPersonalCollectionCollagesFollowTheViewerDB(t *testing.T) {
 		}
 	})
 
+	t.Run("a smart collection with no poster to show holds no build-queue slot", func(t *testing.T) {
+		// The viewer may see only the title without a poster.
+		noPoster := AccessFilter{UserID: userID, ProfileID: kid, AllowedContentIDs: []string{contentIDs[2]}}
+		ref := CollectionCollageRef{CollectionID: smart.ID, Key: "smart:" + collageAccessKey(noPoster) + ":" + smartDefinitionKey(smartQuery)}
+		collages.refreshSmartLater(userID, smartDef, noPoster)
+		// The empty refresh records that there is no collage and then frees
+		// its slot: a failure would hold a retry marker for ten minutes, and
+		// enough of them fill the queue for every other build on the node.
+		queue := collages.buildQueue()
+		deadline := time.Now().Add(5 * time.Second)
+		for !queue.claim(ref, time.Now()) {
+			if time.Now().After(deadline) {
+				t.Fatal("the empty smart refresh still holds its build-queue slot")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		queue.finish(ref, false, time.Now())
+		recorded, err := collageStore.getSmartCollages(ctx, []string{smart.ID}, collageAccessKey(noPoster))
+		if err != nil {
+			t.Fatalf("read smart collages: %v", err)
+		}
+		if r, ok := recorded[smart.ID]; !ok || r.collage.Path != "" {
+			t.Fatalf("record = %+v (found %v), want one with no collage", r, ok)
+		}
+		if got := collages.Posters(ctx, userID, []PersonalCollectionDefinition{smartDef}, noPoster); len(got) != 0 {
+			t.Fatalf("posters = %+v, want none", got)
+		}
+	})
+
 	t.Run("without a generator nothing is served or built", func(t *testing.T) {
 		off := NewPersonalCollectionCollages(pool, nil)
 		if got := off.Posters(ctx, userID, []PersonalCollectionDefinition{manualDef}, kidReadsShared); len(got) != 0 {

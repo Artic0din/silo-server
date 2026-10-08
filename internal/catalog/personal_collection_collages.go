@@ -17,8 +17,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/Silo-Server/silo-server/internal/collage"
 )
 
 // A personal collection without an uploaded or imported poster shows a
@@ -222,8 +220,9 @@ func (p *PersonalCollectionCollages) refreshSmartLater(userID int, c PersonalCol
 
 // refreshSmart reads smart collection c's first matches the viewer described
 // by access can see, builds their collage unless it is stored, and records it
-// as the collage that viewer sees. It returns collage.ErrNotEnoughImages,
-// having recorded that there is none, when no match has a poster.
+// as the collage that viewer sees. When no match has a poster it records that
+// there is none and succeeds: the record holds off the next refresh until
+// SmartRefreshInterval, so the build queue keeps no retry marker for it.
 func (p *PersonalCollectionCollages) refreshSmart(ctx context.Context, userID int, c PersonalCollectionDefinition, access AccessFilter) error {
 	sources, err := p.smartSources(ctx, c.QueryDefinition, access)
 	if err != nil {
@@ -237,13 +236,7 @@ func (p *PersonalCollectionCollages) refreshSmart(ctx context.Context, userID in
 		key = CollectionCollageKey(sources)
 	}
 	store := personalCollageStore{pool: p.pool, userID: userID}
-	if err := store.saveSmartCollage(ctx, c.ID, collageAccessKey(access), smartDefinitionKey(c.QueryDefinition), key); err != nil {
-		return err
-	}
-	if key == "" {
-		return collage.ErrNotEnoughImages
-	}
-	return nil
+	return store.saveSmartCollage(ctx, c.ID, collageAccessKey(access), smartDefinitionKey(c.QueryDefinition), key)
 }
 
 // Refresh builds, in the background and after RefreshDelay, the collage the
