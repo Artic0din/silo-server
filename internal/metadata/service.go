@@ -4803,6 +4803,9 @@ func (s *MetadataService) persistSeasonsAndEpisodes(
 			ContentType:       "series",
 			ImageType:         ImageCacheImagePoster,
 			SeasonNumber:      &seasonNumber,
+			// Seasons of a provider-anchored series keep their content ID
+			// when the series is rebuilt; see enqueueItemImages.
+			RequeueSucceeded: !isCachedImagePath(season.PosterPath),
 		})
 	}
 	addEpisodeImageJob := func(episode *models.Episode) {
@@ -4823,6 +4826,7 @@ func (s *MetadataService) persistSeasonsAndEpisodes(
 			ImageType:         ImageCacheImageStill,
 			SeasonNumber:      &seasonNumber,
 			EpisodeNumber:     &episodeNumber,
+			RequeueSucceeded:  !isCachedImagePath(episode.StillPath),
 		})
 	}
 	addSeasonLocalizationImageJob := func(season *models.Season, loc *models.SeasonLocalization) {
@@ -4842,6 +4846,7 @@ func (s *MetadataService) persistSeasonsAndEpisodes(
 			ContentType:       "series",
 			ImageType:         ImageCacheImagePoster,
 			SeasonNumber:      &seasonNumber,
+			RequeueSucceeded:  !isCachedImagePath(loc.PosterPath),
 		})
 	}
 
@@ -8126,6 +8131,12 @@ func (s *MetadataService) enqueueItemImages(ctx context.Context, item *models.Me
 			ProviderContentID: providerContentID,
 			ContentType:       imageCacheContentType(item.Type),
 			ImageType:         ImageTypeToString(field.imageType),
+			// An item rebuilt under the same content ID (a Complete Refresh,
+			// or removing and re-adding a local-only series) has no cached
+			// copy, but its earlier job for this source still reads
+			// succeeded. Without a requeue, local artwork stays blank and
+			// remote artwork stays uncached.
+			RequeueSucceeded: !isCachedImagePath(*field.path),
 		})
 	}
 	s.enqueueImageCacheJobs(ctx, "item", item.ContentID, inputs)
@@ -8138,8 +8149,11 @@ func (s *MetadataService) enqueueItemLocalizationImages(ctx context.Context, ite
 	locItem := &models.MediaItem{
 		ContentID:          loc.ContentID,
 		Type:               item.Type,
+		PosterPath:         loc.PosterPath,
 		PosterSourcePath:   loc.PosterSourcePath,
+		BackdropPath:       loc.BackdropPath,
 		BackdropSourcePath: loc.BackdropSourcePath,
+		LogoPath:           loc.LogoPath,
 		LogoSourcePath:     loc.LogoSourcePath,
 	}
 	inputs := make([]EnqueueImageCacheJobInput, 0, 3)
@@ -8159,6 +8173,9 @@ func (s *MetadataService) enqueueItemLocalizationImages(ctx context.Context, ite
 			ProviderContentID: providerContentID,
 			ContentType:       imageCacheContentType(item.Type),
 			ImageType:         ImageTypeToString(field.imageType),
+			// Localization rows are deleted with their item, so a rebuild
+			// leaves them in the same state; see enqueueItemImages.
+			RequeueSucceeded: !isCachedImagePath(*field.path),
 		})
 	}
 	s.enqueueImageCacheJobs(ctx, "item localization", loc.ContentID, inputs)
