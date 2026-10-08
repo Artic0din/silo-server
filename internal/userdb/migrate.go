@@ -293,7 +293,12 @@ func runMigrations(db *sql.DB) error {
 			return err
 		}
 	}
-	if version < 30 {
+	// Builds of the collections revamp from before it merged main recorded
+	// login sharing as v30, without main's v30 pin_revision column. Such a
+	// store needs the column, and must not convert sharing a second time:
+	// collections shared since carry no allow list.
+	sharingApplied := version == 30 && !columnExists(tx, "profiles", "pin_revision")
+	if version < 30 || sharingApplied {
 		// Same reasoning as v27: a fresh profiles table already has the column.
 		// Profile tokens are bound to it; the Postgres store adds the same
 		// column in 20261006192309_profile_pin_revision.sql.
@@ -307,8 +312,10 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 	if version < 31 {
-		if err := applyCollectionLoginSharing(tx); err != nil {
-			return fmt.Errorf("migration v31 failed: %w", err)
+		if !sharingApplied {
+			if err := applyCollectionLoginSharing(tx); err != nil {
+				return fmt.Errorf("migration v31 failed: %w", err)
+			}
 		}
 		if _, err := tx.Exec("PRAGMA user_version = 31"); err != nil {
 			return err

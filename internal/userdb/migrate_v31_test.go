@@ -80,3 +80,61 @@ func TestMigrateToV31AppliesLoginSharingRule(t *testing.T) {
 		t.Fatalf("is_shared after v31 = %v, want %v", got, want)
 	}
 }
+
+// A store a pre-merge collections revamp build opened is at v30 with login
+// sharing already applied and without main's v30 pin_revision column. It gains
+// the column and keeps collections shared since then, which have no allow list.
+func TestMigrateRevampV30StoreAddsPINRevisionAndKeepsSharing(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := InitSchema(db); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+	for _, id := range []string{"p1", "p2"} {
+		if err := CreateProfile(db, Profile{ID: id, Name: id, CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+			t.Fatalf("CreateProfile(%s): %v", id, err)
+		}
+	}
+	const now = "2026-10-05T00:00:00Z"
+	if _, err := db.Exec(`INSERT INTO personal_collections (id, profile_id, creator_profile_id, name, is_shared, created_at, updated_at)
+		VALUES ('shared', 'p1', 'p1', 'shared', 1, ?, ?)`, now, now); err != nil {
+		t.Fatalf("seed collection: %v", err)
+	}
+	for _, stmt := range []string{
+		`DROP TRIGGER profiles_pin_revision`,
+		`ALTER TABLE profiles DROP COLUMN pin_revision`,
+		"PRAGMA user_version = 30",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	if err := InitSchema(db); err != nil {
+		t.Fatalf("InitSchema on the revamp's v30: %v", err)
+	}
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+	if version, err := userVersion(db); err != nil || version != schemaVersion {
+		t.Fatalf("user_version = %d, %v; want %d", version, err, schemaVersion)
+	}
+	var revision int
+	if err := db.QueryRow(`SELECT pin_revision FROM profiles WHERE id = 'p1'`).Scan(&revision); err != nil {
+		t.Fatalf("read pin_revision: %v", err)
+	}
+	var shared bool
+	if err := db.QueryRow(`SELECT is_shared FROM personal_collections WHERE id = 'shared'`).Scan(&shared); err != nil {
+		t.Fatalf("read is_shared: %v", err)
+	}
+	if !shared {
+		t.Fatal("a collection shared after the revamp's v30 became private")
+	}
+}
