@@ -629,7 +629,10 @@ Responses set `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
 `GET /api/v2/webhook-sync/capabilities` exposes `available` and `max_body_bytes`.
 V2 connection list/create/update and secret rotation emit v2 receiver URLs.
 Existing external configurations continue to use their bridge URLs until updated;
-frozen v1 URL generation, response shapes and provider parsing remain unchanged.
+frozen v1 URL generation and response shapes remain unchanged. The bridge
+receiver runs the same provider parsing and watch-state rules as v2 (see above),
+so it rejects the same malformed deliveries and applies the same Jellyfin played
+marks.
 The web management screen consumes the emitted URL. No native receiver or
 management caller was found; no Jellyfin-protocol endpoint needs migration.
 
