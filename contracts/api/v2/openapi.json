@@ -21722,6 +21722,10 @@
             "description": "Whether the current principal may use the capability",
             "type": "boolean"
           },
+          "extended_query_rules": {
+            "description": "Rule groups in catalog queries, sections, and Smart collections accept the title, decade, runtime, rating_tmdb, rating_rt_critic, rating_rt_audience, latest_episode_added, and last_air_date fields, the not_contains, begins_with, and ends_with operators on title, and not_in_last on date fields",
+            "type": "boolean"
+          },
           "facet_value_search": {
             "description": "searchCatalogFacet accepts library_ids and answers values and values_has_more: ranked values with title counts that match word starts, and the most common values for an empty q",
             "type": "boolean"
@@ -130999,12 +131003,12 @@
             }
           },
           {
-            "description": "Name prefix or fragment; empty lists the first people",
+            "description": "Name to match: each word must start a word of the name, case-insensitively, and only the first eight distinct words count; empty lists the first people",
             "explode": false,
             "in": "query",
             "name": "q",
             "schema": {
-              "description": "Name prefix or fragment; empty lists the first people",
+              "description": "Name to match: each word must start a word of the name, case-insensitively, and only the first eight distinct words count; empty lists the first people",
               "maxLength": 200,
               "type": "string"
             }
@@ -171102,6 +171106,42 @@
               "description": "Opaque distribution channel paired with X-Silo-Client",
               "examples": [
                 "release"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "The client's stable device identifier; a successful start records it in the profile's device registry (first 128 characters)",
+            "in": "header",
+            "name": "X-Silo-Device-Id",
+            "schema": {
+              "description": "The client's stable device identifier; a successful start records it in the profile's device registry (first 128 characters)",
+              "examples": [
+                "iphone-1"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional display name recorded on the device registry (first 120 characters)",
+            "in": "header",
+            "name": "X-Silo-Device-Name",
+            "schema": {
+              "description": "Optional display name recorded on the device registry (first 120 characters)",
+              "examples": [
+                "Living room"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional platform recorded on the device registry (first 40 characters)",
+            "in": "header",
+            "name": "X-Silo-Device-Platform",
+            "schema": {
+              "description": "Optional platform recorded on the device registry (first 40 characters)",
+              "examples": [
+                "iOS"
               ],
               "type": "string"
             }
