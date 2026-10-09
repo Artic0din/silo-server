@@ -448,6 +448,7 @@ func TestProgressOutranksEvent(t *testing.T) {
 		{name: "native progress newer than event", updatedAt: at, eventAt: at.Add(-time.Minute), want: true},
 		{name: "native progress as recent as event", updatedAt: at, eventAt: at, want: true},
 		{name: "event newer than progress", updatedAt: at, eventAt: at.Add(time.Minute), want: false},
+		{name: "native progress later in the event's second", updatedAt: at, eventAt: at.Add(500 * time.Millisecond), want: true},
 		{name: "same-timestamp upgrade over this pair's own write", updatedAt: at, state: &ItemState{LastEventAt: at}, eventAt: at, want: false},
 		{name: "native progress after this pair's last event", updatedAt: at.Add(time.Minute), state: &ItemState{LastEventAt: at}, eventAt: at.Add(time.Second), want: true},
 	}
