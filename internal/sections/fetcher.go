@@ -3947,7 +3947,12 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 		minRating = 6.0
 	}
 
-	cands, err := f.cachedEditorialCandidates(ctx, "genre_roulette", libraryID, libraryIDs, filter, editorialCandidateCacheTTL, f.genreRouletteCandidates)
+	// The candidates depend on the rating floor, so it is part of the cache key.
+	subject := "genre_roulette|min_rating=" + strconv.FormatFloat(minRating, 'f', -1, 64)
+	cands, err := f.cachedEditorialCandidates(ctx, subject, libraryID, libraryIDs, filter, editorialCandidateCacheTTL,
+		func(ctx context.Context, _ string, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) ([]string, error) {
+			return f.genreRouletteCandidates(ctx, minRating, libraryID, libraryIDs, filter)
+		})
 	if err != nil {
 		return nil, 0, "", fmt.Errorf("genre_roulette candidates: %w", err)
 	}
@@ -3981,7 +3986,7 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 	items, err := catalog.NewDiscoveryRepository(f.pool).ListByRatingThreshold(ctx, catalog.RatingFilter{
 		Min:        minRating,
 		MinVotes:   recipes.DiscoveryMinVotes,
-		Types:      []string{"movie", "series"},
+		Types:      genreRouletteTypes,
 		GenresAny:  []string{genre},
 		Limit:      limit,
 		LibraryID:  libraryID,
@@ -3994,41 +3999,14 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 	return items, len(items), editorialSpotlightDisplayTitle(s.Title, genre), nil
 }
 
-// genreRouletteCandidates returns the most common genres in scope among titles
-// with the vote count the row requires, so the chosen genre can fill it,
-// mirroring topStudioCandidates. The subjectType parameter is fixed ("genre_roulette")
-// and only exists to satisfy the shared candidate-loader signature.
-func (f *Fetcher) genreRouletteCandidates(ctx context.Context, _ string, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) ([]string, error) {
-	var conditions []string
-	var args []any
-	argIdx := 1
+// genreRouletteTypes are the media types a Genre Roulette row shows.
+var genreRouletteTypes = []string{"movie", "series"}
 
-	fromClause, libConditions, libArgs, newArgIdx := buildLibraryScope(libraryID, libraryIDs, nil, filter.DisabledLibraryIDs, argIdx)
-	conditions = append(conditions, libConditions...)
-	args = append(args, libArgs...)
-	argIdx = newArgIdx
-	catalog.ApplySectionAccessFilter("mi", filter, &conditions, &args, &argIdx)
-
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = "AND " + strings.Join(conditions, " AND ")
-	}
-
-	args = append(args, editorialCandidateLimit)
-	query := fmt.Sprintf(`
-		SELECT genre
-		FROM (
-			SELECT unnest(mi.genres) AS genre
-			FROM %s
-			WHERE mi.genres IS NOT NULL
-			  AND mi.tmdb_vote_count >= %d
-			%s
-		) sub
-		GROUP BY genre
-		ORDER BY COUNT(*) DESC
-		LIMIT $%d
-	`, fromClause, recipes.DiscoveryMinVotes, whereClause, argIdx)
-
+// genreRouletteCandidates returns the most common genres in scope among the
+// titles the row could show (its types, rating floor and vote minimum), so the
+// chosen genre can fill it, mirroring topStudioCandidates.
+func (f *Fetcher) genreRouletteCandidates(ctx context.Context, minRating float64, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) ([]string, error) {
+	query, args := genreRouletteCandidatesQuery(minRating, libraryID, libraryIDs, filter)
 	rows, err := f.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying top genres: %w", err)
@@ -4044,6 +4022,39 @@ func (f *Fetcher) genreRouletteCandidates(ctx context.Context, _ string, library
 		genres = append(genres, genre)
 	}
 	return genres, rows.Err()
+}
+
+// genreRouletteCandidatesQuery builds the SQL statement and bind args for
+// genreRouletteCandidates.
+func genreRouletteCandidatesQuery(minRating float64, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) (string, []any) {
+	var conditions []string
+	var args []any
+	argIdx := 1
+
+	fromClause, libConditions, libArgs, newArgIdx := buildLibraryScope(libraryID, libraryIDs, nil, filter.DisabledLibraryIDs, argIdx)
+	conditions = append(conditions, libConditions...)
+	args = append(args, libArgs...)
+	argIdx = newArgIdx
+	catalog.ApplySectionAccessFilter("mi", filter, &conditions, &args, &argIdx)
+	catalog.AppendTMDBRatingFloor(&conditions, &args, &argIdx, minRating, recipes.DiscoveryMinVotes)
+	conditions = append(conditions, fmt.Sprintf("mi.type = ANY($%d)", argIdx))
+	args = append(args, genreRouletteTypes)
+	argIdx++
+
+	args = append(args, editorialCandidateLimit)
+	query := fmt.Sprintf(`
+		SELECT genre
+		FROM (
+			SELECT unnest(mi.genres) AS genre
+			FROM %s
+			WHERE mi.genres IS NOT NULL
+			  AND %s
+		) sub
+		GROUP BY genre
+		ORDER BY COUNT(*) DESC
+		LIMIT $%d
+	`, fromClause, strings.Join(conditions, " AND "), argIdx)
+	return query, args
 }
 
 // mangaChapterSeriesMetaQuery resolves the owning manga series for chapter

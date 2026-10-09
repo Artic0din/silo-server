@@ -74,5 +74,5 @@ day. The shared rows carry the day in their resolved-list cache key, so every
 node switches at the same UTC midnight. A profile that hides watched titles
 fetches a larger window, so its pick can differ. Genre Roulette already rotates
 its genre and shows that genre's best titles without a daily pick; it picks
-from genres among titles with the vote minimum, so the chosen genre can fill
-the row.
+from genres among the titles the row could show (movies and series that meet
+its rating floor and the vote minimum), so the chosen genre can fill the row.
