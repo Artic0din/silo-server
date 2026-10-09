@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,11 +21,10 @@ import (
 )
 
 type Service struct {
-	repo       *Repository
-	importRepo *historyimport.Repository
-	matcher    *historyimport.Matcher
-	watch      *watchstate.Service
-	providers  map[string]Provider
+	repo      *Repository
+	matcher   *historyimport.Matcher
+	watch     *watchstate.Service
+	providers map[string]Provider
 
 	// localNetwork decides whether a connection's server address may be on
 	// this server's own network. Nil limits it to the public internet.
@@ -34,10 +34,9 @@ type Service struct {
 func NewService(repo *Repository, importRepo *historyimport.Repository, storeProvider userstore.UserStoreProvider) *Service {
 	plexClient := historyimport.NewPlexClient()
 	return &Service{
-		repo:       repo,
-		importRepo: importRepo,
-		matcher:    historyimport.NewMatcher(importRepo),
-		watch:      watchstate.NewService(storeProvider),
+		repo:    repo,
+		matcher: historyimport.NewMatcher(importRepo),
+		watch:   watchstate.NewService(storeProvider),
 		providers: map[string]Provider{
 			ProviderPlex:     NewPlexProvider(plexClient),
 			ProviderEmby:     NewEmbyProvider(),
@@ -339,11 +338,20 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 
 	switch event.Action {
 	case ActionMarkUnplayed:
-		if state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID); err != nil {
+		state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID)
+		if err != nil {
 			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
-		} else if state != nil && !event.OccurredAt.After(state.LastEventAt) {
+		}
+		if state != nil && !event.OccurredAt.After(state.LastEventAt) {
 			result.Outcome = OutcomeSkipped
 			result.Summary = "Skipped stale mark-unplayed event"
+			return result, nil
+		}
+		if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, event.OccurredAt); err != nil {
+			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
+		} else if newer {
+			result.Outcome = OutcomeSkipped
+			result.Summary = "Skipped because local watch progress is newer"
 			return result, nil
 		}
 		if err := s.watch.RecordImportedMarkUnplayed(ctx, conn.UserID, profileID, match.MediaItemID, event.OccurredAt); err != nil {
@@ -391,16 +399,16 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 		return result, nil
 	}
 
-	localProgress, err := s.importRepo.GetProgress(ctx, conn.UserID, profileID, match.MediaItemID)
-	if err == nil && localProgress != nil && !record.UpdatedAt.After(localProgress.UpdatedAt) {
-		result.Outcome = OutcomeSkipped
-		result.Summary = "Skipped because local watch progress is newer"
-		return result, nil
-	}
-
 	state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID)
 	if err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
+	}
+	if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, record.UpdatedAt); err != nil {
+		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
+	} else if newer {
+		result.Outcome = OutcomeSkipped
+		result.Summary = "Skipped because local watch progress is newer"
+		return result, nil
 	}
 	if shouldSkipEvent(state, event) {
 		result.Outcome = OutcomeSkipped
@@ -440,6 +448,50 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	return result, nil
 }
 
+// localProgressIsNewer reports whether the profile's Silo watch progress for
+// the item is at least as recent as the event, so a delayed delivery cannot
+// overwrite or erase newer activity. An unreadable progress row is an error,
+// so a delivery never writes over progress it could not check.
+func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileID, mediaItemID string, state *ItemState, eventAt time.Time) (bool, error) {
+	progress, err := s.watch.Progress(ctx, userID, profileID, mediaItemID)
+	if err != nil || progress == nil {
+		return false, err
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, progress.UpdatedAt)
+	if err != nil {
+		return false, fmt.Errorf("parse local progress updated_at: %w", err)
+	}
+	return progressOutranksEvent(updatedAt, progress.PositionSeconds, state, eventAt), nil
+}
+
+// progressOutranksEvent reports whether progress last updated at updatedAt at
+// position wins over an event at eventAt. User stores keep updated_at in whole
+// seconds, so the event is compared at that precision too and a tie within one
+// second goes to Silo. The progress this external user and item's last event
+// wrote is left to shouldSkipEvent, which orders events of the same pair,
+// including same-timestamp upgrades.
+func progressOutranksEvent(updatedAt time.Time, position float64, state *ItemState, eventAt time.Time) bool {
+	if isPairsOwnWrite(updatedAt, position, state) {
+		return false
+	}
+	return !eventAt.Truncate(time.Second).After(updatedAt)
+}
+
+// isPairsOwnWrite reports whether progress is the write of the last event
+// applied for the pair: no newer than that event and at the position it
+// stored (user stores keep 0 for a completed item). As in history import, the
+// position tells it apart from Silo playback within the same second.
+func isPairsOwnWrite(updatedAt time.Time, position float64, state *ItemState) bool {
+	if state == nil || updatedAt.After(state.LastEventAt) {
+		return false
+	}
+	written := state.LastPositionSecond
+	if state.LastCompleted {
+		written = 0
+	}
+	return position == written
+}
+
 func (s *Service) failWebhook(ctx context.Context, connectionID string, result *ProcessWebhookResult, err error, summary string) (*ProcessWebhookResult, error) {
 	if result == nil {
 		result = &ProcessWebhookResult{ConnectionID: connectionID}
@@ -472,20 +524,25 @@ func mappingsToDiscoveredUsers(mappings []ProfileMapping) []DiscoveredUser {
 	return out
 }
 
+// shouldSkipEvent reports whether a progress event is stale or repeats one
+// already applied for the same external user and item.
 func shouldSkipEvent(state *ItemState, event *CanonicalEvent) bool {
 	if state == nil {
 		return false
 	}
+	// An older event never overrides a newer one, so a replayed completion
+	// cannot undo a later mark-unplayed.
+	if event.OccurredAt.Before(state.LastEventAt) {
+		return true
+	}
 	if event.OccurredAt.After(state.LastEventAt) {
 		return false
 	}
+	// A same-instant event applies only if it adds information.
 	if !state.LastCompleted && event.Completed {
 		return false
 	}
-	if event.PositionSeconds >= state.LastPositionSecond+5 {
-		return false
-	}
-	return true
+	return event.PositionSeconds < state.LastPositionSecond+5
 }
 
 func resolveWebhookProfileID(mapping *ProfileMapping) (string, bool) {

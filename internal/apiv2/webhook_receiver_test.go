@@ -133,7 +133,8 @@ func TestWebhookReceiverRealDeliveryDB(t *testing.T) {
 	}
 	// Exact body boundary is accepted; one byte over is rejected before parsing.
 	for _, delta := range []int{0, 1} {
-		body := `{}` + strings.Repeat(" ", int(webhookDeliveryLimit)-2+delta)
+		ignored := `{"notification_type":"Generic"}`
+		body := ignored + strings.Repeat(" ", int(webhookDeliveryLimit)-len(ignored)+delta)
 		req = httptest.NewRequest(http.MethodPost, Prefix+"/webhook-sync/webhooks/receiver-secret", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec = httptest.NewRecorder()
