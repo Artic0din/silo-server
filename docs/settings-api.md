@@ -602,8 +602,9 @@ Watch-state rules, shared by the v2 and bridge receivers:
   dropped, and an event with the same timestamp applies only if it completes the
   item or advances the position by at least five seconds. A replayed delivery
   therefore has no further effect, and a replayed completion cannot undo a later
-  unplayed mark. Newer native Silo progress for the profile also wins, including
-  over an unplayed mark. There is no exactly-once guarantee beyond these rules.
+  unplayed mark. Silo progress for the profile at least as recent as the event
+  also wins, including over an unplayed mark. There is no exactly-once guarantee
+  beyond these rules.
 
 A Plex connection's `base_url` follows the history import rule for server
 addresses: it must be on the public internet unless the account is an admin or

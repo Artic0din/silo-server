@@ -21,11 +21,10 @@ import (
 )
 
 type Service struct {
-	repo       *Repository
-	importRepo *historyimport.Repository
-	matcher    *historyimport.Matcher
-	watch      *watchstate.Service
-	providers  map[string]Provider
+	repo      *Repository
+	matcher   *historyimport.Matcher
+	watch     *watchstate.Service
+	providers map[string]Provider
 
 	// localNetwork decides whether a connection's server address may be on
 	// this server's own network. Nil limits it to the public internet.
@@ -35,10 +34,9 @@ type Service struct {
 func NewService(repo *Repository, importRepo *historyimport.Repository, storeProvider userstore.UserStoreProvider) *Service {
 	plexClient := historyimport.NewPlexClient()
 	return &Service{
-		repo:       repo,
-		importRepo: importRepo,
-		matcher:    historyimport.NewMatcher(importRepo),
-		watch:      watchstate.NewService(storeProvider),
+		repo:    repo,
+		matcher: historyimport.NewMatcher(importRepo),
+		watch:   watchstate.NewService(storeProvider),
 		providers: map[string]Provider{
 			ProviderPlex:     NewPlexProvider(plexClient),
 			ProviderEmby:     NewEmbyProvider(),
@@ -449,8 +447,8 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 // the item is at least as recent as the event, so a delayed delivery cannot
 // overwrite or erase newer activity.
 func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileID, mediaItemID string, eventAt time.Time) bool {
-	localProgress, err := s.importRepo.GetProgress(ctx, userID, profileID, mediaItemID)
-	return err == nil && localProgress != nil && !eventAt.After(localProgress.UpdatedAt)
+	updatedAt, ok, err := s.watch.ProgressUpdatedAt(ctx, userID, profileID, mediaItemID)
+	return err == nil && ok && !eventAt.After(updatedAt)
 }
 
 func (s *Service) failWebhook(ctx context.Context, connectionID string, result *ProcessWebhookResult, err error, summary string) (*ProcessWebhookResult, error) {

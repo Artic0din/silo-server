@@ -17,11 +17,16 @@ import (
 	"github.com/Silo-Server/silo-server/internal/userstore"
 )
 
-// removeRecorder records mark-unplayed writes; every other store method is
-// unused by the mark-unplayed path.
+// removeRecorder serves the profile's progress and records mark-unplayed
+// writes; every other store method is unused by the mark-unplayed path.
 type removeRecorder struct {
 	userstore.UserStore
-	removed []string
+	progressUpdatedAt time.Time
+	removed           []string
+}
+
+func (r *removeRecorder) GetProgress(_ context.Context, profileID, mediaItemID string) (*userstore.WatchProgress, error) {
+	return &userstore.WatchProgress{ProfileID: profileID, MediaItemID: mediaItemID, UpdatedAt: r.progressUpdatedAt.UTC().Format(time.RFC3339)}, nil
 }
 
 func (r *removeRecorder) RemoveHistoryItems(_ context.Context, _ string, mediaItemIDs []string, _ time.Time) error {
@@ -38,7 +43,8 @@ func (p recorderProvider) ForUser(context.Context, int) (userstore.UserStore, er
 func (recorderProvider) Close() error { return nil }
 
 // A delayed Jellyfin mark-unplayed must not erase Silo progress that is newer
-// than the event; one newer than the progress still applies.
+// than the event; one newer than the progress still applies. Progress is read
+// from the user store, which may be SQLite rather than Postgres.
 func TestProcessWebhookMarkUnplayedRespectsNewerLocalProgressDB(t *testing.T) {
 	dsn := os.Getenv("SILO_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -73,7 +79,6 @@ func TestProcessWebhookMarkUnplayedRespectsNewerLocalProgressDB(t *testing.T) {
 		{`INSERT INTO media_items(content_id,type,title,status,tmdb_id) VALUES($1,'movie','Movie','matched',$2)`, []any{mediaItemID, tmdbID}},
 		{`INSERT INTO webhook_sync_connections(id,user_id,provider,webhook_secret) VALUES($1,$2,'jellyfin',$3)`, []any{connectionID, userID, suffix}},
 		{`INSERT INTO webhook_sync_profile_mappings(connection_id,external_user_id,external_user_name,silo_profile_id) VALUES($1,'jf-user','Viewer',$2)`, []any{connectionID, profileID}},
-		{`INSERT INTO user_watch_progress(user_id,profile_id,media_item_id,updated_at) VALUES($1,$2,$3,$4)`, []any{userID, profileID, mediaItemID, localUpdatedAt}},
 	} {
 		if _, err := pool.Exec(ctx, stmt.sql, stmt.args...); err != nil {
 			t.Fatalf("%s: %v", stmt.sql, err)
@@ -84,7 +89,7 @@ func TestProcessWebhookMarkUnplayedRespectsNewerLocalProgressDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &removeRecorder{}
+	store := &removeRecorder{progressUpdatedAt: localUpdatedAt}
 	svc := NewService(NewRepository(pool, cipher), historyimport.NewRepository(pool, cipher), recorderProvider{store: store})
 	unplay := func(at time.Time) *ProcessWebhookResult {
 		t.Helper()

@@ -313,6 +313,25 @@ func (s *Service) RecordImportedMarkUnplayed(
 	return store.RemoveHistoryItems(ctx, profileID, []string{targetID}, updatedAt)
 }
 
+// ProgressUpdatedAt returns when the profile's watch progress for targetID last
+// changed, read from the same user store watch-state writes go to. User stores
+// report it in whole seconds. ok is false when the profile has no progress.
+func (s *Service) ProgressUpdatedAt(ctx context.Context, userID int, profileID, targetID string) (updatedAt time.Time, ok bool, err error) {
+	store, err := s.storeForUser(ctx, userID)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	progress, err := store.GetProgress(ctx, profileID, targetID)
+	if err != nil || progress == nil {
+		return time.Time{}, false, err
+	}
+	updatedAt, err = time.Parse(time.RFC3339Nano, progress.UpdatedAt)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("parse progress updated_at: %w", err)
+	}
+	return updatedAt, true, nil
+}
+
 func (s *Service) SetFavorite(
 	ctx context.Context,
 	userID int,
