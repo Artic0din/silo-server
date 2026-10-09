@@ -130,7 +130,7 @@ func (s *Service) CreateConnection(ctx context.Context, userID int, input Create
 	if err != nil {
 		return nil, err
 	}
-	if userID, userName, ok, err := provider.DefaultUser(ctx, conn, input); err != nil {
+	if userID, userName, ok, err := provider.DefaultUser(s.localNetwork.Context(ctx, userID), conn, input); err != nil {
 		return nil, err
 	} else if ok {
 		if _, err := s.repo.CreateDefaultMapping(ctx, conn.ID, userID, userName, input.DefaultProfileID); err != nil {
@@ -384,6 +384,21 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 		result.Outcome = OutcomeApplied
 		result.Summary = "Applied favorite toggle event"
 		return result, nil
+	case ActionPlaybackStarted:
+		// A new playback lets the next completion count as another watch.
+		state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID)
+		if err != nil {
+			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
+		}
+		if state != nil && state.LastCompleted {
+			state.LastCompleted = false
+			if err := s.repo.UpsertItemState(ctx, *state); err != nil {
+				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback start")
+			}
+		}
+		result.Outcome = OutcomeIgnored
+		result.Summary = "Noted playback start; watch state unchanged"
+		return result, nil
 	case "", ActionImportProgress:
 	default:
 		result.Outcome = OutcomeIgnored
@@ -477,6 +492,12 @@ func mappingsToDiscoveredUsers(mappings []ProfileMapping) []DiscoveredUser {
 func shouldSkipEvent(state *ItemState, event *CanonicalEvent) bool {
 	if state == nil {
 		return false
+	}
+	// Once a per-playback provider reports completion, the rest of that
+	// playback (a repeated scrobble, a stop in the credits) changes nothing
+	// until a new playback starts.
+	if event.CompletionPerPlayback && state.LastCompleted {
+		return true
 	}
 	// An older event never overrides a newer one, so a replayed completion
 	// cannot undo a later mark-unplayed.

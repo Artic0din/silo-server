@@ -3,11 +3,14 @@ package webhooksync
 import (
 	"context"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Silo-Server/silo-server/internal/historyimport"
 )
 
 func TestEmbyProviderParseWebhook(t *testing.T) {
@@ -292,6 +295,9 @@ func TestShouldSkipEvent(t *testing.T) {
 		{name: "replayed completion is a duplicate", state: completed, event: CanonicalEvent{OccurredAt: now, Completed: true, PositionSeconds: 3000}, want: true},
 		{name: "same-instant completion upgrade applies", state: partial, event: CanonicalEvent{OccurredAt: now, Completed: true, PositionSeconds: 121}, want: false},
 		{name: "same-instant position increase applies", state: partial, event: CanonicalEvent{OccurredAt: now, PositionSeconds: 130}, want: false},
+		{name: "per-playback completion repeats only after a new playback", state: completed, event: CanonicalEvent{OccurredAt: now.Add(time.Hour), Completed: true, CompletionPerPlayback: true}, want: true},
+		{name: "per-playback completion after a new playback applies", state: partial, event: CanonicalEvent{OccurredAt: now.Add(time.Hour), Completed: true, CompletionPerPlayback: true}, want: false},
+		{name: "per-playback stop after completion is part of that playback", state: completed, event: CanonicalEvent{OccurredAt: now.Add(time.Minute), PositionSeconds: 3100, CompletionPerPlayback: true}, want: true},
 	}
 
 	for _, tc := range cases {
@@ -428,5 +434,115 @@ func TestJellyfinProviderRejectsMalformedPayloads(t *testing.T) {
 				t.Fatalf("ParseWebhook() = %#v, want error", event)
 			}
 		})
+	}
+}
+
+func newPlexMetadataServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	// The server reports its owner's view state: watched in 2024 at full
+	// offset. Webhooks for other accounts must not copy it.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"42","type":"movie","title":"Movie","year":2008,"duration":600000,"viewOffset":590000,"viewCount":3,"lastViewedAt":1704067200,"Guid":[{"id":"tmdb://10378"},{"id":"imdb://tt1254207"}]}]}}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func parsePlex(t *testing.T, server *httptest.Server, payload string) (*CanonicalEvent, error) {
+	t.Helper()
+	var body strings.Builder
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("payload", payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	conn := &Connection{UserID: 7, BaseURL: server.URL, AccessToken: "owner-token"}
+	trusted := historyimport.NewLocalNetworkAccess(staticSettings{historyimport.SettingAllowPrivateDestinations: "true"}, nil)
+	return NewPlexProvider(historyimport.NewPlexClient()).ParseWebhook(trusted.Context(t.Context(), conn.UserID), conn, req)
+}
+
+func TestPlexProviderUsesEventStateNotOwnerMetadata(t *testing.T) {
+	t.Parallel()
+	server := newPlexMetadataServer(t)
+
+	scrobble, err := parsePlex(t, server, `{"event":"media.scrobble","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`)
+	if err != nil {
+		t.Fatalf("scrobble: %v", err)
+	}
+	if !scrobble.Apply || !scrobble.Completed || !scrobble.CompletionPerPlayback || scrobble.UserID != "5" {
+		t.Fatalf("unexpected scrobble: %#v", scrobble)
+	}
+	if scrobble.Record.LastPlayedAt == nil || scrobble.Record.LastPlayedAt.Year() == 2024 || scrobble.DurationSeconds != 600 || scrobble.Record.TMDBID != "10378" {
+		t.Fatalf("scrobble record = %#v", scrobble.Record)
+	}
+
+	pause, err := parsePlex(t, server, `{"event":"media.pause","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie","viewOffset":300000}}`)
+	if err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if !pause.Apply || pause.Completed || pause.PositionSeconds != 300 || pause.Record.LastPlayedAt != nil {
+		t.Fatalf("unexpected pause: %#v", pause)
+	}
+
+	unknownOffset, err := parsePlex(t, server, `{"event":"media.stop","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`)
+	if err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if unknownOffset.Apply {
+		t.Fatalf("stop without an offset should be ignored: %#v", unknownOffset)
+	}
+
+	play, err := parsePlex(t, server, `{"event":"media.play","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie","viewOffset":0}}`)
+	if err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if !play.Apply || play.Action != ActionPlaybackStarted {
+		t.Fatalf("unexpected play: %#v", play)
+	}
+}
+
+func TestPlexProviderRejectsMalformedPayloads(t *testing.T) {
+	t.Parallel()
+	server := newPlexMetadataServer(t)
+
+	for name, payload := range map[string]string{
+		"not json":        `not json`,
+		"missing event":   `{"Account":{"id":5},"Metadata":{"ratingKey":"42","type":"movie"}}`,
+		"missing account": `{"event":"media.scrobble","Metadata":{"ratingKey":"42","type":"movie"}}`,
+		"missing item":    `{"event":"media.scrobble","Account":{"id":5}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if event, err := parsePlex(t, server, payload); err == nil {
+				t.Fatalf("ParseWebhook() = %#v, want error", event)
+			}
+		})
+	}
+}
+
+// Plex webhooks identify the server owner by its server-local account ID, so
+// the owner's default mapping must use that ID rather than the plex.tv one.
+func TestPlexDefaultUserMapsServerOwnerAccount(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"MediaContainer":{"Account":[{"id":0,"name":""},{"id":1,"name":"owner"},{"id":23456789,"name":"Kid","home":true}]}}`))
+	}))
+	t.Cleanup(server.Close)
+	conn := &Connection{UserID: 7, BaseURL: server.URL, AccessToken: "owner-token"}
+	trusted := historyimport.NewLocalNetworkAccess(staticSettings{historyimport.SettingAllowPrivateDestinations: "true"}, nil)
+
+	id, name, ok, err := NewPlexProvider(historyimport.NewPlexClient()).DefaultUser(trusted.Context(t.Context(), conn.UserID), conn, CreateConnectionInput{AccessToken: "owner-token"})
+	if err != nil || !ok || id != "1" || name != "owner" {
+		t.Fatalf("DefaultUser() = (%q, %q, %v, %v), want (\"1\", \"owner\", true, nil)", id, name, ok, err)
 	}
 }
