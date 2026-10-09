@@ -747,6 +747,9 @@ func (r *serviceFakeRepo) GetListMediaItems(_ context.Context, mediaItemIDs []st
 }
 
 func (r *serviceFakeRepo) GetMediaTitles(ctx context.Context, mediaItemIDs []string) (map[string]MediaTitles, error) {
+	r.scrobbleMu.Lock()
+	r.mediaTitleLookups = append(r.mediaTitleLookups, append([]string(nil), mediaItemIDs...))
+	r.scrobbleMu.Unlock()
 	if r.mediaTitlesRelease != nil {
 		select {
 		case <-r.mediaTitlesRelease:
@@ -754,9 +757,6 @@ func (r *serviceFakeRepo) GetMediaTitles(ctx context.Context, mediaItemIDs []str
 			return nil, ctx.Err()
 		}
 	}
-	r.scrobbleMu.Lock()
-	r.mediaTitleLookups = append(r.mediaTitleLookups, append([]string(nil), mediaItemIDs...))
-	r.scrobbleMu.Unlock()
 	result := make(map[string]MediaTitles, len(mediaItemIDs))
 	for _, id := range mediaItemIDs {
 		if titles, ok := r.mediaTitles[id]; ok {
@@ -764,6 +764,12 @@ func (r *serviceFakeRepo) GetMediaTitles(ctx context.Context, mediaItemIDs []str
 		}
 	}
 	return result, nil
+}
+
+func (r *serviceFakeRepo) mediaTitleLookupCount() int {
+	r.scrobbleMu.Lock()
+	defer r.scrobbleMu.Unlock()
+	return len(r.mediaTitleLookups)
 }
 
 func (r *serviceFakeRepo) ListScrobbleConnections(_ context.Context, _ int, _ string) ([]Connection, error) {
@@ -2845,10 +2851,14 @@ func TestServiceConfirmedStopSendsIDsWhenTitleLookupStalls(t *testing.T) {
 type recordingWatchedExporter struct {
 	watchedImportExportStub
 	exported *[]LocalPlay
+	ctxErrs  *[]error
 }
 
 func (p recordingWatchedExporter) ExportHistory(ctx context.Context, cfg ServerConfig, conn Connection, plays []LocalPlay) (ExportResult, error) {
 	*p.exported = append(*p.exported, plays...)
+	if p.ctxErrs != nil {
+		*p.ctxErrs = append(*p.ctxErrs, ctx.Err())
+	}
 	return p.watchedImportExportStub.ExportHistory(ctx, cfg, conn, plays)
 }
 
@@ -2874,7 +2884,7 @@ func TestServiceExportWatchedSendsCatalogTitles(t *testing.T) {
 	repo.mediaTitles = map[string]MediaTitles{testMovieMediaID: {Kind: historyimport.KindMovie, Title: "17 Again", Year: 2009}}
 	service := NewService(repo, NewRegistry()).WithUserStoreProvider(staticStoreProvider{store: userdb.NewSQLiteUserStore(db)})
 	var exported []LocalPlay
-	exporter := recordingWatchedExporter{watchedImportExportStub{key: "simkl", source: userstore.WatchHistorySourceSimkl}, &exported}
+	exporter := recordingWatchedExporter{watchedImportExportStub{key: "simkl", source: userstore.WatchHistorySourceSimkl}, &exported, nil}
 	if _, err := service.ExportWatched(context.Background(), Connection{ID: "conn-1", Provider: "simkl", UserID: 7, ProfileID: "profile-1"}, ServerConfig{}, exporter); err != nil {
 		t.Fatal(err)
 	}
@@ -3575,6 +3585,44 @@ func TestServiceSweepOpenScrobblesRetriesProviderStop(t *testing.T) {
 	}
 }
 
+// A sync near its deadline gives the title lookup only part of the time left,
+// so the provider call that follows still has a live context.
+func TestServiceExportWatchedKeepsDeadlineForProviderWhenTitlesStall(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := userdb.InitSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := userdb.AddHistory(db, userstore.WatchHistoryEntry{
+		ID: testWatchHistoryID, ProfileID: "profile-1", MediaItemID: testMovieMediaID,
+		WatchedAt: "2026-05-04T12:00:00Z", DurationSeconds: 7200, Completed: true,
+		Source:   userstore.WatchHistorySourcePlayback,
+		Identity: userstore.WatchIdentity{StableType: "movie", ProviderIDs: map[string]string{"tmdb": "16996"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repo := newServiceFakeRepo()
+	repo.mediaTitles = map[string]MediaTitles{testMovieMediaID: {Kind: historyimport.KindMovie, Title: "17 Again", Year: 2009}}
+	release := make(chan struct{})
+	defer close(release)
+	repo.mediaTitlesRelease = release
+	service := NewService(repo, NewRegistry()).WithUserStoreProvider(staticStoreProvider{store: userdb.NewSQLiteUserStore(db)})
+	var exported []LocalPlay
+	var ctxErrs []error
+	exporter := recordingWatchedExporter{watchedImportExportStub{key: "simkl", source: userstore.WatchHistorySourceSimkl}, &exported, &ctxErrs}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	if _, err := service.ExportWatched(ctx, Connection{ID: "conn-1", Provider: "simkl", UserID: 7, ProfileID: "profile-1"}, ServerConfig{}, exporter); err != nil {
+		t.Fatal(err)
+	}
+	if len(ctxErrs) != 1 || ctxErrs[0] != nil || len(exported) != 1 || exported[0].Title != "" {
+		t.Fatalf("export context errors = %v, plays = %+v; want one live call with IDs alone", ctxErrs, exported)
+	}
+}
+
 // The sweep resends stops for every open session after a restart; it loads
 // their titles in one lookup rather than one per session.
 func TestServiceSweepOpenScrobblesLoadsTitlesOnce(t *testing.T) {
@@ -3608,6 +3656,36 @@ func TestServiceSweepOpenScrobblesLoadsTitlesOnce(t *testing.T) {
 	}
 	if len(repo.mediaTitleLookups) != 1 || len(repo.mediaTitleLookups[0]) != 2 {
 		t.Fatalf("title lookups = %v, want one lookup for both sessions", repo.mediaTitleLookups)
+	}
+}
+
+// Lookups for events waiting in one ordered queue run side by side, so a slow
+// catalog delays the queue by one timeout rather than one per event.
+func TestServiceScrobbleTitleLookupsStartBeforeTheirQueueTurn(t *testing.T) {
+	repo := newServiceFakeRepo()
+	release := make(chan struct{})
+	defer close(release)
+	repo.mediaTitlesRelease = release
+	repo.scrobbleConnections = []Connection{{ID: "conn-1", Provider: "trakt", UserID: 7, ProfileID: "profile-1", ScrobbleEnabled: true}}
+	reg := NewRegistry()
+	if err := reg.Register(scrobblerStub{}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repo, reg)
+	event := ScrobbleEvent{PlaybackSessionID: testPlaybackSessionID, UserID: 7, ProfileID: "profile-1", MediaItemID: testMovieMediaID, Kind: historyimport.KindMovie}
+	if err := service.ScrobbleStart(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ScrobblePause(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	// Well before one lookup can time out and free the queue for the next.
+	deadline := time.Now().Add(mediaTitleLookupTimeout / 2)
+	for repo.mediaTitleLookupCount() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("title lookups in flight = %d, want both queued events looking up", repo.mediaTitleLookupCount())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

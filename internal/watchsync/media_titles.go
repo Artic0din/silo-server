@@ -31,13 +31,18 @@ type mediaTitleResolver interface {
 
 // mediaTitles loads display titles by media item id. A lookup failure is
 // logged and the events go out with their IDs alone, as they did before
-// titles were sent.
+// titles were sent. The lookup takes at most half of the time ctx has left,
+// so the provider call that follows keeps the rest.
 func (s *Service) mediaTitles(ctx context.Context, mediaItemIDs []string) map[string]MediaTitles {
 	resolver, ok := s.repo.(mediaTitleResolver)
 	if !ok || len(mediaItemIDs) == 0 {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, mediaTitleLookupTimeout)
+	timeout := mediaTitleLookupTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = min(timeout, time.Until(deadline)/2)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	titles, err := resolver.GetMediaTitles(ctx, mediaItemIDs)
 	if err != nil {
@@ -80,14 +85,17 @@ func scrobbleWithTitles(event ScrobbleEvent, titles map[string]MediaTitles) Scro
 	return event
 }
 
-// lazyScrobbleTitles returns a function that yields event with its display
-// titles, looked up once, when the first provider dispatch needs them. The
-// lookup keeps ctx's values but not its deadline: it runs after the caller's
-// session writes and enqueue, so a slow lookup costs the event its titles,
-// never the event itself.
-func (s *Service) lazyScrobbleTitles(ctx context.Context, event ScrobbleEvent) func() ScrobbleEvent {
+// startScrobbleTitles starts looking up event's display titles in the
+// background and returns a function that waits for the result. The lookup
+// keeps ctx's values but not its deadline, so a slow lookup costs the event
+// its titles, never the event itself. It starts before the event joins its
+// ordered dispatch queue, so lookups for queued events overlap instead of
+// each waiting for the previous event's turn.
+func (s *Service) startScrobbleTitles(ctx context.Context, event ScrobbleEvent) func() ScrobbleEvent {
 	ctx = context.WithoutCancel(ctx)
-	return sync.OnceValue(func() ScrobbleEvent { return s.withScrobbleTitles(ctx, event) })
+	result := make(chan ScrobbleEvent, 1)
+	go func() { result <- s.withScrobbleTitles(ctx, event) }()
+	return sync.OnceValue(func() ScrobbleEvent { return <-result })
 }
 
 // titledWithin returns titled() if it finishes within half of the time left

@@ -2099,7 +2099,14 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 	if confirm && len(conns) == 0 {
 		return nil
 	}
-	titled := s.lazyScrobbleTitles(ctx, event)
+	// The title lookup starts with the first dispatch and is shared by all.
+	var titled func() ScrobbleEvent
+	startTitles := func() func() ScrobbleEvent {
+		if titled == nil {
+			titled = s.startScrobbleTitles(ctx, event)
+		}
+		return titled
+	}
 	var dispatchErrors []error
 	var confirmedTargets []confirmedScrobbleTarget
 	for _, conn := range conns {
@@ -2167,9 +2174,10 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 			_ = s.repo.UpdateScrobbleSession(ctx, event.PlaybackSessionID, conn.ID, action, event.PositionSeconds, event.HistoryID, err.Error(), nil)
 			continue
 		}
-		s.dispatchScrobbleAsync(scrobbler, cfg, conn, event, titled, action)
+		s.dispatchScrobbleAsync(scrobbler, cfg, conn, event, startTitles(), action)
 	}
 	if len(confirmedTargets) > 0 {
+		confirmedTitles := startTitles()
 		results := make(chan error, len(confirmedTargets))
 		for _, target := range confirmedTargets {
 			go func() {
@@ -2181,7 +2189,7 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 					target.scrobbler,
 					target.connection,
 					event,
-					titled,
+					confirmedTitles,
 				)
 			}()
 		}

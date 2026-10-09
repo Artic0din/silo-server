@@ -76,8 +76,10 @@ fills them from the catalog just before the events go out, because neither
 history rows nor scrobble sessions store titles. A playback event looks its
 titles up once, at its first provider dispatch, after the session writes and
 off the caller's deadline, so a slow lookup can cost the event its titles but
-never the event. A confirmed stop, which has already claimed its delivery,
-waits for its titles for at most half of the time it has left. An episode's `title` is its
+never the event. The lookup starts before the event joins its ordered
+dispatch queue, so queued events' lookups overlap. Any title lookup takes at
+most half of the time its caller has left, and a confirmed stop, which has
+already claimed its delivery, waits for its titles no longer than that. An episode's `title` is its
 own, and its `year` is its series' year, as on the import side. An item whose
 event kind differs from its catalog kind gets no titles: an episode without
 provider IDs is sent as a movie, and must not arrive named after the episode.
