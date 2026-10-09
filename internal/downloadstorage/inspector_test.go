@@ -37,3 +37,16 @@ func TestInspectorBoundsAndSerializesReads(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A completed read frees the slot before the caller sees its answer, so the
+// next call starts a new read.
+func TestInspectorFreesTheSlotBeforeAnswering(t *testing.T) {
+	in := &Inspector{read: func(dir, _ string, now time.Time) Listing {
+		return Listing{Usage: Usage{Dir: dir, MeasuredAt: now}}
+	}}
+	for i := range 100 {
+		if _, err := in.Inspect(context.Background(), "/dir", "", time.Second); err != nil {
+			t.Fatalf("read %d = %v", i, err)
+		}
+	}
+}

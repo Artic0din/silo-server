@@ -37,8 +37,11 @@ func (in *Inspector) Inspect(ctx context.Context, dir, scratchDir string, limit 
 	}
 	result := make(chan Listing, 1)
 	go func() {
-		defer in.inFlight.Store(false)
-		result <- read(dir, scratchDir, time.Now())
+		listing := read(dir, scratchDir, time.Now())
+		// Free the slot before publishing, so a call made right after this
+		// one returns is never refused as busy. result is buffered.
+		in.inFlight.Store(false)
+		result <- listing
 	}()
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
