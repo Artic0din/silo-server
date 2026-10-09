@@ -433,10 +433,7 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, record.UpdatedAt); err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
 	} else if newer {
-		// A per-playback completion still ends its playback, so the rest of it
-		// (a stop in the credits, a repeated scrobble) stays ignored even
-		// though newer Silo progress kept this one from applying.
-		if event.CompletionPerPlayback && event.Completed {
+		if endsPlaybackWithoutApplying(state, event) {
 			if err := s.repo.UpsertItemState(ctx, applied); err != nil {
 				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback completion")
 			}
@@ -549,6 +546,20 @@ func mappingsToDiscoveredUsers(mappings []ProfileMapping) []DiscoveredUser {
 		})
 	}
 	return out
+}
+
+// endsPlaybackWithoutApplying reports whether a progress event that newer
+// Silo progress kept from applying should still be recorded as ending its
+// playback. A per-playback completion does, so the rest of that playback (a
+// stop in the credits, a repeated scrobble) stays ignored. An event no newer
+// than the pair's last one, such as a scrobble whose lookup finished late, is
+// not recorded, so the state's time never moves back and a playback that has
+// since restarted is not closed again.
+func endsPlaybackWithoutApplying(state *ItemState, event *CanonicalEvent) bool {
+	if !event.CompletionPerPlayback || !event.Completed {
+		return false
+	}
+	return state == nil || event.OccurredAt.After(state.LastEventAt)
 }
 
 // shouldSkipEvent reports whether a progress event is stale or repeats one

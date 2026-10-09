@@ -606,3 +606,30 @@ func TestProgressOutranksEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestEndsPlaybackWithoutApplying(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
+	scrobble := &CanonicalEvent{OccurredAt: at, Completed: true, CompletionPerPlayback: true}
+	cases := []struct {
+		name  string
+		state *ItemState
+		event *CanonicalEvent
+		want  bool
+	}{
+		{name: "first scrobble", event: scrobble, want: true},
+		{name: "scrobble after an older event", state: &ItemState{LastEventAt: at.Add(-time.Minute)}, event: scrobble, want: true},
+		{name: "scrobble older than the last event", state: &ItemState{LastEventAt: at.Add(time.Minute)}, event: scrobble, want: false},
+		{name: "scrobble at the last event's time", state: &ItemState{LastEventAt: at}, event: scrobble, want: false},
+		{name: "pause", event: &CanonicalEvent{OccurredAt: at, CompletionPerPlayback: true}, want: false},
+		{name: "completion without per-playback semantics", event: &CanonicalEvent{OccurredAt: at, Completed: true}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := endsPlaybackWithoutApplying(tc.state, tc.event); got != tc.want {
+				t.Fatalf("endsPlaybackWithoutApplying() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
