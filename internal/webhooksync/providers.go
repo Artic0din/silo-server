@@ -374,7 +374,9 @@ func (p *JellyfinProvider) ParseWebhook(_ context.Context, conn *Connection, r *
 		} `json:"playback"`
 		UserData struct {
 			SaveReason string `json:"save_reason"`
-			Played     bool   `json:"played"`
+			// Played is a pointer so a toggle that omits it is rejected
+			// rather than read as a mark-unplayed.
+			Played *bool `json:"played"`
 		} `json:"user_data"`
 	}
 	decoder := json.NewDecoder(r.Body)
@@ -387,7 +389,12 @@ func (p *JellyfinProvider) ParseWebhook(_ context.Context, conn *Connection, r *
 	if strings.TrimSpace(payload.NotificationType) == "" {
 		return nil, fmt.Errorf("invalid Jellyfin webhook payload")
 	}
-	action, completed, ok := jellyfinWebhookAction(payload.NotificationType, payload.UserData.SaveReason, payload.UserData.Played, payload.Playback.PlayedToCompletion)
+	isToggle := payload.NotificationType == jellyfinUserDataSaved && strings.EqualFold(payload.UserData.SaveReason, jellyfinTogglePlayed)
+	if isToggle && payload.UserData.Played == nil {
+		return nil, fmt.Errorf("invalid Jellyfin webhook payload")
+	}
+	played := payload.UserData.Played != nil && *payload.UserData.Played
+	action, completed, ok := jellyfinWebhookAction(payload.NotificationType, payload.UserData.SaveReason, played, payload.Playback.PlayedToCompletion)
 	if !ok {
 		return &CanonicalEvent{
 			EventKind: payload.NotificationType,
