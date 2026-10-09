@@ -10,17 +10,21 @@ vote-weighted rating.
 ## Vote counts
 
 Metadata providers report TMDB's score and vote count as the `tmdb` rating
-source, which the server stores in `media_item_rating_sources`. The TMDB plugin
-sends it from silo.tmdb 1.2.25; MDBList sends it too. A trigger on that table
-(`trg_media_item_rating_sources_tmdb_votes`) copies the row's count and average
-(score / 10) onto `media_items.tmdb_vote_count` and `tmdb_vote_average` in the
-same statement as every insert, update or delete of a `tmdb` row, so the rows
-can filter and index them without a join and no writer can leave them stale. A
+source, which the server stores in `media_item_rating_sources`. The TMDB
+plugin sends it from silo.tmdb 1.2.25; MDBList sends it too. A trigger on that
+table (`trg_media_item_rating_sources_tmdb_votes`) copies the row's count and
+average (score / 10) onto `media_items.tmdb_vote_count` and
+`tmdb_vote_average` in the same statement as every insert, update or delete of
+a `tmdb` row, so the rows can filter and index them without a join and no
+writer can leave them stale. Because the trigger updates the item after the
+source row, every writer of rating sources locks the item first
+(`RatingSourceRepository` does it explicitly; catalog import and content-ID
+renames already do), so writers wait for one another instead of deadlocking. A
 missing source or a zero count leaves both NULL, and a NULL count never
 qualifies: an item without a known count is left out until a refresh supplies
-one. Catalog transfer carries each item's `tmdb` rating source, so the
-trigger derives the pair on import as well; a bundle exported before that
-leaves the target's sources in place.
+one. Catalog transfer carries each item's `tmdb` rating source, so the trigger
+derives the pair on import as well; a bundle exported before that leaves the
+target's sources in place.
 
 The pair always comes from one row. `rating_tmdb` is not used for ranking: a
 scheduled refresh never overwrites it, so it can predate the stored count, and

@@ -17,7 +17,9 @@ ALTER TABLE public.media_items
 -- A trigger keeps the pair in step with every write of a 'tmdb' rating source,
 -- in the same statement, so no writer can leave it stale. A missing source or
 -- a zero count clears both. It is installed before the backfill so writes made
--- during the backfill are covered.
+-- during the backfill are covered. The trigger updates the item after the
+-- source row, so every writer of rating sources locks the item first (see
+-- catalog.lockRatingSourceItem) and none can deadlock with another.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.sync_media_item_tmdb_votes()
 RETURNS trigger
