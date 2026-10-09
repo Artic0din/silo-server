@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   updateNode: vi.fn(),
   preparations: undefined as AdminDownloadPreparationList | undefined,
   entries: [] as AdminDownloadEntry[],
-  untrackedError: null as Error | null,
+  toastError: vi.fn(),
   preparationAction: vi.fn(),
   logParams: [] as unknown[],
 }));
@@ -72,8 +72,6 @@ vi.mock("@/hooks/queries/admin/downloadStorage", () => ({
   useDeleteAdminDownloadStorageUntrackedFiles: () => ({
     mutate: mocks.deleteUntracked,
     isPending: false,
-    error: mocks.untrackedError,
-    reset: vi.fn(),
   }),
   useRevokeAdminDownloads: () => ({ mutate: mocks.revoke, isPending: false }),
 }));
@@ -100,7 +98,7 @@ vi.mock("@/hooks/queries/admin/logs", () => ({
   },
 }));
 vi.mock("sonner", () => ({
-  toast: { success: mocks.toastSuccess, info: vi.fn(), error: vi.fn() },
+  toast: { success: mocks.toastSuccess, info: vi.fn(), error: mocks.toastError },
 }));
 
 import AdminDownloads from "./AdminDownloads";
@@ -143,7 +141,6 @@ beforeEach(() => {
   mocks.preparations = undefined;
   mocks.logParams = [];
   mocks.entries = [];
-  mocks.untrackedError = null;
 });
 afterEach(cleanup);
 
@@ -176,15 +173,17 @@ describe("AdminDownloads storage tab", () => {
   });
 
   it("says why deleting untracked files failed", () => {
-    mocks.untrackedError = new Error("network down");
+    mocks.deleteUntracked.mockImplementation(
+      (_location: string, options: { onError: (error: Error) => void }) =>
+        options.onError(new Error("network down")),
+    );
     renderAt();
     const node = screen.getByRole("region", { name: "node-gpu-1" });
     fireEvent.click(within(node).getByRole("button", { name: "Review" }));
-    expect(
-      within(screen.getByRole("alertdialog")).getByText(
-        "The untracked files could not be deleted. Try again.",
-      ),
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete untracked files" }));
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "The untracked files could not be deleted. Try again.",
+    );
   });
 
   it("saves only the node override that changed", () => {

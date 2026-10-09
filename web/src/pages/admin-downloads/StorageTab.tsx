@@ -196,13 +196,8 @@ export default function StorageTab({
       <ConfirmDialog
         open={untrackedTarget !== null}
         onOpenChange={(open) => {
-          if (open) return;
-          setUntrackedTarget(null);
-          deleteUntracked.reset();
+          if (!open) setUntrackedTarget(null);
         }}
-        error={
-          untrackedTarget ? untrackedDeleteError(deleteUntracked.error, untrackedTarget.name) : null
-        }
         title={untrackedTarget ? `Delete untracked files on ${untrackedTarget.name}?` : ""}
         description={
           untrackedTarget
@@ -225,6 +220,8 @@ export default function StorageTab({
               );
               setUntrackedTarget(null);
             },
+            // The dialog closes on confirm, so a failure is reported here.
+            onError: (error) => toast.error(untrackedDeleteError(error, target.name)),
           });
         }}
       />
@@ -232,9 +229,8 @@ export default function StorageTab({
   );
 }
 
-/** Why deleting untracked files failed, shown in the confirm dialog. */
-function untrackedDeleteError(error: Error | null, name: string): string | null {
-  if (!error) return null;
+/** Why deleting untracked files failed. */
+function untrackedDeleteError(error: Error, name: string): string {
   if (error instanceof V2ProblemError && error.status === 503) {
     return `Couldn't list ${name}'s directory. Try again later.`;
   }
