@@ -74,6 +74,10 @@ func (p *PlexProvider) DiscoverUsers(ctx context.Context, conn *Connection, mapp
 }
 
 func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *http.Request) (*CanonicalEvent, error) {
+	// Plex events carry no timestamp. The receipt time is taken before any
+	// lookup so lookup latency cannot reorder events or let a delivery look
+	// newer than Silo activity written while it waited.
+	occurredAt := time.Now().UTC().Truncate(time.Microsecond)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		return nil, fmt.Errorf("invalid multipart request")
 	}
@@ -107,6 +111,24 @@ func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *ht
 			Apply:     false,
 		}, nil
 	}
+	userID := strconv.FormatInt(payload.Account.ID, 10)
+	// A playback start only needs the account and item IDs, so it is recorded
+	// even when the server cannot be reached.
+	if action == ActionPlaybackStarted {
+		return &CanonicalEvent{
+			Provider:       ProviderPlex,
+			ServerName:     conn.ServerName,
+			OccurredAt:     occurredAt,
+			Action:         action,
+			EventKind:      payload.Event,
+			UserID:         userID,
+			UserName:       payload.Account.Title,
+			ExternalItemID: payload.Metadata.RatingKey,
+			MediaKind:      payload.Metadata.Type,
+			Summary:        "Noted Plex playback start",
+			Apply:          true,
+		}, nil
+	}
 	// A pause or stop without the player's offset carries no progress to record.
 	if action == ActionImportProgress && !completed && payload.Metadata.ViewOffset <= 0 {
 		return &CanonicalEvent{
@@ -134,7 +156,6 @@ func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *ht
 	// state belongs to the connection token's owner, so the watched state and
 	// position come from the event, which describes the account that played.
 	canonical := fromHistoryImportRecord(historyimport.NormalizePlexItem(*item, series))
-	occurredAt := time.Now().UTC().Truncate(time.Microsecond)
 	canonical.UpdatedAt = occurredAt
 	canonical.Played = completed
 	canonical.PositionSeconds = float64(payload.Metadata.ViewOffset) / 1000
@@ -148,7 +169,7 @@ func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *ht
 		OccurredAt:            occurredAt,
 		Action:                action,
 		EventKind:             payload.Event,
-		UserID:                strconv.FormatInt(payload.Account.ID, 10),
+		UserID:                userID,
 		UserName:              payload.Account.Title,
 		ExternalItemID:        payload.Metadata.RatingKey,
 		MediaKind:             payload.Metadata.Type,

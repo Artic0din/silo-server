@@ -325,6 +325,24 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	}
 	profileID := result.ProfileID
 
+	// A new playback lets the next completion count as another watch. Its item
+	// state is keyed by the external IDs, so it needs no metadata or match.
+	if event.Action == ActionPlaybackStarted {
+		state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID)
+		if err != nil {
+			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
+		}
+		if state != nil && state.LastCompleted {
+			state.LastCompleted = false
+			if err := s.repo.UpsertItemState(ctx, *state); err != nil {
+				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback start")
+			}
+		}
+		result.Outcome = OutcomeIgnored
+		result.Summary = "Noted playback start; watch state unchanged"
+		return result, nil
+	}
+
 	record := event.Record.toHistoryImportRecord()
 	match, _, err := s.matcher.Match(ctx, record)
 	if err != nil {
@@ -389,21 +407,6 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 		}
 		result.Outcome = OutcomeApplied
 		result.Summary = "Applied favorite toggle event"
-		return result, nil
-	case ActionPlaybackStarted:
-		// A new playback lets the next completion count as another watch.
-		state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID)
-		if err != nil {
-			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
-		}
-		if state != nil && state.LastCompleted {
-			state.LastCompleted = false
-			if err := s.repo.UpsertItemState(ctx, *state); err != nil {
-				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback start")
-			}
-		}
-		result.Outcome = OutcomeIgnored
-		result.Summary = "Noted playback start; watch state unchanged"
 		return result, nil
 	case "", ActionImportProgress:
 	default:

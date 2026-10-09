@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -505,6 +506,30 @@ func TestPlexProviderUsesEventStateNotOwnerMetadata(t *testing.T) {
 	}
 	if !play.Apply || play.Action != ActionPlaybackStarted {
 		t.Fatalf("unexpected play: %#v", play)
+	}
+}
+
+// A playback start resets the per-playback completion from the event's IDs
+// alone, so an unreachable server cannot make the next scrobble look like part
+// of the previous playback.
+func TestPlexProviderPlaybackStartSkipsMetadata(t *testing.T) {
+	t.Parallel()
+	var lookups atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lookups.Add(1)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	play, err := parsePlex(t, server, `{"event":"media.play","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`)
+	if err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if !play.Apply || play.Action != ActionPlaybackStarted || play.UserID != "5" || play.ExternalItemID != "42" || play.OccurredAt.IsZero() {
+		t.Fatalf("unexpected play: %#v", play)
+	}
+	if n := lookups.Load(); n != 0 {
+		t.Fatalf("play made %d metadata lookups, want 0", n)
 	}
 }
 

@@ -599,8 +599,9 @@ Watch-state rules, shared by the v2 and bridge receivers:
   and runtime only, because its view state belongs to the connection token's
   owner. Plex events carry no timestamp, so Silo uses the receipt time. After a
   scrobble, further events for the same user and item (a repeated scrobble, a stop
-  in the credits) are ignored until a `media.play` starts a new playback. Plex sends
-  no webhook for manual watched or unwatched marks.
+  in the credits) are ignored until a `media.play` starts a new playback. A
+  `media.play` needs no metadata lookup or catalog match. Plex sends no webhook
+  for manual watched or unwatched marks.
 - Jellyfin: `PlaybackStop` records position and `played_to_completion`.
   `UserDataSaved` with save reason `TogglePlayed` marks the item played or
   unplayed by its `played` boolean, and is malformed without one; other save
