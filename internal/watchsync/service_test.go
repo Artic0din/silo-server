@@ -53,6 +53,7 @@ type serviceFakeRepo struct {
 	ratingStates           []RatingSyncState
 	droppedStates          []DroppedSyncState
 	listMedia              map[string]LocalFavorite
+	mediaTitles            map[string]MediaTitles
 	scrobbleConnections    []Connection
 	scrobbleSessions       []ScrobbleSession
 	pendingReconciliations []ScrobbleSession
@@ -738,6 +739,16 @@ func (r *serviceFakeRepo) GetListMediaItems(_ context.Context, mediaItemIDs []st
 	for _, id := range mediaItemIDs {
 		if item, ok := r.listMedia[id]; ok {
 			result[id] = item
+		}
+	}
+	return result, nil
+}
+
+func (r *serviceFakeRepo) GetMediaTitles(_ context.Context, mediaItemIDs []string) (map[string]MediaTitles, error) {
+	result := make(map[string]MediaTitles, len(mediaItemIDs))
+	for _, id := range mediaItemIDs {
+		if titles, ok := r.mediaTitles[id]; ok {
+			result[id] = titles
 		}
 	}
 	return result, nil
@@ -2708,6 +2719,92 @@ func TestServiceCompletedScrobblePersistsAndSatisfiesHistoryExport(t *testing.T)
 	}
 	if repo.historyExports[0].Status != historyExportStatusSatisfiedByScrobble {
 		t.Fatalf("history export status = %q", repo.historyExports[0].Status)
+	}
+}
+
+// Playback events reach a plugin with the catalog's titles, so a provider can
+// create a title it has never seen (#2196). An episode whose identity fell back
+// to a movie gets none, or the plugin would see a movie named after it.
+func TestServiceSendsCatalogTitlesWithPluginScrobbles(t *testing.T) {
+	episode := ScrobbleEvent{
+		MediaItemID: testEpisodeMediaID, Kind: historyimport.KindEpisode,
+		SeriesTMDBID: "1396", SeasonNumber: 1, EpisodeNumber: 1,
+	}
+	unresolved := ScrobbleEvent{MediaItemID: testEpisodeMediaID, Kind: historyimport.KindMovie}
+	for _, tc := range []struct {
+		name  string
+		event ScrobbleEvent
+		want  []any
+	}{
+		{"episode", episode, []any{"Pilot", int32(2008), "Breaking Bad", int32(2008)}},
+		{"episode resolved as movie", unresolved, []any{"", int32(0), "", int32(0)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newServiceFakeRepo()
+			repo.mediaTitles = map[string]MediaTitles{testEpisodeMediaID: {
+				Kind: historyimport.KindEpisode, Title: "Pilot", Year: 2008, SeriesTitle: "Breaking Bad", SeriesYear: 2008,
+			}}
+			repo.scrobbleConnections = []Connection{{ID: "conn-1", Provider: testPluginProviderKey, UserID: 7, ProfileID: "profile-1", ScrobbleEnabled: true}}
+			client := &fakeWatchSyncPluginClient{applyStatus: pluginv1.WatchSyncApplyStatus_WATCH_SYNC_APPLY_STATUS_APPLIED}
+			reg := NewRegistry()
+			if err := reg.Register(testPluginProviderWithDescriptor(t, client, &pluginv1.WatchSyncProviderDescriptor{
+				AuthMethods:      []pluginv1.WatchSyncAuthMethod{pluginv1.WatchSyncAuthMethod_WATCH_SYNC_AUTH_METHOD_API_KEY},
+				ScrobblePlayback: true, MaxBatchSize: 25,
+			})); err != nil {
+				t.Fatal(err)
+			}
+			event := tc.event
+			event.PlaybackSessionID, event.UserID, event.ProfileID, event.OccurredAt = testPlaybackSessionID, 7, "profile-1", time.Now().UTC()
+			if err := NewService(repo, reg).ScrobbleStopConfirmed(context.Background(), event); err != nil {
+				t.Fatal(err)
+			}
+			media := client.applyRequest.GetEvents()[0].GetMedia()
+			got := []any{media.GetTitle(), media.GetYear(), media.GetSeriesTitle(), media.GetSeriesYear()}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("title, year, series title, series year = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+type recordingWatchedExporter struct {
+	watchedImportExportStub
+	exported *[]LocalPlay
+}
+
+func (p recordingWatchedExporter) ExportHistory(ctx context.Context, cfg ServerConfig, conn Connection, plays []LocalPlay) (ExportResult, error) {
+	*p.exported = append(*p.exported, plays...)
+	return p.watchedImportExportStub.ExportHistory(ctx, cfg, conn, plays)
+}
+
+// Watched exports carry the catalog's titles too; history rows store only IDs.
+func TestServiceExportWatchedSendsCatalogTitles(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := userdb.InitSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := userdb.AddHistory(db, userstore.WatchHistoryEntry{
+		ID: testWatchHistoryID, ProfileID: "profile-1", MediaItemID: testMovieMediaID,
+		WatchedAt: "2026-05-04T12:00:00Z", DurationSeconds: 7200, Completed: true,
+		Source:   userstore.WatchHistorySourcePlayback,
+		Identity: userstore.WatchIdentity{StableType: "movie", ProviderIDs: map[string]string{"tmdb": "16996"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repo := newServiceFakeRepo()
+	repo.mediaTitles = map[string]MediaTitles{testMovieMediaID: {Kind: historyimport.KindMovie, Title: "17 Again", Year: 2009}}
+	service := NewService(repo, NewRegistry()).WithUserStoreProvider(staticStoreProvider{store: userdb.NewSQLiteUserStore(db)})
+	var exported []LocalPlay
+	exporter := recordingWatchedExporter{watchedImportExportStub{key: "simkl", source: userstore.WatchHistorySourceSimkl}, &exported}
+	if _, err := service.ExportWatched(context.Background(), Connection{ID: "conn-1", Provider: "simkl", UserID: 7, ProfileID: "profile-1"}, ServerConfig{}, exporter); err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 1 || exported[0].Title != "17 Again" || exported[0].Year != 2009 {
+		t.Fatalf("exported plays = %+v", exported)
 	}
 }
 

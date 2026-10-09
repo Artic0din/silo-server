@@ -1,0 +1,94 @@
+package watchsync
+
+import (
+	"context"
+	"log/slog"
+	"strings"
+	"time"
+)
+
+// mediaTitleLookupTimeout bounds the title lookup. Titles are best effort and
+// must not hold up a scrobble behind a slow database.
+const mediaTitleLookupTimeout = 5 * time.Second
+
+// MediaTitles is the catalog display identity of a local media item. Kind is
+// the catalog's: movie, series, or episode. For an episode, Title is the
+// episode's own, and Year, SeriesTitle and SeriesYear come from its series,
+// as on the import side (an episode's year is its series' year). Providers
+// that create titles they have not seen yet need these alongside the IDs.
+type MediaTitles struct {
+	Kind        string
+	Title       string
+	Year        int
+	SeriesTitle string
+	SeriesYear  int
+}
+
+type mediaTitleResolver interface {
+	GetMediaTitles(ctx context.Context, mediaItemIDs []string) (map[string]MediaTitles, error)
+}
+
+// mediaTitles loads display titles by media item id. A lookup failure is
+// logged and the events go out with their IDs alone, as they did before
+// titles were sent.
+func (s *Service) mediaTitles(ctx context.Context, mediaItemIDs []string) map[string]MediaTitles {
+	resolver, ok := s.repo.(mediaTitleResolver)
+	if !ok || len(mediaItemIDs) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, mediaTitleLookupTimeout)
+	defer cancel()
+	titles, err := resolver.GetMediaTitles(ctx, mediaItemIDs)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to load media titles for watch provider events", "component", "watchsync", "error", err)
+		return nil
+	}
+	return titles
+}
+
+// titlesFor returns the titles of an item whose event resolved to kind. An
+// item that resolved to another kind gets none: an episode without provider
+// IDs falls back to a movie event, and must not reach a provider as a movie
+// named after the episode.
+func titlesFor(titles map[string]MediaTitles, mediaItemID, kind string) (MediaTitles, bool) {
+	found, ok := titles[mediaItemID]
+	if !ok || !strings.EqualFold(strings.TrimSpace(kind), found.Kind) {
+		return MediaTitles{}, false
+	}
+	return found, true
+}
+
+// withScrobbleTitles fills the display titles of a playback event that does
+// not carry them yet.
+func (s *Service) withScrobbleTitles(ctx context.Context, event ScrobbleEvent) ScrobbleEvent {
+	if event.Title != "" || event.MediaItemID == "" {
+		return event
+	}
+	if found, ok := titlesFor(s.mediaTitles(ctx, []string{event.MediaItemID}), event.MediaItemID, event.Kind); ok {
+		event.Title, event.Year, event.SeriesTitle, event.SeriesYear = found.Title, found.Year, found.SeriesTitle, found.SeriesYear
+	}
+	return event
+}
+
+// withPlayTitles returns plays with the display titles of those that do not
+// carry them yet filled in. The input slice is not modified.
+func (s *Service) withPlayTitles(ctx context.Context, plays []LocalPlay) []LocalPlay {
+	ids := make([]string, 0, len(plays))
+	for _, play := range plays {
+		if play.Title == "" && play.MediaItemID != "" {
+			ids = append(ids, play.MediaItemID)
+		}
+	}
+	titles := s.mediaTitles(ctx, ids)
+	if len(titles) == 0 {
+		return plays
+	}
+	out := make([]LocalPlay, len(plays))
+	for i, play := range plays {
+		if found, ok := titlesFor(titles, play.MediaItemID, play.Kind); ok && play.Title == "" {
+			play.Title, play.Year, play.SeriesTitle, play.SeriesYear = found.Title, found.Year, found.SeriesTitle, found.SeriesYear
+		}
+		out[i] = play
+	}
+	return out
+}

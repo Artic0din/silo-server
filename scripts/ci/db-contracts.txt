@@ -157,3 +157,6 @@
 # discovery rows rank by in step with the 'tmdb' source.
 ./internal/catalog TestRatingSourceRepositoryUpsertPostgres
 ./internal/catalog TestRatingSourceRepositorySyncsTMDBVotesPostgres
+
+# Watch-provider events carry catalog titles to plugins.
+./internal/watchsync TestGetMediaTitlesDB

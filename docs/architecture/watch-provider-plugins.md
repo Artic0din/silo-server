@@ -67,6 +67,23 @@ Trakt collections and trending send profile tokens issued to the Trakt app, so
 they read the client ID from the Trakt plugin. They fall back to the legacy
 setting only when no Trakt plugin is configured.
 
+## Event media
+
+Playback scrobbles, watched exports and unwatch events send a plugin the
+item's catalog `title`, `year`, `series_title` and `series_year` with its
+external IDs, so a provider can create a title it has not seen. The service
+fills them from the catalog just before the events go out, because neither
+history rows nor scrobble sessions store titles. An episode's `title` is its
+own, and its `year` is its series' year, as on the import side. An item whose
+event kind differs from its catalog kind gets no titles: an episode without
+provider IDs is sent as a movie, and must not arrive named after the episode.
+The lookup is best effort; when it fails, events go out with their IDs alone.
+
+On connect, a plugin's `INVALID_REQUEST` or `PERMANENT` fault and a
+connection config the host rejects mean the profile's input can't work. The
+v2 API answers them `422 validation_failed` with the plugin's safe message,
+scrubbed of the API key and every config secret.
+
 ## Upgrade path
 
 Plugin auto-update installs a first-party plugin from the Silo repository when

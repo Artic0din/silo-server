@@ -380,6 +380,9 @@ func (s *Service) processLocalWatchEvent(ctx context.Context, event LocalWatchEv
 	if err != nil {
 		return err
 	}
+	if len(conns) > 0 {
+		event.Plays = s.withPlayTitles(ctx, event.Plays)
+	}
 	for _, conn := range conns {
 		provider, ok := s.registry.Get(conn.Provider)
 		if !ok {
@@ -1641,6 +1644,7 @@ func (s *Service) ExportWatched(
 			continue
 		}
 		pendingPlays, singleBatch := limitWatchedExportBatch(exporter, pendingPlays)
+		pendingPlays = s.withPlayTitles(ctx, pendingPlays)
 		exportResult, err := exporter.ExportHistory(ctx, cfg, conn, pendingPlays)
 		_, limited := AsRateLimited(err)
 		retryable := isRetryableProviderError(err)
@@ -2095,6 +2099,9 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 	if confirm && len(conns) == 0 {
 		return nil
 	}
+	if len(conns) > 0 {
+		event = s.withScrobbleTitles(ctx, event)
+	}
 	var dispatchErrors []error
 	var confirmedTargets []confirmedScrobbleTarget
 	for _, conn := range conns {
@@ -2394,7 +2401,8 @@ func (s *Service) SweepOpenScrobbles(ctx context.Context) error {
 			_ = s.repo.UpdateScrobbleSession(ctx, session.PlaybackSessionID, session.ConnectionID, "stop", session.LastProgress, session.HistoryID, err.Error(), nil)
 			continue
 		}
-		_ = s.dispatchScrobble(ctx, scrobbler, cfg, conn, scrobbleEventFromSession(session, conn, s.now()), "stop", nil)
+		event := s.withScrobbleTitles(ctx, scrobbleEventFromSession(session, conn, s.now()))
+		_ = s.dispatchScrobble(ctx, scrobbler, cfg, conn, event, "stop", nil)
 	}
 	return reconciliationErr
 }

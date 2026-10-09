@@ -235,8 +235,11 @@ func (p *PluginProvider) ConnectWithAPIKeyConfig(
 		return TokenSet{}, ProviderAccount{}, watchSyncRPCError()
 	}
 	faultSecrets := append([]string{apiKey}, connectionSecrets...)
+	for _, value := range config.GetSecretValues() {
+		faultSecrets = append(faultSecrets, value)
+	}
 	if err := watchSyncFaultError(p.Key(), response.GetFault(), faultSecrets...); err != nil {
-		return TokenSet{}, ProviderAccount{}, err
+		return TokenSet{}, ProviderAccount{}, connectFaultError(err)
 	}
 	tokens, err := tokenSetFromProto(response.GetCredentials())
 	if err != nil {
@@ -647,7 +650,10 @@ func (p *PluginProvider) connectionConfig(values ConnectionConfigValues) (*plugi
 		value, exists := values[schema.GetKey()]
 		if !exists {
 			if schema.GetRequired() {
-				return nil, nil, fmt.Errorf("watch sync connection config %q is required", schema.GetKey())
+				return nil, nil, sanitizedConnectionConfigError(
+					fmt.Errorf("watch sync connection config %q is required", schema.GetKey()),
+					secrets,
+				)
 			}
 			continue
 		}
@@ -727,11 +733,23 @@ func connectionConfigSecrets(schemas []*pluginv1.ConfigSchema, values Connection
 }
 
 func sanitizedConnectionConfigError(err error, secrets []string) error {
-	return errors.New(sanitizeWatchSyncMessage(
+	return InvalidConnectionInputError{Message: sanitizeWatchSyncMessage(
 		err.Error(),
 		"watch sync connection config is invalid",
 		secrets...,
-	))
+	)}
+}
+
+// connectFaultError classifies a plugin's fault answer to a connect. The
+// profile supplied the API key and connection config, so INVALID_REQUEST and
+// PERMANENT mean that input can't work and the plugin's safe message says why.
+func connectFaultError(err error) error {
+	var fault watchSyncProviderFaultError
+	if errors.As(err, &fault) && (fault.code == pluginv1.WatchSyncFaultCode_WATCH_SYNC_FAULT_CODE_INVALID_REQUEST ||
+		fault.code == pluginv1.WatchSyncFaultCode_WATCH_SYNC_FAULT_CODE_PERMANENT) {
+		return InvalidConnectionInputError{Message: fault.message}
+	}
+	return err
 }
 
 func connectionConfigSecretStrings(value any) []string {
@@ -1172,8 +1190,8 @@ func watchEventFromScrobble(event ScrobbleEvent, operation pluginv1.WatchSyncOpe
 		CompletionPercent: completion,
 		Completed:         event.Completed,
 		ProviderItemKey:   event.ProviderItemKey,
-		Media: mediaFromIdentity(event.MediaItemID, event.Kind, "", 0,
-			event.IMDbID, event.TMDBID, event.TVDBID, "", 0,
+		Media: mediaFromIdentity(event.MediaItemID, event.Kind, event.Title, event.Year,
+			event.IMDbID, event.TMDBID, event.TVDBID, event.SeriesTitle, event.SeriesYear,
 			event.SeriesIMDbID, event.SeriesTMDBID, event.SeriesTVDBID, event.SeasonNumber, event.EpisodeNumber),
 	}
 }
