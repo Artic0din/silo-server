@@ -111,7 +111,9 @@ func (m *ArtifactManager) StorageOverview(ctx context.Context) (*StorageOverview
 			(SELECT count(*) FROM download_artifacts WHERE status IN ('queued', 'running', 'tone_map_queued', 'tone_map_running',
 				'audio_v2_queued', 'audio_v2_running', 'tracks_v1_queued', 'tracks_v1_running')),
 			(SELECT COALESCE(SUM(bytes), 0)::bigint FROM download_storage_events
-			 WHERE occurred_at > now() - interval '30 days' AND location_key <> 'device')`,
+			 WHERE occurred_at > now() - interval '30 days' AND location_key <> 'device'
+			   -- A missing file's bytes were already gone; nothing freed them.
+			   AND reason <> 'missing')`,
 	).Scan(&out.PreparingJobs, &out.FreedLast30Days); err != nil {
 		return nil, fmt.Errorf("reading storage activity: %w", err)
 	}

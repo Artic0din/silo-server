@@ -1045,6 +1045,9 @@ func (m *ArtifactManager) encodeOne(ctx context.Context, a *Artifact) {
 	for _, d := range flipped {
 		m.publish(ctx, d)
 	}
+	// A new ready file, and the downloads now waiting on it, appear in the
+	// storage views.
+	m.notifyStorageChanged(ctx)
 }
 
 func artifactExecutionFingerprintMatches(a *Artifact, opts playback.TranscodeOpts) bool {

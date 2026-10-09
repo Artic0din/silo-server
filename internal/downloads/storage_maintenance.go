@@ -339,6 +339,13 @@ func (m *ArtifactManager) readDiskState(ctx context.Context, locations []storage
 	return state
 }
 
+// measuredBeforeLastRemoval reports whether a location's measurement predates
+// the last removal on its filesystem, so it still counts bytes since removed.
+func measuredBeforeLastRemoval(loc storageLocation, disks diskState) bool {
+	last := disks.lastRemoval[filesystemKey(loc)]
+	return loc.Usage != nil && !last.IsZero() && !loc.Usage.MeasuredAt.After(last)
+}
+
 // filesystemKey groups locations whose measurements describe one filesystem,
 // such as nodes sharing a volume, so the ceiling frees an overage once rather
 // than once per location on it. Type and exact size are all a node's report
@@ -482,9 +489,18 @@ func (m *ArtifactManager) refreshStorageFull(ctx context.Context) {
 	now := time.Now()
 	disks := m.readDiskState(ctx, locations, now)
 	graceCutoff := now.Add(-missingArtifactRetireGrace)
+	m.mu.Lock()
+	wasFull := m.storageFull
+	m.mu.Unlock()
 	full := make(map[int]bool)
 	for _, loc := range locations {
 		if need, _ := m.overage(loc, readyByNode[loc.NodeID], disks, now); need <= 0 {
+			// A measurement older than the last removal cannot say whether that
+			// removal was enough, so a full location stays full until a newer
+			// one does.
+			if wasFull[loc.NodeID] && measuredBeforeLastRemoval(loc, disks) {
+				full[loc.NodeID] = true
+			}
 			continue
 		}
 		// Over, but clean-up can still free something: not full yet.

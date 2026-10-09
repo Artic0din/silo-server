@@ -1087,3 +1087,25 @@ func TestStorageFullUsesTheStoredServerMeasurementAfterARestart(t *testing.T) {
 		t.Fatal("a server over its disk ceiling was not known to be full before its first local measurement")
 	}
 }
+
+// A pass that frees part of an overage leaves a measurement that still counts
+// the removed bytes. Until a newer one arrives, a full node stays full rather
+// than reopening to new work.
+func TestFullNodeStaysFullUntilANewerMeasurement(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	nodeID := 700000 + rand.IntN(100000)
+	a := remoteReadyArtifact(t, repo, pool, fileID, nodeID, 100, time.Hour)
+	measured := time.Now().Add(-time.Minute)
+	cfg := &config.Config{}
+	cfg.Download.ArtifactDiskCeilingPercent = 85
+	m := storageTestManager(repo, cfg, nodeOnDisk(t, nodeID, 990, 1000, measured))
+	m.storageFull = map[int]bool{nodeID: true}
+	if err := repo.RecordArtifactEvent(ctx, newStorageBatchID(), StorageReasonDiskCeiling, NodeLocationKey(nodeID), a.ID, 100, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshStorageFull(ctx)
+	if !m.NodeStorageFull(nodeID) {
+		t.Fatal("a full node reopened on a measurement taken before the last removal")
+	}
+}
