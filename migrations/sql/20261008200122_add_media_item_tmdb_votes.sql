@@ -77,8 +77,9 @@ FOR EACH ROW EXECUTE FUNCTION public.sync_media_item_tmdb_votes();
 -- import) or a source before its item (a rating-source write and the trigger).
 -- A source read under its lock is the committed value, so the pair never takes
 -- one the source no longer has. The writer of a skipped source runs the
--- trigger, which sets the pair; an item skipped for another reason gets its
--- pair from its next refresh.
+-- trigger, which sets the pair. Items skipped for another reason (another
+-- writer holding the item) are retried in up to four more passes a second
+-- apart; one still held after that gets its pair from its next refresh.
 --
 -- Called as a top-level statement because transaction control is prohibited
 -- in a DO block.
@@ -90,41 +91,44 @@ DECLARE
     last_id text;
     batch_ids text[];
 BEGIN
-    LOOP
-        IF last_id IS NULL THEN
-            SELECT array_agg(content_id ORDER BY content_id) INTO batch_ids
-            FROM (
-                SELECT content_id FROM public.media_item_rating_sources
-                WHERE source = 'tmdb' AND votes > 0
-                ORDER BY content_id LIMIT 1000
-            ) batch;
-        ELSE
+    FOR pass IN 1..5 LOOP
+        IF pass > 1 THEN
+            EXIT WHEN NOT EXISTS (
+                SELECT 1
+                FROM public.media_item_rating_sources rs
+                JOIN public.media_items mi ON mi.content_id = rs.content_id
+                WHERE rs.source = 'tmdb' AND rs.votes > 0 AND mi.tmdb_vote_count IS NULL
+            );
+            PERFORM pg_sleep(1);
+        END IF;
+        last_id := '';
+        LOOP
             SELECT array_agg(content_id ORDER BY content_id) INTO batch_ids
             FROM (
                 SELECT content_id FROM public.media_item_rating_sources
                 WHERE source = 'tmdb' AND votes > 0 AND content_id > last_id
                 ORDER BY content_id LIMIT 1000
             ) batch;
-        END IF;
-        EXIT WHEN batch_ids IS NULL;
-        UPDATE public.media_items mi
-        SET tmdb_vote_count = s.votes,
-            tmdb_vote_average = s.score / 10
-        FROM (
-            SELECT rs.content_id, rs.score, rs.votes
+            EXIT WHEN batch_ids IS NULL;
+            UPDATE public.media_items mi
+            SET tmdb_vote_count = s.votes,
+                tmdb_vote_average = s.score / 10
             FROM (
-                SELECT content_id FROM public.media_items
-                WHERE content_id = ANY(batch_ids) AND tmdb_vote_count IS NULL
-                FOR UPDATE SKIP LOCKED
-            ) locked
-            JOIN public.media_item_rating_sources rs ON rs.content_id = locked.content_id
-            WHERE rs.source = 'tmdb' AND rs.votes > 0
-            FOR SHARE OF rs SKIP LOCKED
-        ) s
-        WHERE s.content_id = mi.content_id
-          AND mi.tmdb_vote_count IS NULL;
-        last_id := batch_ids[array_length(batch_ids, 1)];
-        COMMIT;
+                SELECT rs.content_id, rs.score, rs.votes
+                FROM (
+                    SELECT content_id FROM public.media_items
+                    WHERE content_id = ANY(batch_ids) AND tmdb_vote_count IS NULL
+                    FOR UPDATE SKIP LOCKED
+                ) locked
+                JOIN public.media_item_rating_sources rs ON rs.content_id = locked.content_id
+                WHERE rs.source = 'tmdb' AND rs.votes > 0
+                FOR SHARE OF rs SKIP LOCKED
+            ) s
+            WHERE s.content_id = mi.content_id
+              AND mi.tmdb_vote_count IS NULL;
+            last_id := batch_ids[array_length(batch_ids, 1)];
+            COMMIT;
+        END LOOP;
     END LOOP;
 END;
 $$;
