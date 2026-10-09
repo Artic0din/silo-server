@@ -199,6 +199,10 @@ function NodeLocationFields({
       ? "Enter a budget in GB."
       : null;
   const dirChanged = trimmed !== currentDir;
+  // A blank override inherits download.artifact_dir when it is set, which the
+  // server location reports as its own directory.
+  const server = storage.locations.find((l) => l.kind === "server");
+  const clusterDir = server?.dir_source === "setting" ? server.dir : undefined;
   const indexed = preparedBytes(location);
   const stored = location.usage ? location.usage.bytes : indexed;
 
@@ -231,15 +235,24 @@ function NodeLocationFields({
             id={dirId}
             value={dir}
             onChange={(event) => setDir(event.target.value)}
-            placeholder="download-artifacts inside the transcode directory"
+            placeholder={clusterDir ?? "download-artifacts inside the transcode directory"}
             className="font-mono text-xs"
             aria-invalid={dirError ? true : undefined}
           />
           {dirError ? <p className="text-destructive text-xs">{dirError}</p> : null}
           <p className="text-muted-foreground text-xs">
-            Leave blank to use <code className="font-mono">download-artifacts</code> inside this
-            node's transcode directory. A separate disk keeps downloads from competing with live
-            transcodes.
+            {clusterDir ? (
+              <>
+                Leave blank to use <code className="font-mono">{clusterDir}</code>, the directory in
+                Settings → Downloads; it must exist on this node.
+              </>
+            ) : (
+              <>
+                Leave blank to use <code className="font-mono">download-artifacts</code> inside this
+                node's transcode directory.
+              </>
+            )}{" "}
+            A separate disk keeps downloads from competing with live transcodes.
           </p>
           {location.usage?.shares_scratch && !dirChanged ? (
             <p className="text-warning text-xs">

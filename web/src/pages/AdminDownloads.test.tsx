@@ -3,7 +3,11 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StreamNode } from "@/api/types";
 import type { AdminDownloadPreparationList } from "@/api/v2/adminDownloadPreparations";
-import type { AdminDownloadStorage, AdminDownloadStorageFile } from "@/api/v2/adminDownloadStorage";
+import type {
+  AdminDownloadEntry,
+  AdminDownloadStorage,
+  AdminDownloadStorageFile,
+} from "@/api/v2/adminDownloadStorage";
 import { makePreparation, makePreparationList } from "@/test/downloadPreparations";
 import {
   makeDownloadDevice,
@@ -25,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   nodes: [] as StreamNode[],
   updateNode: vi.fn(),
   preparations: undefined as AdminDownloadPreparationList | undefined,
+  entries: [] as AdminDownloadEntry[],
   preparationAction: vi.fn(),
   logParams: [] as unknown[],
 }));
@@ -56,7 +61,7 @@ vi.mock("@/hooks/queries/admin/downloadStorage", () => ({
     mocks.devicesQuery.push(query);
     return page([makeDownloadDevice()]);
   },
-  useAdminDownloadDeviceEntries: () => page([]),
+  useAdminDownloadDeviceEntries: () => page(mocks.entries),
   useDeleteAdminDownloadStorageFiles: () => ({ mutate: mocks.deleteFiles, isPending: false }),
   useCleanUpAdminDownloadStorageLocation: () => ({
     mutate: mocks.cleanUp,
@@ -134,6 +139,7 @@ beforeEach(() => {
   mocks.nodes = [];
   mocks.preparations = undefined;
   mocks.logParams = [];
+  mocks.entries = [];
 });
 afterEach(cleanup);
 
@@ -188,6 +194,28 @@ describe("AdminDownloads storage tab", () => {
     );
   });
 
+  it("names the cluster directory a blank node directory inherits", () => {
+    mocks.nodes = [{ id: 9, name: "node-gpu-1", config_etag: "1" } as unknown as StreamNode];
+    renderAt();
+    const card = screen.getByRole("region", { name: "node-gpu-1" });
+    fireEvent.click(within(card).getByRole("button", { name: "Edit location" }));
+    expect(screen.getByText(/the directory in Settings → Downloads/).textContent).toContain(
+      "Leave blank to use /srv/silo/download-artifacts",
+    );
+  });
+
+  it("shows the directory a node moves to when it restarts", () => {
+    mocks.storage = makeStorage({
+      locations: [
+        makeStorageLocation(),
+        { ...scratchNode, dir: "/transcode/download-artifacts", pending_dir: "/mnt/fast/silo" },
+      ],
+    });
+    renderAt();
+    const card = screen.getByRole("region", { name: "node-gpu-1" });
+    expect(card.textContent).toContain("Moves to /mnt/fast/silo when node-gpu-1 restarts.");
+  });
+
   it("opens a location's files from its card", () => {
     renderAt();
     const node = screen.getByRole("region", { name: "node-gpu-1" });
@@ -229,7 +257,44 @@ describe("AdminDownloads prepared files tab", () => {
   });
 });
 
+describe("AdminDownloads prepared files selection", () => {
+  it("clears the selection when the filters change", () => {
+    mocks.files = [makeStorageFile({ id: "art-dune" })];
+    renderAt("/admin/downloads?tab=files");
+    const select = () => screen.getByRole("checkbox", { name: "Select every listed file" });
+    fireEvent.click(select());
+    expect(select()).toBeChecked();
+
+    const search = screen.getByLabelText("Search titles");
+    fireEvent.change(search, { target: { value: "dune" } });
+    fireEvent.submit(search.closest("form")!);
+    expect(select()).not.toBeChecked();
+  });
+});
+
 describe("AdminDownloads device copies tab", () => {
+  it("leaves a revoked download unchecked after the revoke", () => {
+    const entry = {
+      id: "dl-1",
+      status: "completed",
+      title: "Dune",
+      effective_quality: "original",
+    } as AdminDownloadEntry;
+    mocks.entries = [entry];
+    const view = renderAt("/admin/downloads?tab=devices");
+    fireEvent.click(screen.getByRole("button", { name: "Show downloads on Pixel 8" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Dune" }));
+    expect(screen.getByRole("checkbox", { name: "Select Dune" })).toBeChecked();
+
+    mocks.entries = [{ ...entry, status: "revoked" }];
+    view.rerender(
+      <MemoryRouter initialEntries={["/admin/downloads?tab=devices"]}>
+        <AdminDownloads />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("checkbox", { name: "Select Dune" })).not.toBeChecked();
+  });
+
   it("opens with the stale filter from the storage banner and revokes a whole device", () => {
     renderAt("/admin/downloads?tab=devices&stale=1");
     expect(mocks.devicesQuery.at(-1)).toMatchObject({ stale: true });

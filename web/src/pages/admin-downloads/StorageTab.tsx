@@ -323,6 +323,12 @@ function LocationCard({
           </Badge>
         ) : null}
       </div>
+      {location.pending_dir ? (
+        <p className="text-muted-foreground text-xs">
+          Moves to <code className="font-mono break-all">{location.pending_dir}</code> when{" "}
+          {location.name} restarts.
+        </p>
+      ) : null}
 
       {segments && usage ? (
         <div className="space-y-2">

@@ -25,6 +25,8 @@ export type AdminDownloadRevokeResult = V2Result<"POST /api/v2/admin/downloads/r
 export const ADMIN_DOWNLOAD_STORAGE_PAGE_SIZE = 50;
 /** Most file ids one delete request may carry. */
 export const ADMIN_DOWNLOAD_STORAGE_DELETE_MAX_IDS = 500;
+/** Most download ids one revoke request may carry. */
+export const ADMIN_DOWNLOAD_REVOKE_MAX_IDS = 500;
 
 export function adminDownloadStorageRootKey(context: ProfileRequestContextSnapshot | null) {
   return [...adminKeys.downloadStorage(), adminAuthorityScope(context)] as const;
@@ -133,26 +135,50 @@ export type AdminDownloadRevokeTarget =
   | { ids: string[] }
   | { userId: string; profileId: string; deviceId: string; pauseMonitors: boolean };
 
-export function revokeAdminDownloads(
+/** Revokes downloads; ids go in batches of at most 500, the request limit. */
+export async function revokeAdminDownloads(
   context: ProfileRequestContextSnapshot,
   target: AdminDownloadRevokeTarget,
   reason: string,
 ): Promise<AdminDownloadRevokeResult> {
-  const body =
-    "ids" in target
-      ? { ids: target.ids, reason }
-      : {
+  if (!("ids" in target)) {
+    return read(context, () =>
+      v2("POST /api/v2/admin/downloads/revoke", {
+        profileContext: context,
+        body: {
           user_id: target.userId,
           profile_id: target.profileId,
           device_id: target.deviceId,
           pause_monitors: target.pauseMonitors,
           reason,
-        };
-  return read(context, () =>
+        },
+        retryAuthentication: false,
+      }),
+    );
+  }
+  const ids = target.ids;
+  const send = (batch: string[]) =>
     v2("POST /api/v2/admin/downloads/revoke", {
       profileContext: context,
-      body,
+      body: { ids: batch, reason },
       retryAuthentication: false,
-    }),
-  );
+    });
+  requireAdminAuthority(context);
+  let total = await send(ids.slice(0, ADMIN_DOWNLOAD_REVOKE_MAX_IDS));
+  for (
+    let start = ADMIN_DOWNLOAD_REVOKE_MAX_IDS;
+    start < ids.length;
+    start += ADMIN_DOWNLOAD_REVOKE_MAX_IDS
+  ) {
+    const result = await send(ids.slice(start, start + ADMIN_DOWNLOAD_REVOKE_MAX_IDS));
+    total = {
+      ...total,
+      revoked: total.revoked + result.revoked,
+      bytes: total.bytes + result.bytes,
+      paused_monitors: total.paused_monitors + result.paused_monitors,
+      download_ids: [...total.download_ids, ...result.download_ids],
+    };
+  }
+  requireAdminAuthority(context);
+  return total;
 }

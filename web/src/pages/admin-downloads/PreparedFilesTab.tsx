@@ -89,6 +89,13 @@ export default function PreparedFilesTab({
   const files = useAdminDownloadStorageFiles(filters);
   const rows = useMemo(() => files.data?.pages.flatMap((page) => page.items) ?? [], [files.data]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // A filter change clears the selection, so files it hid cannot come back
+  // selected, and deleted, when the administrator returns to that filter.
+  const [selectionFilters, setSelectionFilters] = useState(filters);
+  if (selectionFilters !== filters) {
+    setSelectionFilters(filters);
+    setSelected(new Set());
+  }
   const [confirming, setConfirming] = useState<AdminDownloadStorageFile[] | null>(null);
   const selectedRows = rows.filter((row) => selected.has(row.id));
   const selectedInUse = selectedRows.filter((row) => row.state === "in_use").length;

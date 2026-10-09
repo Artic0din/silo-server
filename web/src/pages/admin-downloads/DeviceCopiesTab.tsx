@@ -311,7 +311,7 @@ function DeviceEntries({
                 className={CHECKBOX}
                 aria-label={`Select ${entryTitle(row)}`}
                 disabled={row.status === "revoked"}
-                checked={selected.has(row.id)}
+                checked={row.status !== "revoked" && selected.has(row.id)}
                 onChange={() =>
                   setSelected((current) => {
                     const next = new Set(current);
