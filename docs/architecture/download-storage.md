@@ -12,8 +12,8 @@ contract is in [downloads-api.md](../downloads-api.md), the admin operations in
 
 A prepared file is **in use** while an in-flight managed download links it: status
 `preparing`, `ready`, or `downloading`. A `completed` row does not hold its file; the
-device already has the bytes. A ready file nothing is in flight on is **cached**: it
-stays for `download.artifact_cache_hours` (default 72) after its `last_used_at`, so
+device already has the bytes. A ready file that no in-flight download links is
+**cached**: it stays for `download.artifact_cache_hours` (default 72) after its `last_used_at`, so
 another device or a re-download can reuse it, then it **expires**.
 
 `expired` is an artifact status, not a deleted row. Expiry removes the bytes (a node
@@ -21,7 +21,7 @@ file through the remote orphan queue, written in the same transaction that clear
 row's locator) and keeps the row, because finished downloads still reference its
 recipe and manifest. A request that needs an expired file requeues it like a failed
 one; `POST /downloads/{id}/prepare` does this for a finished row whose device asks for
-the file again. An expired row nothing references is deleted by the stale sweep.
+the file again. The stale sweep deletes an expired row when no download refers to it.
 Expiry clears the row's locator; `expired_from_node_id` keeps the node the file was
 on, so the inventory lists an expired file under its former location.
 
@@ -31,10 +31,10 @@ expire, and a request that loses gets `prepared_file_expired`.
 
 A missing file found by recovery, or a node requeue, expires the row instead of
 deleting it, and only in-flight rows are reset to `preparing`. An expired row is not a
-preparation: the admin preparation list, queue positions, and cancel skip it. A row
-any live download refers to (in flight or finished) is never deleted by the failed
-sweep or by a revoke's cancel of abandoned preparations, because finished downloads
-read its recipe.
+preparation: the admin preparation list, queue positions, and cancel skip it. Neither
+the failed sweep nor a revoke's cancel of abandoned preparations deletes a row that a
+live download refers to, in flight or finished, because finished downloads read its
+recipe.
 
 ## Locations, budgets, and the disk ceiling
 
@@ -45,7 +45,9 @@ transcode node (`node:<id>`). Each has a budget: the node's
 the node applies it at its next restart.
 
 Maintenance runs every five minutes on one replica at a time, under the session
-advisory lock `pg_try_advisory_lock(0x5110d1, 1)`. Each pass, per location:
+advisory lock `pg_try_advisory_lock(0x5110d1, 1)`. The lock is held on a dedicated
+session outside the pool, so the pass's own queries work even with
+`database.max_connections` at 1. Each pass, per location:
 
 1. Expire cached files past the cache period.
 2. Once cache expiry has run everywhere, if ready bytes exceed the budget, or the
@@ -53,10 +55,11 @@ advisory lock `pg_try_advisory_lock(0x5110d1, 1)`. Each pass, per location:
    50–95), expire cached files least recently used first until enough is freed.
    In-use files are never expired by this pass.
 3. A location that is still over with nothing left to free is storage-full. A full
-   node receives no new preparations. While the server is full, a job that would be
-   prepared on it goes back to the queue for five minutes without spending an
-   attempt, and waits there until space is freed. Every replica recomputes this from
-   the database on each tick, so placement agrees whichever replica ran the pass.
+   node receives no new preparations. A job that can only be prepared somewhere full,
+   on the server or on nodes when local fallback is off, goes back to the queue for
+   five minutes without spending an attempt, and waits there until space is freed.
+   Every replica recomputes this from the database on each tick, and before it claims
+   queued jobs, so placement agrees whichever replica ran the pass.
 
 A pass is bounded to 30 seconds and 200 candidates per query, so a backlog drains over
 several passes. Locations whose measurements report the same filesystem type and exact
@@ -110,7 +113,9 @@ at a time, so a hung network mount fails the listing, not the maintenance pass.
 Every removal writes `download_storage_events`: one row per file, grouped by a batch id
 per pass or action, with the reason (`cache_expired`, `budget`, `disk_ceiling`,
 `admin_delete`, `untracked`, `missing`, `revoked`, `device_removed`), location, title,
-bytes, and the acting administrator. History is pruned after 90 days. The admin-only
+bytes, and the acting administrator. The history view shows one row per batch,
+reason, location, and account, so one action that spans several locations or devices
+lists each separately. History is pruned after 90 days. The admin-only
 realtime event `download_storage.changed` on the `download_preparations` channel tells
 storage views to re-read after a pass that freed bytes or an action.
 

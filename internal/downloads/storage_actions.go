@@ -97,8 +97,8 @@ func (m *ArtifactManager) deleteStorageFile(ctx context.Context, batch, id strin
 	}
 	if result.Outcome != StorageDeleteNotReady {
 		m.recordAdminDelete(ctx, batch, a, actor, "prepared again for waiting downloads")
+		result.Bytes = a.FileSize
 	}
-	result.Bytes = a.FileSize
 	return result, nil
 }
 
@@ -173,10 +173,10 @@ func (m *ArtifactManager) recordAdminDelete(ctx context.Context, batch string, a
 // ErrStorageLocationNotFound reports a location key that names no location.
 var ErrStorageLocationNotFound = errors.New("storage location not found")
 
-// ErrServerStorageFull reports that a job would have to be prepared on the
-// server while the server's prepared-file storage is full: over its budget or
-// the disk ceiling with nothing left to free.
-var ErrServerStorageFull = errors.New("server prepared-file storage is full")
+// ErrStorageFull reports that every location that could prepare a job, the
+// server or the nodes, is full: over its budget or the disk ceiling with
+// nothing left to free. The job waits for space instead of failing.
+var ErrStorageFull = errors.New("prepared-file storage is full where this job can be prepared")
 
 // storageFullRetryDelay is how long a job waits for space before it is
 // tried again; maintenance frees space every few minutes.

@@ -2015,7 +2015,8 @@ answers `404` for an unknown location and `503` when the directory cannot be lis
 than the database holds are `422`.
 
 `GET /api/v2/admin/downloads/storage/events` lists clean-up and revocation history,
-newest first, one row per batch (a maintenance pass or an administrator action):
+newest first, one row per batch (a maintenance pass or an administrator action) at
+one location for one reason and account:
 `reason`, `location` (`server`, `node:<id>`, or `device`), `count`, `bytes`, up to
 three `titles`, `detail` (an administrator's reason or a note), `actor`, and for
 revocations `account`. Filters: `reason`, `location`, `days` (0–90; 0 for all kept

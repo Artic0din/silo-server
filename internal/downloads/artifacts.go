@@ -615,6 +615,9 @@ func (m *ArtifactManager) triggerDrain() {
 // drained in the second pass.
 func (m *ArtifactManager) RunOnce(ctx context.Context) error {
 	m.recoverQueueState(ctx)
+	// Placement reads which locations are full; know that before the first
+	// job is claimed, not only after this run's maintenance pass.
+	m.refreshStorageFull(ctx)
 	if err := m.drain(ctx); err != nil {
 		return err
 	}
@@ -960,7 +963,7 @@ func (m *ArtifactManager) encodeOne(ctx context.Context, a *Artifact) {
 	var prepared PreparedArtifact
 	if _, gated := m.preparer.(storageGatedPreparer); !gated && m.NodeStorageFull(0) {
 		// A preparer without placement only writes here.
-		err = ErrServerStorageFull
+		err = ErrStorageFull
 	} else {
 		prepared, err = m.preparer.PrepareFile(withPrepareObserver(hbCtx, observer), remoteAttemptID, opts, a.OutputPath)
 	}
@@ -978,10 +981,10 @@ func (m *ArtifactManager) encodeOne(ctx context.Context, a *Artifact) {
 			// an administrator paused or canceled it.
 			slog.WarnContext(ctx, "download artifact encode aborted; lease lost or job stopped", "component", "downloads", "artifact_id", a.ID)
 			return
-		case errors.Is(err, ErrServerStorageFull):
+		case errors.Is(err, ErrStorageFull):
 			// Not a failure of the job: it waits, uncounted, for clean-up or
 			// an administrator to free space.
-			if _, err := m.repo.DeferJob(ctx, a.ID, m.owner, "Waiting for space: the server's prepared-file storage is full", storageFullRetryDelay); err != nil {
+			if _, err := m.repo.DeferJob(ctx, a.ID, m.owner, "Waiting for space: prepared-file storage is full where this job can be prepared", storageFullRetryDelay); err != nil {
 				slog.WarnContext(ctx, "deferring download artifact job failed", "component", "downloads", "artifact_id", a.ID, "error", err)
 			}
 			m.notifyPreparationChanged(ctx, a.ID)

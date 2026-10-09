@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   updateNode: vi.fn(),
   preparations: undefined as AdminDownloadPreparationList | undefined,
   entries: [] as AdminDownloadEntry[],
+  untrackedError: null as Error | null,
   preparationAction: vi.fn(),
   logParams: [] as unknown[],
 }));
@@ -71,6 +72,8 @@ vi.mock("@/hooks/queries/admin/downloadStorage", () => ({
   useDeleteAdminDownloadStorageUntrackedFiles: () => ({
     mutate: mocks.deleteUntracked,
     isPending: false,
+    error: mocks.untrackedError,
+    reset: vi.fn(),
   }),
   useRevokeAdminDownloads: () => ({ mutate: mocks.revoke, isPending: false }),
 }));
@@ -140,6 +143,7 @@ beforeEach(() => {
   mocks.preparations = undefined;
   mocks.logParams = [];
   mocks.entries = [];
+  mocks.untrackedError = null;
 });
 afterEach(cleanup);
 
@@ -169,6 +173,18 @@ describe("AdminDownloads storage tab", () => {
     fireEvent.click(within(node).getByRole("button", { name: "Review" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete untracked files" }));
     expect(mocks.deleteUntracked).toHaveBeenCalledWith("node:9", expect.any(Object));
+  });
+
+  it("says why deleting untracked files failed", () => {
+    mocks.untrackedError = new Error("network down");
+    renderAt();
+    const node = screen.getByRole("region", { name: "node-gpu-1" });
+    fireEvent.click(within(node).getByRole("button", { name: "Review" }));
+    expect(
+      within(screen.getByRole("alertdialog")).getByText(
+        "The untracked files could not be deleted. Try again.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("saves only the node override that changed", () => {

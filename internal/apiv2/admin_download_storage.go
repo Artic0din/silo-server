@@ -186,7 +186,7 @@ type AdminDownloadStorageUntrackedOutput struct {
 
 // AdminDownloadStorageEvent is one clean-up pass or administrator action.
 type AdminDownloadStorageEvent struct {
-	ID           string                    `json:"id" doc:"Batch id"`
+	ID           string                    `json:"id" doc:"Opaque row id: one batch at one location for one reason and account"`
 	Reason       string                    `json:"reason" doc:"cache_expired, budget, disk_ceiling, admin_delete, untracked, missing, revoked or device_removed. More values may be added."`
 	Location     string                    `json:"location" doc:"server, node:<id>, or device"`
 	LocationName string                    `json:"location_name" doc:"Node or device name"`
@@ -496,7 +496,7 @@ func registerAdminDownloadStorage(reg *Registry) {
 		return out, nil
 	})
 
-	Register(reg, get("/storage/events", "listAdminDownloadStorageEvents", "Read the prepared-file clean-up and device revocation history, newest first, one batch per row."), func(ctx context.Context, in *AdminDownloadStorageEventsInput) (*AdminDownloadStorageEventsOutput, error) {
+	Register(reg, get("/storage/events", "listAdminDownloadStorageEvents", "Read the prepared-file clean-up and device revocation history, newest first. A row is one batch (a maintenance pass or an administrator action) at one location for one reason and account."), func(ctx context.Context, in *AdminDownloadStorageEventsInput) (*AdminDownloadStorageEventsOutput, error) {
 		svc, p := storage()
 		if p != nil {
 			return nil, p

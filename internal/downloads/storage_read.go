@@ -585,7 +585,9 @@ type StorageEventBatch struct {
 	AccountName   string
 }
 
-// StorageEventsPage lists clean-up history newest first, one batch per row.
+// StorageEventsPage lists clean-up history newest first. A row is one batch
+// (a pass or an administrator action) at one location for one reason and
+// account, so a batch that spans several is never shown under just one.
 func (m *ArtifactManager) StorageEventsPage(ctx context.Context, f StorageEventFilter, after *StorageEventPosition, limit int) ([]StorageEventBatch, error) {
 	if m == nil || m.repo == nil {
 		return nil, ErrFormatUnavailable
@@ -599,20 +601,24 @@ func (m *ArtifactManager) StorageEventsPage(ctx context.Context, f StorageEventF
 		afterAt, afterID = &after.At, after.BatchID
 	}
 	rows, err := m.repo.pool.Query(ctx,
-		`SELECT e.batch_id, min(e.reason), min(e.location_key), max(e.location_name), max(e.occurred_at),
-		        count(*)::int, COALESCE(SUM(e.bytes), 0)::bigint,
-		        (array_agg(e.title ORDER BY e.id) FILTER (WHERE e.title <> ''))[1:3],
-		        max(e.detail), max(e.actor_user_id), COALESCE(max(a.username), ''),
-		        max(e.user_id), COALESCE(max(acct.username), '')
-		 FROM download_storage_events e
-		 LEFT JOIN users a ON a.id = e.actor_user_id
-		 LEFT JOIN users acct ON acct.id = e.user_id
-		 WHERE ($1 = '' OR e.reason = $1)
-		   AND ($2 = '' OR e.location_key = $2)
-		   AND ($3::timestamptz IS NULL OR e.occurred_at >= $3)
-		 GROUP BY e.batch_id
-		 HAVING ($4::timestamptz IS NULL OR (max(e.occurred_at), e.batch_id) < ($4, $5))
-		 ORDER BY max(e.occurred_at) DESC, e.batch_id DESC
+		`WITH keyed AS (
+		     SELECT e.*, e.batch_id || '|' || e.reason || '|' || e.location_key || '|' || COALESCE(e.user_id::text, '') AS group_key
+		     FROM download_storage_events e
+		     WHERE ($1 = '' OR e.reason = $1)
+		       AND ($2 = '' OR e.location_key = $2)
+		       AND ($3::timestamptz IS NULL OR e.occurred_at >= $3)
+		 )
+		 SELECT k.group_key, k.reason, k.location_key, max(k.location_name), max(k.occurred_at),
+		        count(*)::int, COALESCE(SUM(k.bytes), 0)::bigint,
+		        (array_agg(k.title ORDER BY k.id) FILTER (WHERE k.title <> ''))[1:3],
+		        max(k.detail), max(k.actor_user_id), COALESCE(max(a.username), ''),
+		        k.user_id, COALESCE(max(acct.username), '')
+		 FROM keyed k
+		 LEFT JOIN users a ON a.id = k.actor_user_id
+		 LEFT JOIN users acct ON acct.id = k.user_id
+		 GROUP BY k.group_key, k.reason, k.location_key, k.user_id
+		 HAVING ($4::timestamptz IS NULL OR (max(k.occurred_at), k.group_key) < ($4, $5))
+		 ORDER BY max(k.occurred_at) DESC, k.group_key DESC
 		 LIMIT $6`,
 		f.Reason, f.Location, f.Since, afterAt, afterID, limit)
 	if err != nil {

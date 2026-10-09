@@ -1425,7 +1425,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Read the prepared-file clean-up and device revocation history, newest first, one batch per row. */
+    /** Read the prepared-file clean-up and device revocation history, newest first. A row is one batch (a maintenance pass or an administrator action) at one location for one reason and account. */
     get: operations["listAdminDownloadStorageEvents"];
     put?: never;
     post?: never;
@@ -14344,7 +14344,7 @@ export interface components {
       count: number;
       /** @description The administrator's reason, or a note such as a file count */
       detail?: string;
-      /** @description Batch id */
+      /** @description Opaque row id: one batch at one location for one reason and account */
       id: string;
       /** @description server, node:<id>, or device */
       location: string;

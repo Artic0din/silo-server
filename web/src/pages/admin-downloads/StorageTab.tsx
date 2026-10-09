@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { AlertTriangle, Info, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { AdminDownloadStorageLocation } from "@/api/v2/adminDownloadStorage";
+import { V2ProblemError } from "@/api/v2/request";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -195,8 +196,13 @@ export default function StorageTab({
       <ConfirmDialog
         open={untrackedTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setUntrackedTarget(null);
+          if (open) return;
+          setUntrackedTarget(null);
+          deleteUntracked.reset();
         }}
+        error={
+          untrackedTarget ? untrackedDeleteError(deleteUntracked.error, untrackedTarget.name) : null
+        }
         title={untrackedTarget ? `Delete untracked files on ${untrackedTarget.name}?` : ""}
         description={
           untrackedTarget
@@ -219,13 +225,20 @@ export default function StorageTab({
               );
               setUntrackedTarget(null);
             },
-            onError: () =>
-              toast.error(`Couldn't list ${target.name}'s directory. Try again later.`),
           });
         }}
       />
     </div>
   );
+}
+
+/** Why deleting untracked files failed, shown in the confirm dialog. */
+function untrackedDeleteError(error: Error | null, name: string): string | null {
+  if (!error) return null;
+  if (error instanceof V2ProblemError && error.status === 503) {
+    return `Couldn't list ${name}'s directory. Try again later.`;
+  }
+  return "The untracked files could not be deleted. Try again.";
 }
 
 function WarningBanner({ warning, onAction }: { warning: StorageWarning; onAction: () => void }) {

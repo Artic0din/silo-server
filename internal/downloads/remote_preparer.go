@@ -141,7 +141,7 @@ func (p *NodeAwarePreparer) prepareLocally(ctx context.Context, artifactID strin
 		return PreparedArtifact{}, errors.New("no eligible transcode node and local transcode fallback is disabled")
 	}
 	if p.storageFull != nil && p.storageFull(0) {
-		return PreparedArtifact{}, ErrServerStorageFull
+		return PreparedArtifact{}, ErrStorageFull
 	}
 	return p.local.PrepareFile(ctx, artifactID, opts, outputPath)
 }
@@ -159,6 +159,16 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 	request := downloadprepare.NewRequest(artifactID, opts)
 	var node *nodepool.Node
 	var release func()
+	// storageRejected records a node turned away only for want of space, so a
+	// job no node can take says it waits for space rather than failing.
+	storageRejected := false
+	hasStorage := func(n *nodepool.Node) bool {
+		if p.hasStorage(n) {
+			return true
+		}
+		storageRejected = true
+		return false
+	}
 	if request.ToneMapRequested() || request.StereoDownmixBoostRequested() || request.PreparedTracksRequested() {
 		selector, ok := p.planner.(eligibleTranscodeWorkPlanner)
 		if ok {
@@ -175,7 +185,7 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 				tracksCapable = p.preparedTracksCapableNodeURLs(ctx)
 			}
 			node, release = selector.ReserveTranscodeWorkWith("download-prepare-"+artifactID, func(candidate *nodepool.Node) bool {
-				if !p.hasStorage(candidate) {
+				if !hasStorage(candidate) {
 					return false
 				}
 				nodeURL := strings.TrimRight(candidate.URL, "/")
@@ -198,11 +208,14 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 			})
 		}
 	} else if selector, ok := p.planner.(eligibleTranscodeWorkPlanner); ok && p.storageFull != nil {
-		node, release = selector.ReserveTranscodeWorkWith("download-prepare-"+artifactID, p.hasStorage)
+		node, release = selector.ReserveTranscodeWorkWith("download-prepare-"+artifactID, hasStorage)
 	} else {
 		node, release = p.planner.ReserveTranscodeWork("download-prepare-" + artifactID)
 	}
 	if node == nil {
+		if storageRejected && !p.LocalFallbackAllowed(ctx) {
+			return PreparedArtifact{}, ErrStorageFull
+		}
 		return p.prepareLocally(ctx, artifactID, opts, outputPath)
 	}
 

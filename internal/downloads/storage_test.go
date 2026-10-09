@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -939,5 +940,57 @@ func TestPrepareAgainActivatesOnlyWhenTheFileIsGone(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Fatalf("%s entry, %s file: activates = (%v, %v), want %v", tc.download, tc.artifact, got, err, tc.want)
 		}
+	}
+}
+
+// The maintenance lock is held on its own session: work inside it can use the
+// pool, and a second caller is turned away while it is held.
+func TestMaintenanceLockHoldsItsOwnSession(t *testing.T) {
+	repo, _, _ := newArtifactTestRepo(t)
+	ctx := context.Background()
+	ran, err := repo.WithMaintenanceLock(ctx, func(ctx context.Context) error {
+		inner, err := repo.WithMaintenanceLock(ctx, func(context.Context) error { return nil })
+		if err != nil || inner {
+			t.Errorf("second holder = (%v, %v), want turned away", inner, err)
+		}
+		_, err = repo.ReadyBytesByLocation(ctx)
+		return err
+	})
+	if err != nil || !ran {
+		t.Fatalf("WithMaintenanceLock = (%v, %v)", ran, err)
+	}
+	if again, err := repo.WithMaintenanceLock(ctx, func(context.Context) error { return nil }); err != nil || !again {
+		t.Fatalf("lock after release = (%v, %v), want free", again, err)
+	}
+}
+
+// One administrator action can remove files at several locations; history
+// lists each location's share as its own row instead of folding them into one.
+func TestStorageHistorySplitsABatchByLocation(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	first, second := 700000+rand.IntN(50000), 750000+rand.IntN(50000)
+	a := remoteReadyArtifact(t, repo, pool, fileID, first, 100, time.Hour)
+	b := remoteReadyArtifact(t, repo, pool, fileID, second, 300, time.Hour)
+	batch := newStorageBatchID()
+	for _, f := range []*Artifact{a, b} {
+		if err := repo.RecordArtifactEvent(ctx, batch, StorageReasonAdminDelete, NodeLocationKey(f.OriginNodeID), f.ID, f.FileSize, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := storageTestManager(repo, &config.Config{})
+	since := time.Now().Add(-time.Minute)
+	page, err := m.StorageEventsPage(ctx, StorageEventFilter{Since: &since}, nil, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes := map[string]int64{}
+	for _, row := range page {
+		if strings.HasPrefix(row.BatchID, batch+"|") {
+			bytes[row.Location] = row.Bytes
+		}
+	}
+	if len(bytes) != 2 || bytes[NodeLocationKey(first)] != 100 || bytes[NodeLocationKey(second)] != 300 {
+		t.Fatalf("history rows for the batch = %v, want one per location", bytes)
 	}
 }

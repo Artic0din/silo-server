@@ -149,28 +149,28 @@ func (r *ArtifactRepository) ReadyBytesByLocation(ctx context.Context) (map[int]
 
 // WithMaintenanceLock runs fn while this process holds the storage maintenance
 // advisory lock. It returns false without running fn when another replica
-// holds it. The lock is session-scoped on one pooled connection, released when
-// fn returns.
+// holds it. The lock is held on a dedicated session for the length of fn.
 func (r *ArtifactRepository) WithMaintenanceLock(ctx context.Context, fn func(context.Context) error) (bool, error) {
-	conn, err := r.pool.Acquire(ctx)
+	// The lock lives on its own session, not a pooled connection: fn runs its
+	// queries through the pool, which a held pooled connection could exhaust
+	// (database.max_connections may be 1). Closing the session releases the
+	// lock, whatever state a canceled caller left it in.
+	session, err := pgx.ConnectConfig(ctx, r.pool.Config().ConnConfig)
 	if err != nil {
-		return false, fmt.Errorf("acquiring storage maintenance connection: %w", err)
+		return false, fmt.Errorf("opening storage maintenance lock session: %w", err)
 	}
-	defer conn.Release()
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = session.Close(closeCtx)
+	}()
 	var locked bool
-	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1, $2)`, storageMaintenanceLockClassID, storageMaintenanceLockObjID).Scan(&locked); err != nil {
+	if err := session.QueryRow(ctx, `SELECT pg_try_advisory_lock($1, $2)`, storageMaintenanceLockClassID, storageMaintenanceLockObjID).Scan(&locked); err != nil {
 		return false, fmt.Errorf("taking storage maintenance lock: %w", err)
 	}
 	if !locked {
 		return false, nil
 	}
-	defer func() {
-		// Unlock on a context that outlives a canceled caller; a lock left on a
-		// pooled connection would block every other replica until it closed.
-		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		_, _ = conn.Exec(unlockCtx, `SELECT pg_advisory_unlock($1, $2)`, storageMaintenanceLockClassID, storageMaintenanceLockObjID)
-	}()
 	return true, fn(ctx)
 }
 
