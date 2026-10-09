@@ -438,9 +438,11 @@ func TestProgressOutranksEvent(t *testing.T) {
 	// A whole-second event time, so the pair's own write, which user stores
 	// keep in whole seconds, has exactly the event's timestamp.
 	at := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
+	inProgress := &ItemState{LastEventAt: at, LastPositionSecond: 100}
 	cases := []struct {
 		name      string
 		updatedAt time.Time
+		position  float64
 		state     *ItemState
 		eventAt   time.Time
 		want      bool
@@ -449,13 +451,15 @@ func TestProgressOutranksEvent(t *testing.T) {
 		{name: "native progress as recent as event", updatedAt: at, eventAt: at, want: true},
 		{name: "event newer than progress", updatedAt: at, eventAt: at.Add(time.Minute), want: false},
 		{name: "native progress later in the event's second", updatedAt: at, eventAt: at.Add(500 * time.Millisecond), want: true},
-		{name: "same-timestamp upgrade over this pair's own write", updatedAt: at, state: &ItemState{LastEventAt: at}, eventAt: at, want: false},
-		{name: "native progress after this pair's last event", updatedAt: at.Add(time.Minute), state: &ItemState{LastEventAt: at}, eventAt: at.Add(time.Second), want: true},
+		{name: "same-timestamp upgrade over this pair's own write", updatedAt: at, position: 100, state: inProgress, eventAt: at, want: false},
+		{name: "this pair's own completed write", updatedAt: at, position: 0, state: &ItemState{LastEventAt: at, LastCompleted: true, LastPositionSecond: 590}, eventAt: at, want: false},
+		{name: "native progress in the second of this pair's last event", updatedAt: at, position: 500, state: inProgress, eventAt: at, want: true},
+		{name: "native progress after this pair's last event", updatedAt: at.Add(time.Minute), position: 100, state: inProgress, eventAt: at.Add(time.Second), want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := progressOutranksEvent(tc.updatedAt, tc.state, tc.eventAt); got != tc.want {
+			if got := progressOutranksEvent(tc.updatedAt, tc.position, tc.state, tc.eventAt); got != tc.want {
 				t.Fatalf("progressOutranksEvent() = %v, want %v", got, tc.want)
 			}
 		})
