@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -346,6 +347,11 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 			result.Summary = "Skipped stale mark-unplayed event"
 			return result, nil
 		}
+		if s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, event.OccurredAt) {
+			result.Outcome = OutcomeSkipped
+			result.Summary = "Skipped because local watch progress is newer"
+			return result, nil
+		}
 		if err := s.watch.RecordImportedMarkUnplayed(ctx, conn.UserID, profileID, match.MediaItemID, event.OccurredAt); err != nil {
 			return s.failWebhook(ctx, conn.ID, result, err, "Failed to apply mark-unplayed event")
 		}
@@ -406,8 +412,7 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 		return result, nil
 	}
 
-	localProgress, err := s.importRepo.GetProgress(ctx, conn.UserID, profileID, match.MediaItemID)
-	if err == nil && localProgress != nil && !record.UpdatedAt.After(localProgress.UpdatedAt) {
+	if s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, record.UpdatedAt) {
 		result.Outcome = OutcomeSkipped
 		result.Summary = "Skipped because local watch progress is newer"
 		return result, nil
@@ -453,6 +458,14 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	result.Outcome = OutcomeApplied
 	result.Summary = "Applied watch progress event"
 	return result, nil
+}
+
+// localProgressIsNewer reports whether the profile's Silo watch progress for
+// the item is at least as recent as the event, so a delayed delivery cannot
+// overwrite or erase newer activity.
+func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileID, mediaItemID string, eventAt time.Time) bool {
+	localProgress, err := s.importRepo.GetProgress(ctx, userID, profileID, mediaItemID)
+	return err == nil && localProgress != nil && !eventAt.After(localProgress.UpdatedAt)
 }
 
 func (s *Service) failWebhook(ctx context.Context, connectionID string, result *ProcessWebhookResult, err error, summary string) (*ProcessWebhookResult, error) {

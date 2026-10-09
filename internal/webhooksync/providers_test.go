@@ -418,14 +418,16 @@ func TestJellyfinProviderRejectsMalformedPayloads(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"empty object":        `{}`,
-		"not json":            `not json`,
-		"trailing data":       `{"notification_type":"PlaybackStop"} {"x":1}`,
-		"missing user":        `{"notification_type":"PlaybackStop","timestamp":"2026-04-07T12:00:00Z",` + jellyfinMovieItem + `}`,
-		"missing item":        `{"notification_type":"PlaybackStop","timestamp":"2026-04-07T12:00:00Z","user":{"id":"user-1"}}`,
-		"missing timestamp":   `{"notification_type":"PlaybackStop","user":{"id":"user-1"},` + jellyfinMovieItem + `}`,
-		"bad timestamp":       `{"notification_type":"PlaybackStop","timestamp":"yesterday","user":{"id":"user-1"},` + jellyfinMovieItem + `}`,
-		"toggle without user": `{"notification_type":"UserDataSaved","timestamp":"2026-04-07T12:00:00Z",` + jellyfinMovieItem + `,"user_data":{"save_reason":"TogglePlayed","played":true}}`,
+		"empty object":            `{}`,
+		"not json":                `not json`,
+		"trailing data":           `{"notification_type":"PlaybackStop"} {"x":1}`,
+		"missing user":            `{"notification_type":"PlaybackStop","timestamp":"2026-04-07T12:00:00Z",` + jellyfinMovieItem + `}`,
+		"missing item":            `{"notification_type":"PlaybackStop","timestamp":"2026-04-07T12:00:00Z","user":{"id":"user-1"}}`,
+		"missing timestamp":       `{"notification_type":"PlaybackStop","user":{"id":"user-1"},` + jellyfinMovieItem + `}`,
+		"bad timestamp":           `{"notification_type":"PlaybackStop","timestamp":"yesterday","user":{"id":"user-1"},` + jellyfinMovieItem + `}`,
+		"toggle without user":     `{"notification_type":"UserDataSaved","timestamp":"2026-04-07T12:00:00Z",` + jellyfinMovieItem + `,"user_data":{"save_reason":"TogglePlayed","played":true}}`,
+		"toggle without played":   `{"notification_type":"UserDataSaved","timestamp":"2026-04-07T12:00:00Z","user":{"id":"user-1"},` + jellyfinMovieItem + `,"user_data":{"save_reason":"TogglePlayed"}}`,
+		"toggle with null played": `{"notification_type":"UserDataSaved","timestamp":"2026-04-07T12:00:00Z","user":{"id":"user-1"},` + jellyfinMovieItem + `,"user_data":{"save_reason":"TogglePlayed","played":null}}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
