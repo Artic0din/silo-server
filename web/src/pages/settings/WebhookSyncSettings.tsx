@@ -104,7 +104,7 @@ const JELLYFIN_TEMPLATE = `{
   },
   "user_data": {
     "save_reason": "{{SaveReason}}",
-    "played": {{#if_equals Played 'true'}}true{{else}}false{{/if_equals}}
+    "played": {{#if_exist Played}}{{#if_equals Played 'true'}}true{{else}}false{{/if_equals}}{{else}}null{{/if_exist}}
   }
 }`;
 
