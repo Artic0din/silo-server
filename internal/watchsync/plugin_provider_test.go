@@ -309,7 +309,7 @@ func TestPluginProviderClassifiesAndRedactsConnectionSecrets(t *testing.T) {
 	client := &fakeWatchSyncPluginClient{exchangeResponse: &pluginv1.WatchSyncCredentialResponse{
 		Fault: &pluginv1.WatchSyncFault{
 			Code:        pluginv1.WatchSyncFaultCode_WATCH_SYNC_FAULT_CODE_INVALID_CREDENTIAL,
-			SafeMessage: "credentials " + testSecretValue + " and admin-app-key-7Q were rejected",
+			SafeMessage: "credentials " + testSecretValue + ", admin-app-key-7Q and nested-admin-key-9Z were rejected",
 		},
 	}}
 	schema := &pluginv1.ConfigSchema{
@@ -338,7 +338,11 @@ func TestPluginProviderClassifiesAndRedactsConnectionSecrets(t *testing.T) {
 		ConnectionConfigSchema: []*pluginv1.ConfigSchema{schema},
 		ResolveClient:          func(context.Context, int, string) (WatchSyncPluginClient, error) { return client, nil },
 		ResolveConfig: func(context.Context, int) (*pluginv1.WatchSyncProviderConfig, error) {
-			return &pluginv1.WatchSyncProviderConfig{SecretValues: map[string]string{"app.client_secret": "admin-app-key-7Q"}}, nil
+			// An admin secret field holding an object is stored JSON-encoded.
+			return &pluginv1.WatchSyncProviderConfig{SecretValues: map[string]string{
+				"app.client_secret": "admin-app-key-7Q",
+				"app.tokens":        `{"token":"nested-admin-key-9Z"}`,
+			}}, nil
 		},
 	})
 	if err != nil {
@@ -361,7 +365,7 @@ func TestPluginProviderClassifiesAndRedactsConnectionSecrets(t *testing.T) {
 	if _, exposed := config.GetValues()["account.client_secret"]; exposed {
 		t.Fatal("JSON-schema password was exposed as a public provider value")
 	}
-	if strings.Contains(err.Error(), testSecretValue) || strings.Contains(err.Error(), "admin-app-key-7Q") || !strings.Contains(err.Error(), "[REDACTED]") {
+	if strings.Contains(err.Error(), testSecretValue) || strings.Contains(err.Error(), "admin-app-key-7Q") || strings.Contains(err.Error(), "nested-admin-key-9Z") || !strings.Contains(err.Error(), "[REDACTED]") {
 		t.Fatalf("connection secrets were not redacted: %q", err)
 	}
 }

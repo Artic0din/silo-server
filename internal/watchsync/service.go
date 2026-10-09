@@ -2099,9 +2099,7 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 	if confirm && len(conns) == 0 {
 		return nil
 	}
-	if len(conns) > 0 {
-		event = s.withScrobbleTitles(ctx, event)
-	}
+	titled := s.lazyScrobbleTitles(ctx, event)
 	var dispatchErrors []error
 	var confirmedTargets []confirmedScrobbleTarget
 	for _, conn := range conns {
@@ -2169,7 +2167,7 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 			_ = s.repo.UpdateScrobbleSession(ctx, event.PlaybackSessionID, conn.ID, action, event.PositionSeconds, event.HistoryID, err.Error(), nil)
 			continue
 		}
-		s.dispatchScrobbleAsync(scrobbler, cfg, conn, event, action)
+		s.dispatchScrobbleAsync(scrobbler, cfg, conn, event, titled, action)
 	}
 	if len(confirmedTargets) > 0 {
 		results := make(chan error, len(confirmedTargets))
@@ -2183,6 +2181,7 @@ func (s *Service) scrobble(ctx context.Context, event ScrobbleEvent, action stri
 					target.scrobbler,
 					target.connection,
 					event,
+					titled,
 				)
 			}()
 		}
@@ -2227,13 +2226,13 @@ func (s *Service) persistCompletedScrobbleExport(ctx context.Context, conn Conne
 	}})
 }
 
-func (s *Service) dispatchScrobbleAsync(scrobbler Scrobbler, cfg ServerConfig, conn Connection, event ScrobbleEvent, action string) {
+func (s *Service) dispatchScrobbleAsync(scrobbler Scrobbler, cfg ServerConfig, conn Connection, event ScrobbleEvent, titled func() ScrobbleEvent, action string) {
 	s.enqueueOrderedScrobble(scrobbleDispatchKey(scrobbler, conn, event), func() {
-		_ = s.dispatchScrobble(context.Background(), scrobbler, cfg, conn, event, action, nil)
+		_ = s.dispatchScrobble(context.Background(), scrobbler, cfg, conn, titled(), action, nil)
 	})
 }
 
-func (s *Service) dispatchScrobbleConfirmed(ctx context.Context, provider Provider, scrobbler Scrobbler, conn Connection, event ScrobbleEvent) error {
+func (s *Service) dispatchScrobbleConfirmed(ctx context.Context, provider Provider, scrobbler Scrobbler, conn Connection, event ScrobbleEvent, titled func() ScrobbleEvent) error {
 	dispatch := func() error {
 		preparation, claimVersion, err := s.repo.PrepareConfirmedScrobbleStop(
 			ctx, event, conn.ID, s.now().Add(-confirmedStopLease),
@@ -2264,7 +2263,7 @@ func (s *Service) dispatchScrobbleConfirmed(ctx context.Context, provider Provid
 			)
 			return err
 		}
-		return s.dispatchScrobble(ctx, scrobbler, cfg, refreshedConn, event, "stop", &claimVersion)
+		return s.dispatchScrobble(ctx, scrobbler, cfg, refreshedConn, titled(), "stop", &claimVersion)
 	}
 	result := make(chan error, 1)
 	s.enqueueOrderedScrobble(scrobbleDispatchKey(scrobbler, conn, event), func() {

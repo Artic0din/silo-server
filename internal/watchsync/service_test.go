@@ -54,6 +54,7 @@ type serviceFakeRepo struct {
 	droppedStates          []DroppedSyncState
 	listMedia              map[string]LocalFavorite
 	mediaTitles            map[string]MediaTitles
+	mediaTitlesRelease     chan struct{} // when set, title lookups stall until it closes
 	scrobbleConnections    []Connection
 	scrobbleSessions       []ScrobbleSession
 	pendingReconciliations []ScrobbleSession
@@ -744,7 +745,14 @@ func (r *serviceFakeRepo) GetListMediaItems(_ context.Context, mediaItemIDs []st
 	return result, nil
 }
 
-func (r *serviceFakeRepo) GetMediaTitles(_ context.Context, mediaItemIDs []string) (map[string]MediaTitles, error) {
+func (r *serviceFakeRepo) GetMediaTitles(ctx context.Context, mediaItemIDs []string) (map[string]MediaTitles, error) {
+	if r.mediaTitlesRelease != nil {
+		select {
+		case <-r.mediaTitlesRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	result := make(map[string]MediaTitles, len(mediaItemIDs))
 	for _, id := range mediaItemIDs {
 		if titles, ok := r.mediaTitles[id]; ok {
@@ -835,7 +843,10 @@ func (r *serviceFakeRepo) FailConfirmedScrobbleStop(_ context.Context, playbackS
 	return nil
 }
 
-func (r *serviceFakeRepo) UpdateScrobbleSession(_ context.Context, playbackSessionID string, connectionID string, action string, positionSeconds float64, historyID string, lastError string, stopSentAt *time.Time) error {
+func (r *serviceFakeRepo) UpdateScrobbleSession(ctx context.Context, playbackSessionID string, connectionID string, action string, positionSeconds float64, historyID string, lastError string, stopSentAt *time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.scrobbleMu.Lock()
 	defer r.scrobbleMu.Unlock()
 	r.scrobbleUpdates = append(r.scrobbleUpdates, scrobbleUpdate{
@@ -2764,6 +2775,39 @@ func TestServiceSendsCatalogTitlesWithPluginScrobbles(t *testing.T) {
 				t.Fatalf("title, year, series title, series year = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A stalled title lookup must not use up the caller's deadline: the session
+// write and enqueue happen first, and the event still reaches the provider.
+func TestServiceScrobbleTitleLookupDoesNotHoldCallerDeadline(t *testing.T) {
+	repo := newServiceFakeRepo()
+	repo.mediaTitles = map[string]MediaTitles{testMovieMediaID: {Kind: historyimport.KindMovie, Title: "1917", Year: 2019}}
+	release := make(chan struct{})
+	repo.mediaTitlesRelease = release
+	repo.scrobbleConnections = []Connection{{ID: "conn-1", Provider: "trakt", UserID: 7, ProfileID: "profile-1", ScrobbleEnabled: true}}
+	events := make(chan ScrobbleEvent, 1)
+	reg := NewRegistry()
+	if err := reg.Register(scrobblerStub{stopEvents: events}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := NewService(repo, reg).ScrobbleStop(ctx, ScrobbleEvent{
+		PlaybackSessionID: testPlaybackSessionID, UserID: 7, ProfileID: "profile-1",
+		MediaItemID: testMovieMediaID, Kind: historyimport.KindMovie,
+	}); err != nil {
+		t.Fatalf("ScrobbleStop = %v", err)
+	}
+	<-ctx.Done()
+	close(release)
+	select {
+	case event := <-events:
+		if event.Title != "1917" || event.Year != 2019 {
+			t.Fatalf("stop event title, year = %q, %d", event.Title, event.Year)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("stop was never dispatched")
 	}
 }
 

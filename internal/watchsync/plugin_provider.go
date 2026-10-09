@@ -235,9 +235,7 @@ func (p *PluginProvider) ConnectWithAPIKeyConfig(
 		return TokenSet{}, ProviderAccount{}, watchSyncRPCError()
 	}
 	faultSecrets := append([]string{apiKey}, connectionSecrets...)
-	for _, value := range config.GetSecretValues() {
-		faultSecrets = append(faultSecrets, value)
-	}
+	faultSecrets = append(faultSecrets, providerConfigSecretStrings(config)...)
 	if err := watchSyncFaultError(p.Key(), response.GetFault(), faultSecrets...); err != nil {
 		return TokenSet{}, ProviderAccount{}, connectFaultError(err)
 	}
@@ -601,8 +599,22 @@ func authenticatedContextSecrets(authContext *pluginv1.WatchSyncAuthenticatedCon
 	for _, value := range credentials.GetSecretAttributes() {
 		secrets = append(secrets, value)
 	}
-	for _, value := range authContext.GetProviderConfig().GetSecretValues() {
+	return append(secrets, providerConfigSecretStrings(authContext.GetProviderConfig())...)
+}
+
+// providerConfigSecretStrings lists a provider config's secret values and,
+// for a value holding an encoded JSON object or array, every scalar inside
+// it: a field holding an object is stored encoded, and a plugin can quote one
+// of its members.
+func providerConfigSecretStrings(config *pluginv1.WatchSyncProviderConfig) []string {
+	var secrets []string
+	for _, value := range config.GetSecretValues() {
 		secrets = append(secrets, value)
+		trimmed := strings.TrimSpace(value)
+		var decoded any
+		if (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) && json.Unmarshal([]byte(trimmed), &decoded) == nil {
+			secrets = append(secrets, connectionConfigSecretStrings(decoded)...)
+		}
 	}
 	return secrets
 }

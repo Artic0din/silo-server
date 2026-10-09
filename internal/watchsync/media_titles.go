@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,6 +69,16 @@ func (s *Service) withScrobbleTitles(ctx context.Context, event ScrobbleEvent) S
 		event.Title, event.Year, event.SeriesTitle, event.SeriesYear = found.Title, found.Year, found.SeriesTitle, found.SeriesYear
 	}
 	return event
+}
+
+// lazyScrobbleTitles returns a function that yields event with its display
+// titles, looked up once, when the first provider dispatch needs them. The
+// lookup keeps ctx's values but not its deadline: it runs after the caller's
+// session writes and enqueue, so a slow lookup costs the event its titles,
+// never the event itself.
+func (s *Service) lazyScrobbleTitles(ctx context.Context, event ScrobbleEvent) func() ScrobbleEvent {
+	ctx = context.WithoutCancel(ctx)
+	return sync.OnceValue(func() ScrobbleEvent { return s.withScrobbleTitles(ctx, event) })
 }
 
 // withPlayTitles returns plays with the display titles of those that do not
