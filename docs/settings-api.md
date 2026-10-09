@@ -586,9 +586,24 @@ mapping, provider normalization, watch-state behavior and delivery logging with
 bounded sanitized body excerpts. A processed delivery returns bodyless 204,
 including ignored, skipped or unmatched events. Malformed payloads return 400,
 unknown secrets 404, and internal failures a safe 500 problem. Known-connection
-rejections retain delivery logs. This synchronous operation is non-retryable;
-existing provider ordering and duplicate-handling behavior is unchanged and does
-not provide an exactly-once guarantee.
+rejections retain delivery logs. This synchronous operation is non-retryable.
+Missing required fields or trailing data after the JSON document count as malformed;
+a well-formed notification of a type Silo does not use is ignored.
+
+Watch-state rules, shared by the v2 and bridge receivers:
+
+- An event changes only the Silo profile explicitly mapped to its external user.
+  An unmapped user's event is skipped and is not replayed after mapping.
+- Jellyfin: `PlaybackStop` records position and `played_to_completion`.
+  `UserDataSaved` with save reason `TogglePlayed` marks the item played or
+  unplayed; other save reasons are ignored. The payload `timestamp` orders events
+  and must parse.
+- For one external user and item, an event older than the last applied one is
+  dropped, and an event with the same timestamp applies only if it completes the
+  item or advances the position by at least five seconds. A replayed delivery
+  therefore has no further effect, and a replayed completion cannot undo a later
+  unplayed mark. Newer native Silo progress for the profile also wins. There is
+  no exactly-once guarantee beyond these rules.
 
 A Plex connection's `base_url` follows the history import rule for server
 addresses: it must be on the public internet unless the account is an admin or

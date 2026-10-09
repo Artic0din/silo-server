@@ -472,20 +472,25 @@ func mappingsToDiscoveredUsers(mappings []ProfileMapping) []DiscoveredUser {
 	return out
 }
 
+// shouldSkipEvent reports whether a progress event is stale or repeats one
+// already applied for the same external user and item.
 func shouldSkipEvent(state *ItemState, event *CanonicalEvent) bool {
 	if state == nil {
 		return false
 	}
+	// An older event never overrides a newer one, so a replayed completion
+	// cannot undo a later mark-unplayed.
+	if event.OccurredAt.Before(state.LastEventAt) {
+		return true
+	}
 	if event.OccurredAt.After(state.LastEventAt) {
 		return false
 	}
+	// A same-instant event applies only if it adds information.
 	if !state.LastCompleted && event.Completed {
 		return false
 	}
-	if event.PositionSeconds >= state.LastPositionSecond+5 {
-		return false
-	}
-	return true
+	return event.PositionSeconds < state.LastPositionSecond+5
 }
 
 func resolveWebhookProfileID(mapping *ProfileMapping) (string, bool) {

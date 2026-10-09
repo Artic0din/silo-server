@@ -238,28 +238,6 @@ func TestDecodeEmbyPayloadFormEncoded(t *testing.T) {
 	}
 }
 
-func TestJellyfinProviderParseWebhookIgnoresNonStop(t *testing.T) {
-	t.Parallel()
-
-	provider := NewJellyfinProvider()
-	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(`{
-		"provider": "jellyfin",
-		"notification_type": "PlaybackProgress",
-		"timestamp": "2026-04-07T12:00:00Z",
-		"user": { "id": "user-1", "name": "Alice" },
-		"item": { "id": "item-1", "type": "Movie", "name": "Movie", "provider_ids": {} },
-		"playback": { "position_ticks": 1, "played_to_completion": false, "runtime_ticks": 2 }
-	}`))
-
-	event, err := provider.ParseWebhook(context.Background(), &Connection{}, req)
-	if err != nil {
-		t.Fatalf("ParseWebhook() error = %v", err)
-	}
-	if event == nil || event.Apply {
-		t.Fatalf("expected ignored event, got %#v", event)
-	}
-}
-
 func TestEmbyWebhookAction(t *testing.T) {
 	t.Parallel()
 
@@ -297,33 +275,158 @@ func TestShouldSkipEvent(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
-	state := &ItemState{
-		LastEventAt:        now,
-		LastCompleted:      false,
-		LastPositionSecond: 120,
+	partial := &ItemState{LastEventAt: now, LastPositionSecond: 120}
+	completed := &ItemState{LastEventAt: now, LastCompleted: true, LastPositionSecond: 3000}
+
+	cases := []struct {
+		name  string
+		state *ItemState
+		event CanonicalEvent
+		want  bool
+	}{
+		{name: "first event applies", event: CanonicalEvent{OccurredAt: now}, want: false},
+		{name: "newer event applies", state: partial, event: CanonicalEvent{OccurredAt: now.Add(time.Minute), PositionSeconds: 10}, want: false},
+		{name: "older event is stale", state: partial, event: CanonicalEvent{OccurredAt: now.Add(-time.Minute), PositionSeconds: 600}, want: true},
+		{name: "older completion cannot undo a later unplayed mark", state: &ItemState{LastEventAt: now}, event: CanonicalEvent{OccurredAt: now.Add(-time.Minute), Completed: true}, want: true},
+		{name: "replayed event is a duplicate", state: partial, event: CanonicalEvent{OccurredAt: now, PositionSeconds: 120}, want: true},
+		{name: "replayed completion is a duplicate", state: completed, event: CanonicalEvent{OccurredAt: now, Completed: true, PositionSeconds: 3000}, want: true},
+		{name: "same-instant completion upgrade applies", state: partial, event: CanonicalEvent{OccurredAt: now, Completed: true, PositionSeconds: 121}, want: false},
+		{name: "same-instant position increase applies", state: partial, event: CanonicalEvent{OccurredAt: now, PositionSeconds: 130}, want: false},
 	}
 
-	if !shouldSkipEvent(state, &CanonicalEvent{
-		OccurredAt:      now.Add(-time.Minute),
-		Completed:       false,
-		PositionSeconds: 121,
-	}) {
-		t.Fatalf("expected stale low-progress event to be skipped")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldSkipEvent(tc.state, &tc.event); got != tc.want {
+				t.Fatalf("shouldSkipEvent() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+const jellyfinMovieItem = `"item": { "id": "item-1", "type": "Movie", "name": "Movie", "year": 2008, "runtime_ticks": 6000000000, "provider_ids": { "imdb": "tt1254207", "tmdb": "10378", "tvdb": "" } }`
+
+func parseJellyfin(t *testing.T, body string) (*CanonicalEvent, error) {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(body))
+	return NewJellyfinProvider().ParseWebhook(context.Background(), &Connection{}, req)
+}
+
+func TestJellyfinProviderParsePlaybackStop(t *testing.T) {
+	t.Parallel()
+
+	event, err := parseJellyfin(t, `{
+		"provider": "jellyfin",
+		"notification_type": "PlaybackStop",
+		"timestamp": "2026-04-07T12:00:00.1234567Z",
+		"user": { "id": "user-1", "name": "Alice" },
+		`+jellyfinMovieItem+`,
+		"playback": { "position_ticks": 1200000000, "played_to_completion": false, "runtime_ticks": 6000000000 }
+	}`)
+	if err != nil {
+		t.Fatalf("ParseWebhook() error = %v", err)
+	}
+	if !event.Apply || event.Action != ActionImportProgress || event.Completed {
+		t.Fatalf("unexpected event: %#v", event)
+	}
+	if event.PositionSeconds != 120 || event.DurationSeconds != 600 {
+		t.Fatalf("position/duration = %v/%v, want 120/600", event.PositionSeconds, event.DurationSeconds)
+	}
+	if want := time.Date(2026, 4, 7, 12, 0, 0, 123456000, time.UTC); !event.OccurredAt.Equal(want) {
+		t.Fatalf("OccurredAt = %v, want %v", event.OccurredAt, want)
+	}
+	if event.UserID != "user-1" || event.UserName != "Alice" || event.Record.TMDBID != "10378" {
+		t.Fatalf("unexpected identity: %#v", event)
+	}
+}
+
+func TestJellyfinProviderParseTogglePlayed(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		reason        string
+		played        bool
+		wantApply     bool
+		wantAction    string
+		wantCompleted bool
+	}{
+		{name: "mark played", reason: "TogglePlayed", played: true, wantApply: true, wantAction: ActionImportProgress, wantCompleted: true},
+		{name: "mark unplayed", reason: "TogglePlayed", played: false, wantApply: true, wantAction: ActionMarkUnplayed},
+		{name: "playback finished repeats playback stop", reason: "PlaybackFinished", played: true},
+		{name: "rating change", reason: "UpdateUserRating", played: true},
+		{name: "template without user data", reason: "", played: false},
 	}
 
-	if shouldSkipEvent(state, &CanonicalEvent{
-		OccurredAt:      now.Add(-time.Minute),
-		Completed:       true,
-		PositionSeconds: 121,
-	}) {
-		t.Fatalf("expected completion upgrade to be applied")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			played := "false"
+			if tc.played {
+				played = "true"
+			}
+			event, err := parseJellyfin(t, `{
+				"provider": "jellyfin",
+				"notification_type": "UserDataSaved",
+				"timestamp": "2026-04-07T12:00:00Z",
+				"user": { "id": "user-1", "name": "Alice" },
+				`+jellyfinMovieItem+`,
+				"user_data": { "save_reason": "`+tc.reason+`", "played": `+played+` }
+			}`)
+			if err != nil {
+				t.Fatalf("ParseWebhook() error = %v", err)
+			}
+			if event.Apply != tc.wantApply {
+				t.Fatalf("Apply = %v, want %v (%#v)", event.Apply, tc.wantApply, event)
+			}
+			if !tc.wantApply {
+				return
+			}
+			if event.Action != tc.wantAction || event.Completed != tc.wantCompleted {
+				t.Fatalf("action/completed = %q/%v, want %q/%v", event.Action, event.Completed, tc.wantAction, tc.wantCompleted)
+			}
+		})
 	}
+}
 
-	if shouldSkipEvent(state, &CanonicalEvent{
-		OccurredAt:      now.Add(-time.Minute),
-		Completed:       false,
-		PositionSeconds: 130,
-	}) {
-		t.Fatalf("expected material position increase to be applied")
+func TestJellyfinProviderIgnoresUnsupportedNotification(t *testing.T) {
+	t.Parallel()
+
+	event, err := parseJellyfin(t, `{
+		"provider": "jellyfin",
+		"notification_type": "PlaybackProgress",
+		"timestamp": "2026-04-07T12:00:00Z",
+		"user": { "id": "user-1", "name": "Alice" },
+		`+jellyfinMovieItem+`,
+		"playback": { "position_ticks": 1, "played_to_completion": false, "runtime_ticks": 2 }
+	}`)
+	if err != nil {
+		t.Fatalf("ParseWebhook() error = %v", err)
+	}
+	if event == nil || event.Apply {
+		t.Fatalf("expected ignored event, got %#v", event)
+	}
+}
+
+func TestJellyfinProviderRejectsMalformedPayloads(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"empty object":        `{}`,
+		"not json":            `not json`,
+		"trailing data":       `{"notification_type":"PlaybackStop"} {"x":1}`,
+		"missing user":        `{"notification_type":"PlaybackStop","timestamp":"2026-04-07T12:00:00Z",` + jellyfinMovieItem + `}`,
+		"missing item":        `{"notification_type":"PlaybackStop","timestamp":"2026-04-07T12:00:00Z","user":{"id":"user-1"}}`,
+		"missing timestamp":   `{"notification_type":"PlaybackStop","user":{"id":"user-1"},` + jellyfinMovieItem + `}`,
+		"bad timestamp":       `{"notification_type":"PlaybackStop","timestamp":"yesterday","user":{"id":"user-1"},` + jellyfinMovieItem + `}`,
+		"toggle without user": `{"notification_type":"UserDataSaved","timestamp":"2026-04-07T12:00:00Z",` + jellyfinMovieItem + `,"user_data":{"save_reason":"TogglePlayed","played":true}}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if event, err := parseJellyfin(t, body); err == nil {
+				t.Fatalf("ParseWebhook() = %#v, want error", event)
+			}
+		})
 	}
 }

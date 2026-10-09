@@ -372,29 +372,41 @@ func (p *JellyfinProvider) ParseWebhook(_ context.Context, conn *Connection, r *
 			PlayedToCompletion bool  `json:"played_to_completion"`
 			RuntimeTicks       int64 `json:"runtime_ticks"`
 		} `json:"playback"`
+		UserData struct {
+			SaveReason string `json:"save_reason"`
+			Played     bool   `json:"played"`
+		} `json:"user_data"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("invalid Jellyfin payload")
 	}
-	if payload.NotificationType != "PlaybackStop" {
+	if _, err := decoder.Token(); err != io.EOF {
+		return nil, fmt.Errorf("invalid Jellyfin payload")
+	}
+	if strings.TrimSpace(payload.NotificationType) == "" {
+		return nil, fmt.Errorf("invalid Jellyfin webhook payload")
+	}
+	action, completed, ok := jellyfinWebhookAction(payload.NotificationType, payload.UserData.SaveReason, payload.UserData.Played, payload.Playback.PlayedToCompletion)
+	if !ok {
 		return &CanonicalEvent{
 			EventKind: payload.NotificationType,
-			Summary:   "Ignored Jellyfin notification because only PlaybackStop is supported",
+			Summary:   "Ignored unsupported Jellyfin notification",
 			Apply:     false,
 		}, nil
 	}
 	if payload.User.ID == "" || payload.Item.ID == "" || payload.Item.Type == "" {
 		return nil, fmt.Errorf("invalid Jellyfin webhook payload")
 	}
-	occurredAt, err := time.Parse(time.RFC3339, payload.Timestamp)
+	occurredAt, err := parseJellyfinTimestamp(payload.Timestamp)
 	if err != nil {
-		occurredAt = time.Now().UTC()
+		return nil, fmt.Errorf("invalid Jellyfin webhook payload")
 	}
 	runtimeTicks := payload.Playback.RuntimeTicks
 	if runtimeTicks == 0 {
 		runtimeTicks = payload.Item.RuntimeTicks
 	}
-	record, mediaKind, ok := embyLikeRecord(payload.Item.Type, payload.Item.Name, payload.Item.SeriesName, payload.Item.Year, payload.Item.EpisodeNumber, payload.Item.SeasonNumber, runtimeTicks, payload.Playback.PositionTicks, payload.Playback.PlayedToCompletion, payload.Item.ProviderIDs, payload.Item.ID, occurredAt, false)
+	record, mediaKind, ok := embyLikeRecord(payload.Item.Type, payload.Item.Name, payload.Item.SeriesName, payload.Item.Year, payload.Item.EpisodeNumber, payload.Item.SeasonNumber, runtimeTicks, payload.Playback.PositionTicks, completed, payload.Item.ProviderIDs, payload.Item.ID, occurredAt, false)
 	if !ok {
 		return &CanonicalEvent{
 			EventKind: payload.NotificationType,
@@ -410,7 +422,7 @@ func (p *JellyfinProvider) ParseWebhook(_ context.Context, conn *Connection, r *
 		Provider:        ProviderJellyfin,
 		ServerName:      serverName,
 		OccurredAt:      record.UpdatedAt,
-		Action:          ActionImportProgress,
+		Action:          action,
 		EventKind:       payload.NotificationType,
 		UserID:          payload.User.ID,
 		UserName:        payload.User.Name,
@@ -423,6 +435,48 @@ func (p *JellyfinProvider) ParseWebhook(_ context.Context, conn *Connection, r *
 		Summary:         "Applied Jellyfin watch progress event",
 		Apply:           true,
 	}, nil
+}
+
+const (
+	jellyfinPlaybackStop  = "PlaybackStop"
+	jellyfinUserDataSaved = "UserDataSaved"
+	// jellyfinTogglePlayed is the UserDataSaved reason Jellyfin reports when
+	// a user marks an item played or unplayed.
+	jellyfinTogglePlayed = "TogglePlayed"
+)
+
+// jellyfinWebhookAction maps a Jellyfin notification to its action and whether
+// it reports the item watched. Playback updates arrive as PlaybackStop; manual
+// played/unplayed marks arrive as UserDataSaved with the TogglePlayed reason.
+// Other UserDataSaved reasons repeat playback or rating changes and are ignored.
+func jellyfinWebhookAction(notificationType, saveReason string, played, playedToCompletion bool) (action string, completed bool, ok bool) {
+	switch notificationType {
+	case jellyfinPlaybackStop:
+		return ActionImportProgress, playedToCompletion, true
+	case jellyfinUserDataSaved:
+		if !strings.EqualFold(saveReason, jellyfinTogglePlayed) {
+			return "", false, false
+		}
+		if played {
+			return ActionImportProgress, true, true
+		}
+		return ActionMarkUnplayed, false, true
+	default:
+		return "", false, false
+	}
+}
+
+// parseJellyfinTimestamp reads the plugin's {{UtcTimestamp}} (RFC 3339 with
+// seven fractional digits). Event ordering and replay detection depend on it,
+// so an unparseable value is rejected rather than replaced with the receipt
+// time. The result is truncated to the microsecond precision Postgres stores,
+// so a replayed delivery compares equal to the stored event.
+func parseJellyfinTimestamp(value string) (time.Time, error) {
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC().Truncate(time.Microsecond), nil
 }
 
 func embyLikeRecord(itemType, itemName, seriesName string, productionYear, episodeNumber, seasonNumber int, runTimeTicks, positionTicks int64, completed bool, providerIDs map[string]string, externalID string, occurredAt time.Time, allowSeries bool) (CanonicalRecord, string, bool) {
