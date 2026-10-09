@@ -306,3 +306,30 @@ it.each([
   mount("/admin/logs?tab=audit");
   expect(screen.getByText(field.replaceAll("_", " ")).parentElement).toHaveTextContent(expected);
 });
+
+it("shows object change values as JSON", () => {
+  vi.mocked(useAdminLogStream).mockReturnValue({
+    rows: [
+      {
+        id: 902,
+        timestamp: "2026-10-08T10:00:00Z",
+        client_ip: "192.0.2.1",
+        method: "PUT",
+        path: "/api/v2/admin/users/2",
+        status_code: 204,
+        duration_ms: 1,
+        user_id: 1,
+        action: "user.updated",
+        target_type: "user",
+        target_id: "2",
+        changes: [{ field: "max_streams", before: '{"a":1}', after: "2" }],
+      },
+    ],
+    isConnecting: false,
+    isLive: true,
+    connectionState: "live",
+    reconnect: vi.fn(),
+  });
+  mount("/admin/logs?tab=audit");
+  expect(screen.getByText("max streams").parentElement).toHaveTextContent('{"a":1} → 2');
+});
