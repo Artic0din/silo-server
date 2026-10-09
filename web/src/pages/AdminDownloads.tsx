@@ -1,18 +1,23 @@
 import { useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAdminDownloadPreparations } from "@/hooks/queries/admin/downloadPreparations";
 import DeviceCopiesTab from "@/pages/admin-downloads/DeviceCopiesTab";
 import HistoryTab from "@/pages/admin-downloads/HistoryTab";
+import PreparationTab from "@/pages/admin-downloads/PreparationTab";
 import PreparedFilesTab from "@/pages/admin-downloads/PreparedFilesTab";
 import StorageTab, { type StorageTabTarget } from "@/pages/admin-downloads/StorageTab";
 import {
   parseAdminDownloadsTab,
   type AdminDownloadsTab,
 } from "@/pages/admin-downloads/adminDownloadsTabs";
+import { TabCount } from "@/pages/admin-downloads/controls";
+import { activePreparationCount } from "@/pages/adminDownloadPreparationPresentation";
 
 export default function AdminDownloads() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseAdminDownloadsTab(searchParams.get("tab"));
   const location = searchParams.get("location") ?? "";
+  const activePreparations = activePreparationCount(useAdminDownloadPreparations().data?.counts);
 
   function open(next: AdminDownloadsTab, extra: Record<string, string> = {}) {
     const params = new URLSearchParams();
@@ -32,7 +37,8 @@ export default function AdminDownloads() {
         <div className="space-y-3">
           <h1 className="page-title text-[clamp(2rem,4vw,3.25rem)]">Downloads</h1>
           <p className="page-subtitle text-sm sm:text-base">
-            Prepared download files on the server and nodes, and the copies on people's devices.
+            Preparing downloads, the prepared files on the server and nodes, and the copies on
+            people's devices.
           </p>
         </div>
       </div>
@@ -41,9 +47,16 @@ export default function AdminDownloads() {
         onValueChange={(value) => open(parseAdminDownloadsTab(value))}
         className="gap-5 lg:gap-6"
       >
-        <TabsList variant="line" className="border-border w-full justify-start border-b">
+        <TabsList
+          variant="line"
+          className="border-border w-full justify-start overflow-x-auto overflow-y-hidden border-b"
+        >
           <TabsTrigger value="storage" className="flex-none">
             Storage
+          </TabsTrigger>
+          <TabsTrigger value="preparation" className="flex-none">
+            Preparation
+            <TabCount count={activePreparations} />
           </TabsTrigger>
           <TabsTrigger value="files" className="flex-none">
             Prepared files
@@ -57,6 +70,9 @@ export default function AdminDownloads() {
         </TabsList>
         <TabsContent value="storage">
           <StorageTab onNavigate={navigate} />
+        </TabsContent>
+        <TabsContent value="preparation">
+          <PreparationTab />
         </TabsContent>
         <TabsContent value="files">
           <PreparedFilesTab

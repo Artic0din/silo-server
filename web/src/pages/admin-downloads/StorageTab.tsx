@@ -152,7 +152,7 @@ export default function StorageTab({
           value={formatStorageBytes(data.freed_last_30_days_bytes)}
           detail={
             data.preparing_jobs > 0 ? (
-              <Link to="/admin/activity?view=preparations" className="underline underline-offset-3">
+              <Link to="/admin/downloads?tab=preparation" className="underline underline-offset-3">
                 {data.preparing_jobs} preparing now
               </Link>
             ) : (

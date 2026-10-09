@@ -61,3 +61,16 @@ export function LoadMoreButton({
     </div>
   );
 }
+
+/** A tab label's count badge, highlighted while there is something to count. */
+export function TabCount({ count }: { count: number }) {
+  return (
+    <span
+      className={`rounded-md px-1.5 py-0.5 text-[10px] leading-none font-bold tabular-nums ${
+        count > 0 ? "bg-primary/10 text-primary" : "bg-surface text-muted-foreground"
+      }`}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
