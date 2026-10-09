@@ -146,3 +146,8 @@
 ./internal/api/handlers TestAdminTopActivityCountsPlaybackNotMarks
 
 ./internal/downloads TestLocalDownloadCanceledWritePersistsFailureDB
+
+# Rating sources keep their merge rules, and a trigger keeps the TMDB vote pair
+# discovery rows rank by in step with the 'tmdb' source.
+./internal/catalog TestRatingSourceRepositoryUpsertPostgres
+./internal/catalog TestRatingSourceRepositorySyncsTMDBVotesPostgres
