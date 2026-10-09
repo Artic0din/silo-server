@@ -2374,6 +2374,15 @@ func (s *Service) SweepOpenScrobbles(ctx context.Context) error {
 	if err != nil {
 		return errors.Join(reconciliationErr, err)
 	}
+	// One title lookup covers every open session, so a slow catalog costs the
+	// sweep one timeout, not one per session.
+	mediaItemIDs := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		if session.MediaItemID != "" {
+			mediaItemIDs = append(mediaItemIDs, session.MediaItemID)
+		}
+	}
+	titles := s.mediaTitles(ctx, mediaItemIDs)
 	for _, session := range sessions {
 		conn, ok, err := s.repo.GetConnectionByID(ctx, session.ConnectionID)
 		if err != nil {
@@ -2400,7 +2409,7 @@ func (s *Service) SweepOpenScrobbles(ctx context.Context) error {
 			_ = s.repo.UpdateScrobbleSession(ctx, session.PlaybackSessionID, session.ConnectionID, "stop", session.LastProgress, session.HistoryID, err.Error(), nil)
 			continue
 		}
-		event := s.withScrobbleTitles(ctx, scrobbleEventFromSession(session, conn, s.now()))
+		event := scrobbleWithTitles(scrobbleEventFromSession(session, conn, s.now()), titles)
 		_ = s.dispatchScrobble(ctx, scrobbler, cfg, conn, event, "stop", nil)
 	}
 	return reconciliationErr

@@ -55,6 +55,7 @@ type serviceFakeRepo struct {
 	listMedia              map[string]LocalFavorite
 	mediaTitles            map[string]MediaTitles
 	mediaTitlesRelease     chan struct{} // when set, title lookups stall until it closes
+	mediaTitleLookups      [][]string
 	scrobbleConnections    []Connection
 	scrobbleSessions       []ScrobbleSession
 	pendingReconciliations []ScrobbleSession
@@ -753,6 +754,9 @@ func (r *serviceFakeRepo) GetMediaTitles(ctx context.Context, mediaItemIDs []str
 			return nil, ctx.Err()
 		}
 	}
+	r.scrobbleMu.Lock()
+	r.mediaTitleLookups = append(r.mediaTitleLookups, append([]string(nil), mediaItemIDs...))
+	r.scrobbleMu.Unlock()
 	result := make(map[string]MediaTitles, len(mediaItemIDs))
 	for _, id := range mediaItemIDs {
 		if titles, ok := r.mediaTitles[id]; ok {
@@ -3568,6 +3572,42 @@ func TestServiceSweepOpenScrobblesRetriesProviderStop(t *testing.T) {
 	}
 	if !foundClosed {
 		t.Fatalf("scrobble updates = %+v, want successful stop to mark session closed", updates)
+	}
+}
+
+// The sweep resends stops for every open session after a restart; it loads
+// their titles in one lookup rather than one per session.
+func TestServiceSweepOpenScrobblesLoadsTitlesOnce(t *testing.T) {
+	repo := newServiceFakeRepo()
+	repo.connections[connectionKey("trakt", 7, "profile-1")] = Connection{
+		ID: "conn-1", Provider: "trakt", UserID: 7, ProfileID: "profile-1", AccessToken: testAccessToken, ScrobbleEnabled: true,
+	}
+	repo.mediaTitles = map[string]MediaTitles{
+		"movie-a": {Kind: historyimport.KindMovie, Title: "1917", Year: 2019},
+		"movie-b": {Kind: historyimport.KindMovie, Title: "2 Guns", Year: 2013},
+	}
+	repo.scrobbleSessions = []ScrobbleSession{
+		{PlaybackSessionID: "playback-a", ConnectionID: "conn-1", MediaItemID: "movie-a", Kind: "movie", TMDBID: "530915"},
+		{PlaybackSessionID: "playback-b", ConnectionID: "conn-1", MediaItemID: "movie-b", Kind: "movie", TMDBID: "136400"},
+	}
+	provider := scrobblerStub{stopEvents: make(chan ScrobbleEvent, 2)}
+	reg := NewRegistry()
+	if err := reg.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewService(repo, reg).SweepOpenScrobbles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for range 2 {
+		event := <-provider.stopEvents
+		got[event.MediaItemID] = event.Title
+	}
+	if got["movie-a"] != "1917" || got["movie-b"] != "2 Guns" {
+		t.Fatalf("stop titles = %v", got)
+	}
+	if len(repo.mediaTitleLookups) != 1 || len(repo.mediaTitleLookups[0]) != 2 {
+		t.Fatalf("title lookups = %v, want one lookup for both sessions", repo.mediaTitleLookups)
 	}
 }
 

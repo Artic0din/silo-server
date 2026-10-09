@@ -65,7 +65,16 @@ func (s *Service) withScrobbleTitles(ctx context.Context, event ScrobbleEvent) S
 	if event.Title != "" || event.MediaItemID == "" {
 		return event
 	}
-	if found, ok := titlesFor(s.mediaTitles(ctx, []string{event.MediaItemID}), event.MediaItemID, event.Kind); ok {
+	return scrobbleWithTitles(event, s.mediaTitles(ctx, []string{event.MediaItemID}))
+}
+
+// scrobbleWithTitles fills event's display titles from titles when it does not
+// carry them yet.
+func scrobbleWithTitles(event ScrobbleEvent, titles map[string]MediaTitles) ScrobbleEvent {
+	if event.Title != "" {
+		return event
+	}
+	if found, ok := titlesFor(titles, event.MediaItemID, event.Kind); ok {
 		event.Title, event.Year, event.SeriesTitle, event.SeriesYear = found.Title, found.Year, found.SeriesTitle, found.SeriesYear
 	}
 	return event
