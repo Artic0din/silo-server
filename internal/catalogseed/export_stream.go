@@ -93,9 +93,10 @@ func (s *Service) ExportToWriter(ctx context.Context, w io.Writer, opts ExportOp
 		LibrariesExported: len(folders),
 	}
 	manifest := Manifest{
-		FormatVersion: CurrentBundleVersion,
-		ExportedAt:    time.Now().UTC(),
-		SchemaVersion: schemaVersion,
+		FormatVersion:     CurrentBundleVersion,
+		ExportedAt:        time.Now().UTC(),
+		SchemaVersion:     schemaVersion,
+		TMDBRatingSources: true,
 	}
 
 	zw := gzip.NewWriter(w)

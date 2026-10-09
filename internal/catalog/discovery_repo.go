@@ -40,8 +40,8 @@ type RatingFilter struct {
 	// LibraryID, when non-nil, restricts results to items in that library.
 	// Takes precedence over LibraryIDs.
 	LibraryID *int
-	// LibraryIDs, when non-empty, restricts results to items in any of these
-	// libraries (multi-library section scope).
+	// LibraryIDs, when non-nil, restricts results to items in any of these
+	// libraries (multi-library section scope); an empty set matches nothing.
 	LibraryIDs []int
 	// Filter carries viewer-level access constraints (content rating ceiling,
 	// allowed/disabled library sets).
@@ -159,8 +159,8 @@ type UnplayedFilter struct {
 	// LibraryID, when non-nil, restricts results to items in that library.
 	// Takes precedence over LibraryIDs.
 	LibraryID *int
-	// LibraryIDs, when non-empty, restricts results to items in any of these
-	// libraries (multi-library section scope).
+	// LibraryIDs, when non-nil, restricts results to items in any of these
+	// libraries (multi-library section scope); an empty set matches nothing.
 	LibraryIDs []int
 	// Filter carries viewer-level access constraints.
 	Filter AccessFilter
@@ -264,8 +264,8 @@ type ForgottenFavoritesFilter struct {
 	// LibraryID, when non-nil, restricts results to items in that library.
 	// Takes precedence over LibraryIDs.
 	LibraryID *int
-	// LibraryIDs, when non-empty, restricts results to items in any of these
-	// libraries (multi-library section scope).
+	// LibraryIDs, when non-nil, restricts results to items in any of these
+	// libraries (multi-library section scope); an empty set matches nothing.
 	LibraryIDs []int
 	// Filter carries viewer-level access constraints.
 	Filter AccessFilter
@@ -354,7 +354,12 @@ func appendDiscoveryLibraryScope(
 	switch {
 	case libraryID != nil:
 		scope = []int{*libraryID}
-	case len(libraryIDs) > 0:
+	case libraryIDs != nil:
+		// An explicit empty set scopes the section to no library, as the
+		// section fetcher's own library scope does.
+		if len(libraryIDs) == 0 {
+			return false
+		}
 		scope = libraryIDs
 	}
 

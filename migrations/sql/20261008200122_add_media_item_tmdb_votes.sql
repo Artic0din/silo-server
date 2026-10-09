@@ -67,9 +67,17 @@ FOR EACH ROW EXECUTE FUNCTION public.sync_media_item_tmdb_votes();
 
 -- Fill the pair from the counts already stored (MDBList sends TMDB's). Commit
 -- each batch to bound row-lock retention and WAL bursts; a resumed migration
--- skips rows already filled. Each batch locks its source rows first, in the
--- trigger's order (source, then item), so a concurrent write to a source waits
--- or is waited for and the pair never takes a value the source no longer has.
+-- skips rows already filled.
+--
+-- Each batch locks its items and then their sources, skipping any row another
+-- transaction holds, so the backfill never waits and cannot deadlock with
+-- writers that lock an item before its sources (a content-ID rename, a catalog
+-- import) or a source before its item (a rating-source write and the trigger).
+-- A source read under its lock is the committed value, so the pair never takes
+-- one the source no longer has. The writer of a skipped source runs the
+-- trigger, which sets the pair; an item skipped for another reason gets its
+-- pair from its next refresh.
+--
 -- Called as a top-level statement because transaction control is prohibited
 -- in a DO block.
 -- +goose StatementBegin
@@ -101,10 +109,15 @@ BEGIN
         SET tmdb_vote_count = s.votes,
             tmdb_vote_average = s.score / 10
         FROM (
-            SELECT content_id, score, votes
-            FROM public.media_item_rating_sources
-            WHERE source = 'tmdb' AND votes > 0 AND content_id = ANY(batch_ids)
-            FOR SHARE
+            SELECT rs.content_id, rs.score, rs.votes
+            FROM (
+                SELECT content_id FROM public.media_items
+                WHERE content_id = ANY(batch_ids) AND tmdb_vote_count IS NULL
+                FOR UPDATE SKIP LOCKED
+            ) locked
+            JOIN public.media_item_rating_sources rs ON rs.content_id = locked.content_id
+            WHERE rs.source = 'tmdb' AND rs.votes > 0
+            FOR SHARE OF rs SKIP LOCKED
         ) s
         WHERE s.content_id = mi.content_id
           AND mi.tmdb_vote_count IS NULL;

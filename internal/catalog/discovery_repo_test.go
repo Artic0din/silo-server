@@ -124,6 +124,16 @@ func TestRatingThreshold_EmptyAllowedLibrariesReturnsEmptyQuery(t *testing.T) {
 	}
 }
 
+func TestRatingThreshold_EmptyLibraryScopeReturnsEmptyQuery(t *testing.T) {
+	query, _ := buildRatingThresholdQuery(RatingFilter{
+		Min:        7.0,
+		LibraryIDs: []int{},
+	})
+	if query != "" {
+		t.Fatalf("expected empty query for an explicit empty library scope, got %q", query)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ListUnplayedHighRated SQL generation tests
 // ---------------------------------------------------------------------------

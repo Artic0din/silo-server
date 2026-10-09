@@ -19,7 +19,8 @@ can filter and index them without a join and no writer can leave them stale. A
 missing source or a zero count leaves both NULL, and a NULL count never
 qualifies: an item without a known count is left out until a refresh supplies
 one. Catalog transfer carries each item's `tmdb` rating source, so the
-trigger derives the pair on import as well.
+trigger derives the pair on import as well; a bundle exported before that
+leaves the target's sources in place.
 
 The pair always comes from one row. `rating_tmdb` is not used for ranking: a
 scheduled refresh never overwrites it, so it can predate the stored count, and

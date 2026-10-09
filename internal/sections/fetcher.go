@@ -211,7 +211,12 @@ func (f *Fetcher) cachedEditorialCandidates(ctx context.Context, subjectType str
 		if err != nil {
 			return nil, err
 		}
-		cache.set(key, candidates, now.Add(ttl))
+		// An empty set is not cached: it usually means the metadata a row
+		// needs (such as TMDB vote counts) has not arrived yet, and a refresh
+		// does not invalidate this cache.
+		if len(candidates) > 0 {
+			cache.set(key, candidates, now.Add(ttl))
+		}
 		return append([]string(nil), candidates...), nil
 	})
 	if err != nil {

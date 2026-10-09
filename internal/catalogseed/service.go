@@ -206,7 +206,7 @@ func (s *Service) ImportWithProgress(ctx context.Context, data []byte, opts Impo
 			itemStates[item.ContentID] = true
 		}
 
-		if err := importTMDBRatingSources(ctx, tx, bundle.Items, itemStates); err != nil {
+		if err := importTMDBRatingSources(ctx, tx, bundle.Items, itemStates, bundle.Manifest.TMDBRatingSources); err != nil {
 			return nil, err
 		}
 
@@ -390,7 +390,7 @@ func (s *Service) ImportWithProgress(ctx context.Context, data []byte, opts Impo
 	result.ItemsUpdated = itemsUpdated
 	result.Skipped += itemsSkipped
 
-	if err := importTMDBRatingSources(ctx, tx, bundle.Items, itemStates); err != nil {
+	if err := importTMDBRatingSources(ctx, tx, bundle.Items, itemStates, bundle.Manifest.TMDBRatingSources); err != nil {
 		return nil, err
 	}
 
@@ -1915,14 +1915,12 @@ func lookupFolderIDsByPaths(ctx context.Context, tx pgx.Tx, paths []string) ([]i
 	return ids, rows.Err()
 }
 
-// batchImportItems inserts items in multi-row batches with ON CONFLICT handling.
-// Returns a map of content_id → changed (true if created or updated) for people import,
-// plus aggregate created/updated/skipped counts.
 // importTMDBRatingSources writes the TMDB rating source of each item the
 // import created or overwrote; a trigger derives the TMDB vote pair discovery
-// rows rank by from it. An overwritten item whose bundle carries none loses
-// the stale one. Items the import left alone keep theirs.
-func importTMDBRatingSources(ctx context.Context, tx pgx.Tx, items []ItemRecord, itemStates map[string]bool) error {
+// rows rank by from it. When the bundle carries sources (bundleHasSources),
+// an overwritten item without one loses its stale source; an older bundle
+// leaves it in place. Items the import left alone keep theirs.
+func importTMDBRatingSources(ctx context.Context, tx pgx.Tx, items []ItemRecord, itemStates map[string]bool, bundleHasSources bool) error {
 	var changed, providers []string
 	// ids is never nil, so an import with no TMDB sources binds an empty
 	// array (and clears every changed item's source) rather than NULL.
@@ -1944,11 +1942,13 @@ func importTMDBRatingSources(ctx context.Context, tx pgx.Tx, items []ItemRecord,
 	if len(changed) == 0 {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM media_item_rating_sources
-		WHERE source = 'tmdb' AND content_id = ANY($1::text[]) AND content_id <> ALL($2::text[])`,
-		changed, ids); err != nil {
-		return fmt.Errorf("clearing imported tmdb rating sources: %w", err)
+	if bundleHasSources {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM media_item_rating_sources
+			WHERE source = 'tmdb' AND content_id = ANY($1::text[]) AND content_id <> ALL($2::text[])`,
+			changed, ids); err != nil {
+			return fmt.Errorf("clearing imported tmdb rating sources: %w", err)
+		}
 	}
 	if len(ids) == 0 {
 		return nil
@@ -1968,6 +1968,9 @@ func importTMDBRatingSources(ctx context.Context, tx pgx.Tx, items []ItemRecord,
 	return nil
 }
 
+// batchImportItems inserts items in multi-row batches with ON CONFLICT handling.
+// Returns a map of content_id → changed (true if created or updated) for people import,
+// plus aggregate created/updated/skipped counts.
 func batchImportItems(ctx context.Context, tx pgx.Tx, items []ItemRecord, mode ConflictMode, onBatch func(processed int)) (itemStates map[string]bool, created, updated, skipped int, err error) {
 	itemStates = make(map[string]bool, len(items))
 	if len(items) == 0 {
