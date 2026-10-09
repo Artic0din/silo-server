@@ -81,6 +81,27 @@ func (s *Service) lazyScrobbleTitles(ctx context.Context, event ScrobbleEvent) f
 	return sync.OnceValue(func() ScrobbleEvent { return s.withScrobbleTitles(ctx, event) })
 }
 
+// titledWithin returns titled() if it finishes within half of the time left
+// before ctx's deadline, and event without titles otherwise. A confirmed stop
+// has already claimed its delivery and must keep its deadline for the
+// provider call; the lookup itself carries on and is shared through titled.
+func titledWithin(ctx context.Context, titled func() ScrobbleEvent, event ScrobbleEvent) ScrobbleEvent {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return titled()
+	}
+	result := make(chan ScrobbleEvent, 1)
+	go func() { result <- titled() }()
+	timer := time.NewTimer(time.Until(deadline) / 2)
+	defer timer.Stop()
+	select {
+	case titledEvent := <-result:
+		return titledEvent
+	case <-timer.C:
+		return event
+	}
+}
+
 // withPlayTitles returns plays with the display titles of those that do not
 // carry them yet filled in. The input slice is not modified.
 func (s *Service) withPlayTitles(ctx context.Context, plays []LocalPlay) []LocalPlay {

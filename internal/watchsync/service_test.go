@@ -2811,6 +2811,33 @@ func TestServiceScrobbleTitleLookupDoesNotHoldCallerDeadline(t *testing.T) {
 	}
 }
 
+// A confirmed stop has a deadline of its own; a stalled title lookup gets only
+// part of it, and the stop goes out with IDs alone rather than failing.
+func TestServiceConfirmedStopSendsIDsWhenTitleLookupStalls(t *testing.T) {
+	repo := newServiceFakeRepo()
+	repo.mediaTitles = map[string]MediaTitles{testMovieMediaID: {Kind: historyimport.KindMovie, Title: "1917", Year: 2019}}
+	release := make(chan struct{})
+	defer close(release)
+	repo.mediaTitlesRelease = release
+	repo.scrobbleConnections = []Connection{{ID: "conn-1", Provider: "trakt", UserID: 7, ProfileID: "profile-1", ScrobbleEnabled: true}}
+	events := make(chan ScrobbleEvent, 1)
+	reg := NewRegistry()
+	if err := reg.Register(scrobblerStub{stopEvents: events}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := NewService(repo, reg).ScrobbleStopConfirmed(ctx, ScrobbleEvent{
+		PlaybackSessionID: testPlaybackSessionID, UserID: 7, ProfileID: "profile-1",
+		MediaItemID: testMovieMediaID, Kind: historyimport.KindMovie,
+	}); err != nil {
+		t.Fatalf("ScrobbleStopConfirmed = %v", err)
+	}
+	if event := <-events; event.MediaItemID != testMovieMediaID || event.Title != "" {
+		t.Fatalf("stop event = %+v, want IDs without titles", event)
+	}
+}
+
 type recordingWatchedExporter struct {
 	watchedImportExportStub
 	exported *[]LocalPlay
