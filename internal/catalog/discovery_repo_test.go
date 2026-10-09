@@ -134,6 +134,56 @@ func TestRatingThreshold_EmptyLibraryScopeReturnsEmptyQuery(t *testing.T) {
 	}
 }
 
+// Every discovery query honors the filter's content allow-list and name
+// prefix, as the query executor does.
+func TestDiscoveryQueries_HonorContentScope(t *testing.T) {
+	filter := AccessFilter{AllowedContentIDs: []string{"movie:1", "series:2"}, NamePrefix: " The_ "}
+	builders := map[string]func() (string, []any){
+		"rating threshold": func() (string, []any) {
+			return buildRatingThresholdQuery(RatingFilter{Min: 7, Filter: filter})
+		},
+		"unplayed high rated": func() (string, []any) {
+			return buildUnplayedHighRatedQuery(UnplayedFilter{MinRating: 7, UserID: 1, ProfileID: "p", Filter: filter})
+		},
+		"forgotten favorites": func() (string, []any) {
+			return buildForgottenFavoritesQuery(ForgottenFavoritesFilter{LookbackDays: 365, UserID: 1, ProfileID: "p", Filter: filter})
+		},
+	}
+	for name, build := range builders {
+		t.Run(name, func(t *testing.T) {
+			query, args := build()
+			if !strings.Contains(query, "mi.content_id = ANY($") {
+				t.Fatalf("expected the content allow-list, got:\n%s", query)
+			}
+			if !strings.Contains(query, sortTitleKeyExpr+" LIKE $") {
+				t.Fatalf("expected the sort-title prefix, got:\n%s", query)
+			}
+			var sawIDs, sawPrefix bool
+			for _, arg := range args {
+				switch v := arg.(type) {
+				case []string:
+					sawIDs = len(v) == 2 && v[0] == "movie:1" && v[1] == "series:2"
+				case string:
+					sawPrefix = sawPrefix || v == `the\_%`
+				}
+			}
+			if !sawIDs || !sawPrefix {
+				t.Fatalf("args = %v, want the allowed IDs and the escaped, lowercased prefix", args)
+			}
+		})
+	}
+}
+
+func TestRatingThreshold_EmptyContentAllowListMatchesNothing(t *testing.T) {
+	query, _ := buildRatingThresholdQuery(RatingFilter{
+		Min:    7.0,
+		Filter: AccessFilter{AllowedContentIDs: []string{}},
+	})
+	if !strings.Contains(query, "1 = 0") {
+		t.Fatalf("expected an empty allow-list to match nothing, got:\n%s", query)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ListUnplayedHighRated SQL generation tests
 // ---------------------------------------------------------------------------

@@ -4008,8 +4008,9 @@ func (f *Fetcher) fetchGenreRouletteWithTitle(ctx context.Context, s ResolvedSec
 var genreRouletteTypes = []string{"movie", "series"}
 
 // genreRouletteCandidates returns the most common genres in scope among the
-// titles the row could show (its types, rating floor and vote minimum), so the
-// chosen genre can fill it, mirroring topStudioCandidates.
+// titles the row could show (its types, rating floor, vote minimum and the
+// filter's content scope), so the chosen genre can fill it, mirroring
+// topStudioCandidates.
 func (f *Fetcher) genreRouletteCandidates(ctx context.Context, minRating float64, libraryID *int, libraryIDs []int, filter catalog.AccessFilter) ([]string, error) {
 	query, args := genreRouletteCandidatesQuery(minRating, libraryID, libraryIDs, filter)
 	rows, err := f.pool.Query(ctx, query, args...)
@@ -4041,6 +4042,7 @@ func genreRouletteCandidatesQuery(minRating float64, libraryID *int, libraryIDs 
 	args = append(args, libArgs...)
 	argIdx = newArgIdx
 	catalog.ApplySectionAccessFilter("mi", filter, &conditions, &args, &argIdx)
+	catalog.AppendContentScope(&conditions, &args, &argIdx, filter)
 	catalog.AppendTMDBRatingFloor(&conditions, &args, &argIdx, minRating, recipes.DiscoveryMinVotes)
 	conditions = append(conditions, fmt.Sprintf("mi.type = ANY($%d)", argIdx))
 	args = append(args, genreRouletteTypes)

@@ -74,6 +74,19 @@ func AppendTMDBRatingFloor(conditions *[]string, args *[]any, argIdx *int, minRa
 	*argIdx += 2
 }
 
+// AppendContentScope narrows a query over alias mi to filter's content
+// allow-list and name prefix, the content-level limits applyAccessFilter
+// leaves out, matching them the way the query executor does: a non-nil empty
+// allow-list matches nothing, and the prefix matches the sort-title key.
+func AppendContentScope(conditions *[]string, args *[]any, argIdx *int, filter AccessFilter) {
+	appendAllowedContentCondition("mi.content_id", filter.AllowedContentIDs, conditions, args, argIdx)
+	if prefix := strings.TrimSpace(filter.NamePrefix); prefix != "" {
+		*conditions = append(*conditions, sortTitlePrefixCondition(*argIdx))
+		*args = append(*args, escapePrefixForLike(prefix)+"%")
+		*argIdx++
+	}
+}
+
 // buildRatingThresholdQuery builds the SQL statement and bind args for ListByRatingThreshold.
 // It returns an empty query string when access rules exclude every
 // library, signalling the caller to skip the query and return no rows.
@@ -104,6 +117,7 @@ func buildRatingThresholdQuery(f RatingFilter) (string, []any) {
 	}
 
 	applyAccessFilter("mi", f.Filter, &conditions, &args, &argIdx)
+	AppendContentScope(&conditions, &args, &argIdx, f.Filter)
 
 	conditions = append(conditions, MangaChapterExclusionWhere("mi"))
 
@@ -205,6 +219,7 @@ func buildUnplayedHighRatedQuery(f UnplayedFilter) (string, []any) {
 	}
 
 	applyAccessFilter("mi", f.Filter, &conditions, &args, &argIdx)
+	AppendContentScope(&conditions, &args, &argIdx, f.Filter)
 
 	conditions = append(conditions, MangaChapterExclusionWhere("mi"))
 
@@ -302,6 +317,7 @@ func buildForgottenFavoritesQuery(f ForgottenFavoritesFilter) (string, []any) {
 	}
 
 	applyAccessFilter("mi", f.Filter, &conditions, &args, &argIdx)
+	AppendContentScope(&conditions, &args, &argIdx, f.Filter)
 
 	conditions = append(conditions, MangaChapterExclusionWhere("mi"))
 

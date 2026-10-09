@@ -50,7 +50,8 @@ partial index applies. Change the expression, the index migration and
 `TestTMDBWeightedRatingMatchesItsIndex` together.
 
 All of these rows go through `catalog.DiscoveryRepository`, which intersects a
-section's libraries with the viewer's allowed libraries.
+section's libraries with the viewer's allowed libraries and applies the access
+filter's content allow-list and name prefix (`catalog.AppendContentScope`).
 
 Rows that sort by rating without requiring a vote count (format showcases,
 anniversaries, seasonal keyword picks) use `catalog.RatedOrder`: the weighted
