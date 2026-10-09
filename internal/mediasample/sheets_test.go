@@ -371,7 +371,8 @@ func TestRunSheetsFillsMissingSamples(t *testing.T) {
 // the list. When the HEVC decoder logged dropping keyframes as duplicates, as
 // it does for open-GOP keyframes after each jump, the attempt reads the
 // samples again as a keyframes-only window; otherwise, including for pictures
-// dropped as merely undecodable, the list's failure stands.
+// dropped as merely undecodable, the list's failure stands. A window whose
+// keyframes collide too fails rather than repeat the last one it kept.
 func TestRunSheetsRereadsSparseListAsWindow(t *testing.T) {
 	logDuplicates := func(log []string) []string {
 		return append(log, "[hevc @ 0x55d0] Duplicate POC in a sequence: 48.", "[hevc @ 0x55d0] Skipping invalid undecodable NALU: 21")
@@ -381,19 +382,21 @@ func TestRunSheetsRereadsSparseListAsWindow(t *testing.T) {
 	}
 	keyframes := []fakeSheetFrame{timed(10, "4"), timed(20, "14"), timed(30, "24"), timed(40, "34")}
 	tests := map[string]struct {
-		editLog func([]string) []string
-		window  []fakeSheetFrame
-		runs    int
-		want    Reason
+		editLog       func([]string) []string
+		window        []fakeSheetFrame
+		windowEditLog func([]string) []string
+		runs          int
+		want          Reason
 	}{
-		"duplicate keyframes": {editLog: logDuplicates, window: keyframes, runs: 3},
-		"no drops logged":     {window: keyframes, runs: 2, want: ReasonEmpty},
-		"damaged pictures":    {editLog: logUndecodable, window: keyframes, runs: 2, want: ReasonEmpty},
-		"window empty too":    {editLog: logDuplicates, runs: 3, want: ReasonEmpty},
+		"duplicate keyframes":   {editLog: logDuplicates, window: keyframes, runs: 3},
+		"no drops logged":       {window: keyframes, runs: 2, want: ReasonEmpty},
+		"damaged pictures":      {editLog: logUndecodable, window: keyframes, runs: 2, want: ReasonEmpty},
+		"window empty too":      {editLog: logDuplicates, runs: 3, want: ReasonEmpty},
+		"window duplicates too": {editLog: logDuplicates, window: keyframes, windowEditLog: logDuplicates, runs: 3, want: ReasonEmpty},
 	}
 	for name, tt := range tests {
 		list := &fakeSheets{format: "matroska,webm", frames: []fakeSheetFrame{tagged(10, 5)}, editLog: tt.editLog}
-		window := &fakeSheets{format: "matroska,webm", frames: tt.window, packetEnd: 36}
+		window := &fakeSheets{format: "matroska,webm", frames: tt.window, packetEnd: 36, editLog: tt.windowEditLog}
 		var calls [][]string
 		runner := Runner{Exec: func(ctx context.Context, name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			calls = append(calls, args)

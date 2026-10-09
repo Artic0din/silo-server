@@ -260,9 +260,7 @@ func (a attemptRun) samples(req Request) (Result, *AttemptError) {
 				return a.decode(req, header.info.StartSeconds)
 			}
 			duplicates := false
-			result, failure := a.sheets(req, req.Samples.Seconds, header.info.StartSeconds, func(line string) {
-				duplicates = duplicates || strings.Contains(line, duplicatePOCMessage)
-			})
+			result, failure := a.sheets(req, req.Samples.Seconds, header.info.StartSeconds, watchDuplicatePOC(&duplicates))
 			if failure == nil || failure.Reason != ReasonEmpty || !duplicates {
 				return result, failure
 			}
@@ -274,10 +272,21 @@ func (a attemptRun) samples(req Request) (Result, *AttemptError) {
 	windowReq.Samples = nil
 	windowReq.Window = &window
 	if req.Sheets != nil {
-		result, failure := a.sheets(windowReq, req.Samples.Seconds, 0)
+		duplicates := false
+		result, failure := a.sheets(windowReq, req.Samples.Seconds, 0, watchDuplicatePOC(&duplicates))
+		if listFailure == nil {
+			return result, failure
+		}
+		// Keyframes a whole picture order count cycle apart collide in a
+		// window too, since skipped pictures do not advance the count. The
+		// window would then give later samples the last keyframe it kept and
+		// count them as decoded, so it fails instead.
+		if failure == nil && duplicates {
+			result, failure = Result{}, &AttemptError{Decoder: a.decoder, Reason: ReasonEmpty, Err: errors.New("ffmpeg dropped keyframes as duplicates in the window too")}
+		}
 		// A window that fails too reports its own failure, whose reason and
 		// log describe the latest read, and names the list's in its error.
-		if failure != nil && listFailure != nil {
+		if failure != nil {
 			failure.Err = fmt.Errorf("%w (after the list run: %w)", failure.Err, listFailure.Err)
 		}
 		return result, failure
@@ -348,6 +357,14 @@ func (a attemptRun) decode(req Request, inputStart float64) (Result, *AttemptErr
 // undecodable pictures, such as a damaged stretch of the file, log only
 // "Skipping invalid undecodable NALU" and do not send a list to the window.
 const duplicatePOCMessage = "Duplicate POC in a sequence"
+
+// watchDuplicatePOC returns a log handler that sets *seen once ffmpeg logs
+// duplicatePOCMessage.
+func watchDuplicatePOC(seen *bool) func(string) {
+	return func(line string) {
+		*seen = *seen || strings.Contains(line, duplicatePOCMessage)
+	}
+}
 
 // sheets runs a Sheets request for the sample times, reading req's list
 // (with inpoints offset by inputStart) or window, and tiles the frames.
