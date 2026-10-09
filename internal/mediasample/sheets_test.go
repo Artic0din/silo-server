@@ -368,12 +368,16 @@ func TestRunSheetsFillsMissingSamples(t *testing.T) {
 }
 
 // TestRunSheetsRereadsSparseListAsWindow decodes one of four samples through
-// the list. When the HEVC decoder logged dropping pictures, as it does for
-// open-GOP keyframes after each jump, the attempt reads the samples again as
-// a keyframes-only window; otherwise the list's failure stands.
+// the list. When the HEVC decoder logged dropping keyframes as duplicates, as
+// it does for open-GOP keyframes after each jump, the attempt reads the
+// samples again as a keyframes-only window; otherwise, including for pictures
+// dropped as merely undecodable, the list's failure stands.
 func TestRunSheetsRereadsSparseListAsWindow(t *testing.T) {
-	logDrops := func(log []string) []string {
+	logDuplicates := func(log []string) []string {
 		return append(log, "[hevc @ 0x55d0] Duplicate POC in a sequence: 48.", "[hevc @ 0x55d0] Skipping invalid undecodable NALU: 21")
+	}
+	logUndecodable := func(log []string) []string {
+		return append(log, "[hevc @ 0x55d0] Skipping invalid undecodable NALU: 21")
 	}
 	keyframes := []fakeSheetFrame{timed(10, "4"), timed(20, "14"), timed(30, "24"), timed(40, "34")}
 	tests := map[string]struct {
@@ -382,9 +386,10 @@ func TestRunSheetsRereadsSparseListAsWindow(t *testing.T) {
 		runs    int
 		want    Reason
 	}{
-		"dropped keyframes": {editLog: logDrops, window: keyframes, runs: 3},
-		"no drops logged":   {window: keyframes, runs: 2, want: ReasonEmpty},
-		"window empty too":  {editLog: logDrops, runs: 3, want: ReasonEmpty},
+		"duplicate keyframes": {editLog: logDuplicates, window: keyframes, runs: 3},
+		"no drops logged":     {window: keyframes, runs: 2, want: ReasonEmpty},
+		"damaged pictures":    {editLog: logUndecodable, window: keyframes, runs: 2, want: ReasonEmpty},
+		"window empty too":    {editLog: logDuplicates, runs: 3, want: ReasonEmpty},
 	}
 	for name, tt := range tests {
 		list := &fakeSheets{format: "matroska,webm", frames: []fakeSheetFrame{tagged(10, 5)}, editLog: tt.editLog}

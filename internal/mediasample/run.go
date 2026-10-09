@@ -226,14 +226,15 @@ type attemptRun struct {
 // and picks the samples from its keyframes.
 //
 // Sheets read through a list that comes back empty because the decoder
-// dropped keyframes are read again as that window. One decoder serves every
+// dropped keyframes as duplicates are read again as that window. One decoder serves every
 // entry of a list, and nothing resets it between them: an HEVC CRA keyframe
 // after a jump takes a picture order count derived from the previous
 // sample's, and when that count matches a picture still in the decoder's
 // buffer, the decoder drops the keyframe ("Duplicate POC in a sequence").
 // Open-GOP encodes then lose most of their samples on every run. A window
 // decodes its keyframes in order, so their counts stay consistent. A list
-// that is empty for another reason, such as a truncated file, still fails.
+// that is empty for another reason, such as a truncated or damaged file,
+// still fails.
 func (a attemptRun) samples(req Request) (Result, *AttemptError) {
 	var listFailure *AttemptError
 	if !req.Samples.ReadThrough || (req.Sheets != nil && req.Sheets.UseInputAspect) {
@@ -258,11 +259,11 @@ func (a attemptRun) samples(req Request) (Result, *AttemptError) {
 			if req.Sheets == nil {
 				return a.decode(req, header.info.StartSeconds)
 			}
-			dropped := false
+			duplicates := false
 			result, failure := a.sheets(req, req.Samples.Seconds, header.info.StartSeconds, func(line string) {
-				dropped = dropped || strings.Contains(line, droppedPictureMessage)
+				duplicates = duplicates || strings.Contains(line, duplicatePOCMessage)
 			})
-			if failure == nil || failure.Reason != ReasonEmpty || !dropped {
+			if failure == nil || failure.Reason != ReasonEmpty || !duplicates {
 				return result, failure
 			}
 			listFailure = failure
@@ -277,7 +278,7 @@ func (a attemptRun) samples(req Request) (Result, *AttemptError) {
 		// A window that fails too reports its own failure, whose reason and
 		// log describe the latest read, and names the list's in its error.
 		if failure != nil && listFailure != nil {
-			failure.Err = fmt.Errorf("%w (after the list run: %v)", failure.Err, listFailure.Err)
+			failure.Err = fmt.Errorf("%w (after the list run: %w)", failure.Err, listFailure.Err)
 		}
 		return result, failure
 	}
@@ -342,10 +343,11 @@ func (a attemptRun) decode(req Request, inputStart float64) (Result, *AttemptErr
 	return result, nil
 }
 
-// droppedPictureMessage is what ffmpeg's HEVC decoder logs for each picture
-// it drops as undecodable, a keyframe with a repeated picture order count
-// among them.
-const droppedPictureMessage = "Skipping invalid undecodable NALU"
+// duplicatePOCMessage is what ffmpeg's HEVC decoder logs when it drops a
+// picture whose picture order count matches one still in its buffer. Other
+// undecodable pictures, such as a damaged stretch of the file, log only
+// "Skipping invalid undecodable NALU" and do not send a list to the window.
+const duplicatePOCMessage = "Duplicate POC in a sequence"
 
 // sheets runs a Sheets request for the sample times, reading req's list
 // (with inpoints offset by inputStart) or window, and tiles the frames.
