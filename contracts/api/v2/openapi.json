@@ -29020,6 +29020,10 @@
       "ItemImageEntry": {
         "additionalProperties": false,
         "properties": {
+          "creator": {
+            "description": "Artwork creator or uploader, when supplied by the provider.",
+            "type": "string"
+          },
           "height": {
             "format": "int64",
             "type": "integer"

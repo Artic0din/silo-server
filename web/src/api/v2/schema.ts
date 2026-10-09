@@ -22413,6 +22413,8 @@ export interface components {
       title?: string;
     };
     ItemImageEntry: {
+      /** @description Artwork creator or uploader, when supplied by the provider. */
+      creator?: string;
       /** Format: int64 */
       height: number;
       language: string;
