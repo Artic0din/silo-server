@@ -72,9 +72,9 @@ FOR EACH ROW EXECUTE FUNCTION public.sync_media_item_tmdb_votes();
 -- skips rows already filled.
 --
 -- Each batch locks its items and then their sources, skipping any row another
--- transaction holds, so the backfill never waits and cannot deadlock with
--- writers that lock an item before its sources (a content-ID rename, a catalog
--- import) or a source before its item (a rating-source write and the trigger).
+-- transaction holds, so it never waits on those row locks and cannot deadlock
+-- over them with writers that lock an item before its sources (a content-ID
+-- rename, a catalog import) or a source before its item.
 -- A source read under its lock is the committed value, so the pair never takes
 -- one the source no longer has. The writer of a skipped source runs the
 -- trigger, which sets the pair. Items skipped for another reason (another
