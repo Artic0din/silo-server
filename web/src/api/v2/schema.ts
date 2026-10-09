@@ -19746,6 +19746,8 @@ export interface components {
     CatalogSearchCapabilities: {
       /** @description Whether the current principal may use the capability */
       allowed: boolean;
+      /** @description Rule groups in catalog queries, sections, and Smart collections accept the title, decade, runtime, rating_tmdb, rating_rt_critic, rating_rt_audience, latest_episode_added, and last_air_date fields, the not_contains, begins_with, and ends_with operators on title, and not_in_last on date fields */
+      extended_query_rules?: boolean;
       /** @description searchCatalogFacet accepts library_ids and answers values and values_has_more: ranked values with title counts that match word starts, and the most common values for an empty q */
       facet_value_search?: boolean;
       /**
@@ -86326,7 +86328,7 @@ export interface operations {
           | "audiobook"
           | "ebook"
           | "manga";
-        /** @description Name prefix or fragment; empty lists the first people */
+        /** @description Name to match: each word must start a word of the name, case-insensitively, and only the first eight distinct words count; empty lists the first people */
         q?: string;
       };
       header: {
