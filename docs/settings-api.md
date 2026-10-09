@@ -594,6 +594,16 @@ Watch-state rules, shared by the v2 and bridge receivers:
 
 - An event changes only the Silo profile explicitly mapped to its external user.
   An unmapped user's event is skipped and is not replayed after mapping.
+- Plex: `media.scrobble` marks the item watched; `media.pause` and `media.stop`
+  record the event's `viewOffset`. The server's item metadata supplies identity
+  and runtime only, because its view state belongs to the connection token's
+  owner. Plex events carry no timestamp, so Silo uses the receipt time, and a
+  resent `media.pause` or `media.stop` counts as a new event that rewrites its
+  position. After a scrobble, including one that newer Silo progress kept from
+  applying, further events for the same user and item (a repeated scrobble, a
+  stop in the credits) are ignored until a `media.play` starts a new playback. A
+  `media.play` needs no metadata lookup or catalog match. Plex sends no webhook
+  for manual watched or unwatched marks.
 - Jellyfin: `PlaybackStop` records position and `played_to_completion`.
   `UserDataSaved` with save reason `TogglePlayed` marks the item played or
   unplayed by its `played` boolean, and is malformed without one; other save
@@ -601,12 +611,12 @@ Watch-state rules, shared by the v2 and bridge receivers:
 - For one external user and item, an event older than the last applied one is
   dropped, and an event with the same timestamp applies only if it completes the
   item or advances the position by at least five seconds. A replayed delivery
-  therefore has no further effect, and a replayed completion cannot undo a later
-  unplayed mark. Silo progress for the profile at least as recent as the event,
-  compared in whole seconds, also wins, including over an unplayed mark, unless
-  it is the write of the last event applied for that external user and item,
-  recognized by its time and position. There is no exactly-once
-  guarantee beyond these rules.
+  with its original timestamp (Jellyfin, Emby) therefore has no further effect,
+  and a replayed completion cannot undo a later unplayed mark. Silo progress for
+  the profile at least as recent as the event, compared in whole seconds, also
+  wins, including over an unplayed mark, unless it is the write of the last
+  event applied for that external user and item, recognized by its time and
+  position. There is no exactly-once guarantee beyond these rules.
 
 A Plex connection's `base_url` follows the history import rule for server
 addresses: it must be on the public internet unless the account is an admin or

@@ -34,7 +34,19 @@ func (p *PlexProvider) ValidateCreateInput(input CreateConnectionInput) error {
 	return nil
 }
 
-func (p *PlexProvider) DefaultUser(ctx context.Context, _ *Connection, input CreateConnectionInput) (string, string, bool, error) {
+// plexOwnerAccountID is the server-local account ID Plex Media Server gives
+// its owner. Webhooks and the server's /accounts list identify the owner by
+// it, not by the owner's plex.tv account ID.
+const plexOwnerAccountID = "1"
+
+func (p *PlexProvider) DefaultUser(ctx context.Context, conn *Connection, input CreateConnectionInput) (string, string, bool, error) {
+	if accounts, err := p.client.ListAccounts(ctx, conn.BaseURL, conn.AccessToken); err == nil {
+		for _, a := range accounts {
+			if a.ID == plexOwnerAccountID && strings.TrimSpace(a.Name) != "" {
+				return a.ID, a.Name, true, nil
+			}
+		}
+	}
 	account, err := p.client.GetCurrentUser(ctx, input.AccessToken)
 	if err != nil {
 		return "", "", false, err
@@ -62,6 +74,10 @@ func (p *PlexProvider) DiscoverUsers(ctx context.Context, conn *Connection, mapp
 }
 
 func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *http.Request) (*CanonicalEvent, error) {
+	// Plex events carry no timestamp. The receipt time is taken before any
+	// lookup so lookup latency cannot reorder events or let a delivery look
+	// newer than Silo activity written while it waited.
+	occurredAt := time.Now().UTC().Truncate(time.Microsecond)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		return nil, fmt.Errorf("invalid multipart request")
 	}
@@ -76,8 +92,9 @@ func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *ht
 			Title string `json:"title"`
 		} `json:"Account"`
 		Metadata struct {
-			RatingKey string `json:"ratingKey"`
-			Type      string `json:"type"`
+			RatingKey  string `json:"ratingKey"`
+			Type       string `json:"type"`
+			ViewOffset int64  `json:"viewOffset"`
 		} `json:"Metadata"`
 	}
 	if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
@@ -86,10 +103,37 @@ func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *ht
 	if payload.Event == "" || payload.Account.ID == 0 || payload.Metadata.RatingKey == "" || payload.Metadata.Type == "" {
 		return nil, fmt.Errorf("invalid Plex webhook payload")
 	}
-	if !shouldApplyPlexWebhookEvent(payload.Event) {
+	action, completed, ok := plexWebhookAction(payload.Event)
+	if !ok {
 		return &CanonicalEvent{
 			EventKind: payload.Event,
 			Summary:   "Ignored unsupported Plex event type",
+			Apply:     false,
+		}, nil
+	}
+	userID := strconv.FormatInt(payload.Account.ID, 10)
+	// A playback start only needs the account and item IDs, so it is recorded
+	// even when the server cannot be reached.
+	if action == ActionPlaybackStarted {
+		return &CanonicalEvent{
+			Provider:       ProviderPlex,
+			ServerName:     conn.ServerName,
+			OccurredAt:     occurredAt,
+			Action:         action,
+			EventKind:      payload.Event,
+			UserID:         userID,
+			UserName:       payload.Account.Title,
+			ExternalItemID: payload.Metadata.RatingKey,
+			MediaKind:      payload.Metadata.Type,
+			Summary:        "Noted Plex playback start",
+			Apply:          true,
+		}, nil
+	}
+	// A pause or stop without the player's offset carries no progress to record.
+	if action == ActionImportProgress && !completed && payload.Metadata.ViewOffset <= 0 {
+		return &CanonicalEvent{
+			EventKind: payload.Event,
+			Summary:   "Ignored Plex event without a playback position",
 			Apply:     false,
 		}, nil
 	}
@@ -108,30 +152,52 @@ func (p *PlexProvider) ParseWebhook(ctx context.Context, conn *Connection, r *ht
 	if item.Type == "episode" && item.GrandparentRatingKey != "" {
 		series, _ = p.client.FetchMetadata(ctx, conn.BaseURL, conn.AccessToken, item.GrandparentRatingKey)
 	}
-	record := historyimport.NormalizePlexItem(*item, series)
-	canonical := fromHistoryImportRecord(record)
-	occurredAt := canonical.UpdatedAt
-	if occurredAt.IsZero() {
-		occurredAt = time.Now().UTC()
-		canonical.UpdatedAt = occurredAt
+	// The server's metadata gives the item's identity and runtime. Its view
+	// state belongs to the connection token's owner, so the watched state and
+	// position come from the event, which describes the account that played.
+	canonical := fromHistoryImportRecord(historyimport.NormalizePlexItem(*item, series))
+	canonical.UpdatedAt = occurredAt
+	canonical.Played = completed
+	canonical.PositionSeconds = float64(payload.Metadata.ViewOffset) / 1000
+	canonical.LastPlayedAt = nil
+	if completed {
+		canonical.LastPlayedAt = &occurredAt
 	}
 	return &CanonicalEvent{
-		Provider:        ProviderPlex,
-		ServerName:      conn.ServerName,
-		OccurredAt:      occurredAt,
-		Action:          ActionImportProgress,
-		EventKind:       payload.Event,
-		UserID:          strconv.FormatInt(payload.Account.ID, 10),
-		UserName:        payload.Account.Title,
-		ExternalItemID:  payload.Metadata.RatingKey,
-		MediaKind:       payload.Metadata.Type,
-		Completed:       canonical.Played,
-		PositionSeconds: canonical.PositionSeconds,
-		DurationSeconds: canonical.DurationSeconds,
-		Record:          canonical,
-		Summary:         "Applied Plex watch progress event",
-		Apply:           true,
+		Provider:              ProviderPlex,
+		ServerName:            conn.ServerName,
+		OccurredAt:            occurredAt,
+		Action:                action,
+		EventKind:             payload.Event,
+		UserID:                userID,
+		UserName:              payload.Account.Title,
+		ExternalItemID:        payload.Metadata.RatingKey,
+		MediaKind:             payload.Metadata.Type,
+		Completed:             completed,
+		CompletionPerPlayback: true,
+		PositionSeconds:       canonical.PositionSeconds,
+		DurationSeconds:       canonical.DurationSeconds,
+		Record:                canonical,
+		Summary:               "Applied Plex watch progress event",
+		Apply:                 true,
 	}, nil
+}
+
+// plexWebhookAction maps a Plex event to its action and whether it reports the
+// item watched. Plex sends media.scrobble once playback passes its watched
+// threshold; pause and stop carry the player's offset. media.play starts a new
+// playback, so a later scrobble counts as another watch.
+func plexWebhookAction(event string) (action string, completed bool, ok bool) {
+	switch event {
+	case "media.scrobble":
+		return ActionImportProgress, true, true
+	case "media.stop", "media.pause":
+		return ActionImportProgress, false, true
+	case "media.play":
+		return ActionPlaybackStarted, false, true
+	default:
+		return "", false, false
+	}
 }
 
 type EmbyProvider struct{}
@@ -608,15 +674,6 @@ func containsEmbyFavoriteToken(eventName string) bool {
 func actionAllowsSeries(action string) bool {
 	switch action {
 	case ActionAddFavorite, ActionRemoveFavorite, ActionToggleFavorite:
-		return true
-	default:
-		return false
-	}
-}
-
-func shouldApplyPlexWebhookEvent(event string) bool {
-	switch event {
-	case "media.scrobble", "media.stop", "media.pause":
 		return true
 	default:
 		return false

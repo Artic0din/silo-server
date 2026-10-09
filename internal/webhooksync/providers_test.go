@@ -3,11 +3,15 @@ package webhooksync
 import (
 	"context"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Silo-Server/silo-server/internal/historyimport"
 )
 
 func TestEmbyProviderParseWebhook(t *testing.T) {
@@ -292,6 +296,9 @@ func TestShouldSkipEvent(t *testing.T) {
 		{name: "replayed completion is a duplicate", state: completed, event: CanonicalEvent{OccurredAt: now, Completed: true, PositionSeconds: 3000}, want: true},
 		{name: "same-instant completion upgrade applies", state: partial, event: CanonicalEvent{OccurredAt: now, Completed: true, PositionSeconds: 121}, want: false},
 		{name: "same-instant position increase applies", state: partial, event: CanonicalEvent{OccurredAt: now, PositionSeconds: 130}, want: false},
+		{name: "per-playback completion repeats only after a new playback", state: completed, event: CanonicalEvent{OccurredAt: now.Add(time.Hour), Completed: true, CompletionPerPlayback: true}, want: true},
+		{name: "per-playback completion after a new playback applies", state: partial, event: CanonicalEvent{OccurredAt: now.Add(time.Hour), Completed: true, CompletionPerPlayback: true}, want: false},
+		{name: "per-playback stop after completion is part of that playback", state: completed, event: CanonicalEvent{OccurredAt: now.Add(time.Minute), PositionSeconds: 3100, CompletionPerPlayback: true}, want: true},
 	}
 
 	for _, tc := range cases {
@@ -433,6 +440,140 @@ func TestJellyfinProviderRejectsMalformedPayloads(t *testing.T) {
 	}
 }
 
+func newPlexMetadataServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	// The server reports its owner's view state: watched in 2024 at full
+	// offset. Webhooks for other accounts must not copy it.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"42","type":"movie","title":"Movie","year":2008,"duration":600000,"viewOffset":590000,"viewCount":3,"lastViewedAt":1704067200,"Guid":[{"id":"tmdb://10378"},{"id":"imdb://tt1254207"}]}]}}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func parsePlex(t *testing.T, server *httptest.Server, payload string) (*CanonicalEvent, error) {
+	t.Helper()
+	var body strings.Builder
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("payload", payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/webhook", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	conn := &Connection{UserID: 7, BaseURL: server.URL, AccessToken: "owner-token"}
+	trusted := historyimport.NewLocalNetworkAccess(staticSettings{historyimport.SettingAllowPrivateDestinations: "true"}, nil)
+	return NewPlexProvider(historyimport.NewPlexClient()).ParseWebhook(trusted.Context(t.Context(), conn.UserID), conn, req)
+}
+
+func TestPlexProviderUsesEventStateNotOwnerMetadata(t *testing.T) {
+	t.Parallel()
+	server := newPlexMetadataServer(t)
+
+	scrobble, err := parsePlex(t, server, `{"event":"media.scrobble","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`)
+	if err != nil {
+		t.Fatalf("scrobble: %v", err)
+	}
+	if !scrobble.Apply || !scrobble.Completed || !scrobble.CompletionPerPlayback || scrobble.UserID != "5" {
+		t.Fatalf("unexpected scrobble: %#v", scrobble)
+	}
+	if scrobble.Record.LastPlayedAt == nil || scrobble.Record.LastPlayedAt.Year() == 2024 || scrobble.DurationSeconds != 600 || scrobble.Record.TMDBID != "10378" {
+		t.Fatalf("scrobble record = %#v", scrobble.Record)
+	}
+
+	pause, err := parsePlex(t, server, `{"event":"media.pause","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie","viewOffset":300000}}`)
+	if err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if !pause.Apply || pause.Completed || pause.PositionSeconds != 300 || pause.Record.LastPlayedAt != nil {
+		t.Fatalf("unexpected pause: %#v", pause)
+	}
+
+	unknownOffset, err := parsePlex(t, server, `{"event":"media.stop","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`)
+	if err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if unknownOffset.Apply {
+		t.Fatalf("stop without an offset should be ignored: %#v", unknownOffset)
+	}
+
+	play, err := parsePlex(t, server, `{"event":"media.play","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie","viewOffset":0}}`)
+	if err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if !play.Apply || play.Action != ActionPlaybackStarted {
+		t.Fatalf("unexpected play: %#v", play)
+	}
+}
+
+// A playback start resets the per-playback completion from the event's IDs
+// alone, so an unreachable server cannot make the next scrobble look like part
+// of the previous playback.
+func TestPlexProviderPlaybackStartSkipsMetadata(t *testing.T) {
+	t.Parallel()
+	var lookups atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lookups.Add(1)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	play, err := parsePlex(t, server, `{"event":"media.play","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`)
+	if err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	if !play.Apply || play.Action != ActionPlaybackStarted || play.UserID != "5" || play.ExternalItemID != "42" || play.OccurredAt.IsZero() {
+		t.Fatalf("unexpected play: %#v", play)
+	}
+	if n := lookups.Load(); n != 0 {
+		t.Fatalf("play made %d metadata lookups, want 0", n)
+	}
+}
+
+func TestPlexProviderRejectsMalformedPayloads(t *testing.T) {
+	t.Parallel()
+	server := newPlexMetadataServer(t)
+
+	for name, payload := range map[string]string{
+		"not json":        `not json`,
+		"missing event":   `{"Account":{"id":5},"Metadata":{"ratingKey":"42","type":"movie"}}`,
+		"missing account": `{"event":"media.scrobble","Metadata":{"ratingKey":"42","type":"movie"}}`,
+		"missing item":    `{"event":"media.scrobble","Account":{"id":5}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if event, err := parsePlex(t, server, payload); err == nil {
+				t.Fatalf("ParseWebhook() = %#v, want error", event)
+			}
+		})
+	}
+}
+
+// Plex webhooks identify the server owner by its server-local account ID, so
+// the owner's default mapping must use that ID rather than the plex.tv one.
+func TestPlexDefaultUserMapsServerOwnerAccount(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"MediaContainer":{"Account":[{"id":0,"name":""},{"id":1,"name":"owner"},{"id":23456789,"name":"Kid","home":true}]}}`))
+	}))
+	t.Cleanup(server.Close)
+	conn := &Connection{UserID: 7, BaseURL: server.URL, AccessToken: "owner-token"}
+	trusted := historyimport.NewLocalNetworkAccess(staticSettings{historyimport.SettingAllowPrivateDestinations: "true"}, nil)
+
+	id, name, ok, err := NewPlexProvider(historyimport.NewPlexClient()).DefaultUser(trusted.Context(t.Context(), conn.UserID), conn, CreateConnectionInput{AccessToken: "owner-token"})
+	if err != nil || !ok || id != "1" || name != "owner" {
+		t.Fatalf("DefaultUser() = (%q, %q, %v, %v), want (\"1\", \"owner\", true, nil)", id, name, ok, err)
+	}
+}
+
 func TestProgressOutranksEvent(t *testing.T) {
 	t.Parallel()
 	// A whole-second event time, so the pair's own write, which user stores
@@ -461,6 +602,33 @@ func TestProgressOutranksEvent(t *testing.T) {
 			t.Parallel()
 			if got := progressOutranksEvent(tc.updatedAt, tc.position, tc.state, tc.eventAt); got != tc.want {
 				t.Fatalf("progressOutranksEvent() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEndsPlaybackWithoutApplying(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
+	scrobble := &CanonicalEvent{OccurredAt: at, Completed: true, CompletionPerPlayback: true}
+	cases := []struct {
+		name  string
+		state *ItemState
+		event *CanonicalEvent
+		want  bool
+	}{
+		{name: "first scrobble", event: scrobble, want: true},
+		{name: "scrobble after an older event", state: &ItemState{LastEventAt: at.Add(-time.Minute)}, event: scrobble, want: true},
+		{name: "scrobble older than the last event", state: &ItemState{LastEventAt: at.Add(time.Minute)}, event: scrobble, want: false},
+		{name: "scrobble at the last event's time", state: &ItemState{LastEventAt: at}, event: scrobble, want: false},
+		{name: "pause", event: &CanonicalEvent{OccurredAt: at, CompletionPerPlayback: true}, want: false},
+		{name: "completion without per-playback semantics", event: &CanonicalEvent{OccurredAt: at, Completed: true}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := endsPlaybackWithoutApplying(tc.state, tc.event); got != tc.want {
+				t.Fatalf("endsPlaybackWithoutApplying() = %v, want %v", got, tc.want)
 			}
 		})
 	}

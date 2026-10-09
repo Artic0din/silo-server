@@ -129,7 +129,7 @@ func (s *Service) CreateConnection(ctx context.Context, userID int, input Create
 	if err != nil {
 		return nil, err
 	}
-	if userID, userName, ok, err := provider.DefaultUser(ctx, conn, input); err != nil {
+	if userID, userName, ok, err := provider.DefaultUser(s.localNetwork.Context(ctx, userID), conn, input); err != nil {
 		return nil, err
 	} else if ok {
 		if _, err := s.repo.CreateDefaultMapping(ctx, conn.ID, userID, userName, input.DefaultProfileID); err != nil {
@@ -323,6 +323,24 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	}
 	profileID := result.ProfileID
 
+	// A new playback lets the next completion count as another watch. Its item
+	// state is keyed by the external IDs, so it needs no metadata or match.
+	if event.Action == ActionPlaybackStarted {
+		state, err := s.repo.GetItemState(ctx, conn.ID, event.UserID, event.ExternalItemID)
+		if err != nil {
+			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
+		}
+		if state != nil && state.LastCompleted {
+			state.LastCompleted = false
+			if err := s.repo.UpsertItemState(ctx, *state); err != nil {
+				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback start")
+			}
+		}
+		result.Outcome = OutcomeIgnored
+		result.Summary = "Noted playback start; watch state unchanged"
+		return result, nil
+	}
+
 	record := event.Record.toHistoryImportRecord()
 	match, _, err := s.matcher.Match(ctx, record)
 	if err != nil {
@@ -403,9 +421,23 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	if err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
 	}
+	applied := ItemState{
+		ConnectionID:       conn.ID,
+		ExternalUserID:     event.UserID,
+		ExternalItemID:     event.ExternalItemID,
+		MediaItemID:        match.MediaItemID,
+		LastEventAt:        event.OccurredAt,
+		LastCompleted:      event.Completed,
+		LastPositionSecond: event.PositionSeconds,
+	}
 	if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, record.UpdatedAt); err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
 	} else if newer {
+		if endsPlaybackWithoutApplying(state, event) {
+			if err := s.repo.UpsertItemState(ctx, applied); err != nil {
+				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback completion")
+			}
+		}
 		result.Outcome = OutcomeSkipped
 		result.Summary = "Skipped because local watch progress is newer"
 		return result, nil
@@ -431,15 +463,7 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to apply imported watch progress")
 	}
 
-	if err := s.repo.UpsertItemState(ctx, ItemState{
-		ConnectionID:       conn.ID,
-		ExternalUserID:     event.UserID,
-		ExternalItemID:     event.ExternalItemID,
-		MediaItemID:        match.MediaItemID,
-		LastEventAt:        event.OccurredAt,
-		LastCompleted:      event.Completed,
-		LastPositionSecond: event.PositionSeconds,
-	}); err != nil {
+	if err := s.repo.UpsertItemState(ctx, applied); err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist imported watch progress")
 	}
 
@@ -524,11 +548,31 @@ func mappingsToDiscoveredUsers(mappings []ProfileMapping) []DiscoveredUser {
 	return out
 }
 
+// endsPlaybackWithoutApplying reports whether a progress event that newer
+// Silo progress kept from applying should still be recorded as ending its
+// playback. A per-playback completion does, so the rest of that playback (a
+// stop in the credits, a repeated scrobble) stays ignored. An event no newer
+// than the pair's last one, such as a scrobble whose lookup finished late, is
+// not recorded, so the state's time never moves back and a playback that has
+// since restarted is not closed again.
+func endsPlaybackWithoutApplying(state *ItemState, event *CanonicalEvent) bool {
+	if !event.CompletionPerPlayback || !event.Completed {
+		return false
+	}
+	return state == nil || event.OccurredAt.After(state.LastEventAt)
+}
+
 // shouldSkipEvent reports whether a progress event is stale or repeats one
 // already applied for the same external user and item.
 func shouldSkipEvent(state *ItemState, event *CanonicalEvent) bool {
 	if state == nil {
 		return false
+	}
+	// Once a per-playback provider reports completion, the rest of that
+	// playback (a repeated scrobble, a stop in the credits) changes nothing
+	// until a new playback starts.
+	if event.CompletionPerPlayback && state.LastCompleted {
+		return true
 	}
 	// An older event never overrides a newer one, so a replayed completion
 	// cannot undo a later mark-unplayed.

@@ -1,9 +1,12 @@
 package webhooksync
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -18,13 +21,19 @@ import (
 	"github.com/Silo-Server/silo-server/internal/userstore"
 )
 
-// removeRecorder serves the profile's progress and records mark-unplayed
-// writes; every other store method is unused by the mark-unplayed path.
+// removeRecorder serves the profile's progress and records progress and
+// mark-unplayed writes; the paths under test use no other store method.
 type removeRecorder struct {
 	userstore.UserStore
 	progressUpdatedAt time.Time
 	progressErr       error
 	removed           []string
+	positions         []float64
+}
+
+func (r *removeRecorder) SetProgressAt(_ context.Context, _, _ string, position, _ float64, _ bool, _ time.Time) error {
+	r.positions = append(r.positions, position)
+	return nil
 }
 
 func (r *removeRecorder) GetProgress(_ context.Context, profileID, mediaItemID string) (*userstore.WatchProgress, error) {
@@ -121,5 +130,94 @@ func TestProcessWebhookMarkUnplayedRespectsNewerLocalProgressDB(t *testing.T) {
 	}
 	if result, err := unplay(localUpdatedAt.Add(time.Hour)); err != nil || result.Outcome != OutcomeApplied || len(store.removed) != 1 || store.removed[0] != mediaItemID {
 		t.Fatalf("newer mark-unplayed: outcome %q, err %v, removed %v; want applied to %s", result.Outcome, err, store.removed, mediaItemID)
+	}
+}
+
+// A Plex scrobble that newer Silo progress keeps from applying still ends its
+// playback: a later stop in the same playback is ignored rather than writing
+// a resume point.
+func TestProcessWebhookPlexSkippedScrobbleEndsPlaybackDB(t *testing.T) {
+	dsn := os.Getenv("SILO_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("SILO_TEST_DATABASE_URL is not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	suffix := uuid.NewString()
+	tmdbID := "webhook-sync-plex-" + suffix
+	plex := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"ratingKey":"42","type":"movie","title":"Movie","year":2008,"duration":600000,"Guid":[{"id":"tmdb://%s"}]}]}}`, tmdbID)
+	}))
+	t.Cleanup(plex.Close)
+
+	var userID int
+	if err := pool.QueryRow(ctx, `INSERT INTO users(username,role) VALUES($1,'user') RETURNING id`, "webhook-sync-"+suffix).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	mediaItemID := "webhook-sync-movie-" + suffix
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM media_items WHERE content_id = $1`, mediaItemID)
+	})
+	profileID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO user_profiles(id,user_id,name) VALUES($1,$2,'Viewer')`, profileID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO media_items(content_id,type,title,status,tmdb_id) VALUES($1,'movie','Movie','matched',$2)`, mediaItemID, tmdbID); err != nil {
+		t.Fatal(err)
+	}
+
+	cipher, err := secret.New([]byte("synthetic-webhook-sync-test-key-material"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool, cipher)
+	conn, err := repo.CreateConnection(ctx, Connection{
+		ID: uuid.NewString(), UserID: userID, Provider: ProviderPlex, ServerID: "server", ServerName: "Plex",
+		BaseURL: plex.URL, AccessToken: "owner-token", DefaultProfileID: profileID, WebhookSecret: suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateDefaultMapping(ctx, conn.ID, "5", "Kid", profileID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Silo progress an hour ahead outranks the scrobble's receipt time.
+	store := &removeRecorder{progressUpdatedAt: time.Now().Add(time.Hour)}
+	svc := NewService(repo, historyimport.NewRepository(pool, cipher), recorderProvider{store: store})
+	svc.SetLocalNetworkAccess(historyimport.NewLocalNetworkAccess(staticSettings{historyimport.SettingAllowPrivateDestinations: "true"}, nil))
+	deliver := func(payload string) *ProcessWebhookResult {
+		t.Helper()
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		if err := form.WriteField("payload", payload); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest("POST", "/webhook", &body)
+		req.Header.Set("Content-Type", form.FormDataContentType())
+		result, err := svc.ProcessWebhookBounded(ctx, suffix, req, 1<<20)
+		if err != nil {
+			t.Fatalf("ProcessWebhookBounded() error = %v", err)
+		}
+		return result
+	}
+
+	if result := deliver(`{"event":"media.scrobble","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie"}}`); result.Outcome != OutcomeSkipped {
+		t.Fatalf("scrobble: outcome %q (%s), want skipped", result.Outcome, result.Summary)
+	}
+	// The Silo progress is now older than any further event.
+	store.progressUpdatedAt = time.Now().Add(-time.Hour)
+	if result := deliver(`{"event":"media.stop","Account":{"id":5,"title":"Kid"},"Metadata":{"ratingKey":"42","type":"movie","viewOffset":590000}}`); result.Outcome != OutcomeSkipped || len(store.positions) != 0 {
+		t.Fatalf("stop after the skipped scrobble: outcome %q (%s), writes %v; want skipped with nothing written", result.Outcome, result.Summary, store.positions)
 	}
 }

@@ -1042,6 +1042,10 @@ export default function WebhookSyncSettings() {
                             Save. Plex sends events automatically — no per-event toggles to
                             configure.
                           </li>
+                          <li>
+                            Plex sends no webhook when someone marks an item watched or unwatched by
+                            hand, so only playback reaches Silo.
+                          </li>
                         </ol>
                       ) : null}
                       {selectedConnection.provider === "emby" ? (
