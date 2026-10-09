@@ -396,9 +396,16 @@ function DeleteFilesDialog({
           const deleted = results.filter(
             (r) => r.outcome === "deleted" || r.outcome === "requeued",
           );
-          const refused = results.length - deleted.length;
+          const failed = results.filter((r) => r.outcome === "failed").length;
+          const refused = results.length - deleted.length - failed;
           const freed = deleted.reduce((sum, r) => sum + r.bytes, 0);
-          if (deleted.length > 0) {
+          if (failed > 0) {
+            toast.error(
+              `${failed} ${failed === 1 ? "file" : "files"} could not be deleted` +
+                (deleted.length > 0 ? `; ${deleted.length} deleted` : "") +
+                ". Check the server log.",
+            );
+          } else if (deleted.length > 0) {
             toast.success(
               `Deleted ${deleted.length} prepared ${deleted.length === 1 ? "file" : "files"} (${formatStorageBytes(freed)})` +
                 (refused > 0 ? `; ${refused} skipped` : ""),

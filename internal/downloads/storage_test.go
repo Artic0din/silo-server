@@ -15,6 +15,7 @@ import (
 
 	"github.com/Silo-Server/silo-server/internal/config"
 	"github.com/Silo-Server/silo-server/internal/downloadstorage"
+	"github.com/Silo-Server/silo-server/internal/models"
 	"github.com/Silo-Server/silo-server/internal/nodepool"
 )
 
@@ -189,6 +190,9 @@ func TestFindUntracked(t *testing.T) {
 		{Name: d + ".mp4.part", Kind: downloadstorage.KindPartial, Bytes: 40, ModTime: old},          // dead partial
 		{Name: e + ".mp4.part", Kind: downloadstorage.KindPartial, Bytes: 50, ModTime: fresh},        // encode in progress
 		{Name: a + ".mp4.receipt.json.123", Kind: downloadstorage.KindOther, Bytes: 3, ModTime: old}, // temp of tracked
+		// A dead partial beside a tracked file: deleting it would delete the
+		// whole artifact on the node, finished file included.
+		{Name: a + ".mp4.part", Kind: downloadstorage.KindPartial, Bytes: 4, ModTime: old},
 		// Not named like a prepared file: never Silo's to delete.
 		{Name: "Movie (2010).mp4", Kind: downloadstorage.KindComplete, Bytes: 70, ModTime: old},
 		{Name: "README", Kind: downloadstorage.KindOther, Bytes: 80, ModTime: old},
@@ -352,13 +356,16 @@ func TestRevokeManagedExcludesMonitoredEpisodesAndRecordsHistory(t *testing.T) {
 		t.Fatalf("second revoke = (%+v, %v)", again, err)
 	}
 	// The device confirming its local copy is gone deletes the row and is
-	// recorded as removed from the device.
-	if err := f.repo.DeleteManaged(ctx, ids[1], f.userID, f.profileA, f.deviceA); err != nil {
-		t.Fatal(err)
-	}
-	var removed int
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM download_storage_events WHERE download_id = $1 AND reason = 'device_removed'`, ids[1]).Scan(&removed); err != nil || removed != 1 {
-		t.Fatalf("device removal history = %d (%v)", removed, err)
+	// recorded as removed from the device; only the finished copy took space.
+	for i, want := range []int64{500, 0} {
+		if err := f.repo.DeleteManaged(ctx, ids[i], f.userID, f.profileA, f.deviceA); err != nil {
+			t.Fatal(err)
+		}
+		var removed int
+		var bytes int64
+		if err := f.pool.QueryRow(ctx, `SELECT count(*), COALESCE(sum(bytes), 0) FROM download_storage_events WHERE download_id = $1 AND reason = 'device_removed'`, ids[i]).Scan(&removed, &bytes); err != nil || removed != 1 || bytes != want {
+			t.Fatalf("device removal history for %s = %d rows, %d bytes (%v), want 1 row, %d bytes", ids[i], removed, bytes, err, want)
+		}
 	}
 }
 
@@ -816,4 +823,121 @@ func TestStorageOverviewNamesTheDirectoryANodeStillUses(t *testing.T) {
 		return
 	}
 	t.Fatal("node missing from the overview")
+}
+
+// A full server is a location like any other: over its budget with nothing
+// left to free, it is marked full.
+func TestRefreshStorageFullIncludesTheServer(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	a := localReadyArtifact(t, repo, pool, fileID, filepath.Join(t.TempDir(), "prepared.mp4"), time.Hour)
+	linkRecoveryDownload(t, pool, fileID, a.ID, StatusReady)
+	cfg := &config.Config{}
+	cfg.Download.ArtifactMaxBytes = 50
+	m := storageTestManager(repo, cfg)
+	m.refreshStorageFull(context.Background())
+	if !m.NodeStorageFull(0) {
+		t.Fatal("a server over its budget with only in-use files left must be marked full")
+	}
+}
+
+// A job that would be prepared on a full server waits without spending an
+// attempt, and the encoder is never started.
+func TestJobWaitsWhileTheServerIsFull(t *testing.T) {
+	repo, _, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	row, _, err := repo.EnsureQueued(ctx, newArtifact(t, fileID, fmt.Sprintf("hash-server-full-%d", time.Now().UnixNano())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := repo.ClaimNext(ctx, "worker", time.Minute)
+	if err != nil || claimed.ID != row.ID {
+		t.Fatalf("claim = (%+v, %v), want %s", claimed, err, row.ID)
+	}
+	preparer := &recordingEncodePreparer{}
+	m := &ArtifactManager{
+		repo: repo, owner: "worker", preparer: preparer,
+		fileRepo:    fakeFileResolver{file: &models.MediaFile{ID: fileID, FilePath: "/media/movie.mkv"}},
+		storageFull: map[int]bool{0: true},
+	}
+	m.encodeOne(ctx, claimed)
+
+	if preparer.calls != 0 {
+		t.Fatal("the encoder ran on a full server")
+	}
+	waiting, err := repo.GetByID(ctx, row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting.Status != ArtifactQueued || waiting.Attempts != claimed.Attempts-1 || waiting.NextRetryAt == nil || !waiting.NextRetryAt.After(time.Now()) {
+		t.Fatalf("job = status %s, attempts %d (claimed at %d), retry %v; want queued later with the attempt given back",
+			waiting.Status, waiting.Attempts, claimed.Attempts, waiting.NextRetryAt)
+	}
+}
+
+// Expiry clears a node file's live locator, but the inventory still lists the
+// expired file under the node it was on.
+func TestExpiredNodeFileKeepsItsLocation(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	nodeID := 700000 + rand.IntN(100000)
+	a := remoteReadyArtifact(t, repo, pool, fileID, nodeID, 100, 5*24*time.Hour)
+	if applied, err := repo.ExpireReady(ctx, a, missingArtifactRetireGrace); err != nil || !applied {
+		t.Fatalf("ExpireReady = (%v, %v)", applied, err)
+	}
+	m := storageTestManager(repo, &config.Config{})
+	page, err := m.StorageFilesPage(ctx, StorageFileFilter{Location: NodeLocationKey(nodeID), State: StorageFileExpired, Sort: StorageSortSize}, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 1 || page[0].ArtifactID != a.ID || page[0].Location != NodeLocationKey(nodeID) {
+		t.Fatalf("expired files at the node = %+v", page)
+	}
+}
+
+// An error deleting one file is reported for that file; the rest of the
+// batch still goes ahead, and the results say which deletes took effect.
+func TestDeleteStorageFilesReportsAFailureAndGoesOn(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	stuck := filepath.Join(t.TempDir(), "prepared.mp4")
+	if err := os.MkdirAll(filepath.Join(stuck, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	failing := localReadyArtifact(t, repo, pool, fileID, stuck, 5*24*time.Hour)
+	cached := remoteReadyArtifact(t, repo, pool, fileID, 700000+rand.IntN(100000), 100, 5*24*time.Hour)
+	m := storageTestManager(repo, &config.Config{})
+
+	results, err := m.DeleteStorageFiles(context.Background(), []string{failing.ID, cached.ID}, false, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].Outcome != StorageDeleteFailed || results[1].Outcome != StorageDeleteDeleted {
+		t.Fatalf("results = %+v, want failed then deleted", results)
+	}
+}
+
+// Prepare-again counts toward the concurrent cap only when it sends the entry
+// back to preparing: a finished entry whose file is gone. A file still on the
+// server is served as it is, and an entry already preparing counts already.
+func TestPrepareAgainActivatesOnlyWhenTheFileIsGone(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	a := remoteReadyArtifact(t, repo, pool, fileID, 1, 100, time.Hour)
+	m := storageTestManager(repo, &config.Config{})
+	for _, tc := range []struct {
+		download, artifact string
+		want               bool
+	}{
+		{StatusCompleted, ArtifactReady, false},
+		{StatusCompleted, ArtifactExpired, true},
+		{StatusReady, ArtifactExpired, true},
+		{StatusPreparing, ArtifactExpired, false},
+	} {
+		if _, err := pool.Exec(ctx, `UPDATE download_artifacts SET status = $2 WHERE id = $1`, a.ID, tc.artifact); err != nil {
+			t.Fatal(err)
+		}
+		got, err := m.prepareAgainActivates(ctx, &Download{Status: tc.download, ArtifactID: a.ID})
+		if err != nil || got != tc.want {
+			t.Fatalf("%s entry, %s file: activates = (%v, %v), want %v", tc.download, tc.artifact, got, err, tc.want)
+		}
+	}
 }

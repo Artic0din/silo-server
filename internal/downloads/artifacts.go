@@ -114,9 +114,12 @@ type ArtifactManager struct {
 	lastDiskSweep  time.Time
 	lastStaleSweep time.Time
 	// Storage maintenance state (see storage_maintenance.go).
-	storageNodes       StorageNodes
-	storageNotify      func(context.Context)
-	serverProber       *downloadstorage.Prober
+	storageNodes  StorageNodes
+	storageNotify func(context.Context)
+	serverProber  *downloadstorage.Prober
+	// serverLister lists the server's directory for reconciliation, one read
+	// at a time and time-limited, so a hung mount cannot stall maintenance.
+	serverLister       downloadstorage.Inspector
 	lastStorageSweep   time.Time
 	lastReconcile      time.Time
 	lastServerSampleAt time.Time
@@ -192,7 +195,7 @@ func NewArtifactManager(
 		serverProber: downloadstorage.NewProber(0),
 		storageFull:  make(map[int]bool),
 	}
-	if gated, ok := preparer.(interface{ SetStorageGate(func(int) bool) }); ok {
+	if gated, ok := preparer.(storageGatedPreparer); ok {
 		gated.SetStorageGate(m.NodeStorageFull)
 	}
 	return m
@@ -266,7 +269,19 @@ func (m *ArtifactManager) Ready(ctx context.Context, id string) (*Artifact, erro
 			return nil, fmt.Errorf("artifact origin was removed: %w", errors.Join(ErrDownloadNotActive, err))
 		}
 	}
-	_ = m.repo.TouchLastUsed(ctx, id)
+	// Touching only a still-ready row fences serving against expiry: once the
+	// touch commits, expiry skips a file used this recently, and if expiry
+	// committed first, the old locator is not handed out.
+	touched, err := m.repo.TouchReady(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !touched {
+		if current, err := m.repo.GetByID(ctx, id); err == nil && current.Status == ArtifactExpired {
+			return nil, fmt.Errorf("artifact expired while being served: %w", errors.Join(ErrDownloadNotActive, ErrPreparedFileExpired))
+		}
+		return nil, fmt.Errorf("artifact changed while being served: %w", ErrDownloadNotActive)
+	}
 	return a, nil
 }
 
@@ -942,7 +957,13 @@ func (m *ArtifactManager) encodeOne(ctx context.Context, a *Artifact) {
 	remoteAttemptID := a.ID + "-" + uuid.NewString()
 	observer := m.newAttemptObserver(a.ID)
 	go observer.run(hbCtx)
-	prepared, err := m.preparer.PrepareFile(withPrepareObserver(hbCtx, observer), remoteAttemptID, opts, a.OutputPath)
+	var prepared PreparedArtifact
+	if _, gated := m.preparer.(storageGatedPreparer); !gated && m.NodeStorageFull(0) {
+		// A preparer without placement only writes here.
+		err = ErrServerStorageFull
+	} else {
+		prepared, err = m.preparer.PrepareFile(withPrepareObserver(hbCtx, observer), remoteAttemptID, opts, a.OutputPath)
+	}
 	if err != nil {
 		if prepared.Remote() {
 			m.enqueueRemoteCleanup(ctx, a.ID, prepared, true)
@@ -956,6 +977,14 @@ func (m *ArtifactManager) encodeOne(ctx context.Context, a *Artifact) {
 			// We lost the lease mid-encode: another worker now owns the job, or
 			// an administrator paused or canceled it.
 			slog.WarnContext(ctx, "download artifact encode aborted; lease lost or job stopped", "component", "downloads", "artifact_id", a.ID)
+			return
+		case errors.Is(err, ErrServerStorageFull):
+			// Not a failure of the job: it waits, uncounted, for clean-up or
+			// an administrator to free space.
+			if _, err := m.repo.DeferJob(ctx, a.ID, m.owner, "Waiting for space: the server's prepared-file storage is full", storageFullRetryDelay); err != nil {
+				slog.WarnContext(ctx, "deferring download artifact job failed", "component", "downloads", "artifact_id", a.ID, "error", err)
+			}
+			m.notifyPreparationChanged(ctx, a.ID)
 			return
 		default:
 			slog.WarnContext(ctx, "download artifact encode failed", "component", "downloads", "artifact_id", a.ID, "error", err)

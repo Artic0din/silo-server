@@ -6419,13 +6419,14 @@
             "type": "string"
           },
           "outcome": {
-            "description": "deleted: the file is gone; finished devices keep their copies. requeued: it was in use; it was deleted and queued to be prepared again. in_use: refused because a download is waiting on or fetching it (set include_in_use to delete it anyway) or it was used in the last minute. not_found: no such prepared file. not_ready: it is still being prepared, failed, or was already deleted.",
+            "description": "deleted: the file is gone; finished devices keep their copies. requeued: it was in use; it was deleted and queued to be prepared again. in_use: refused because a download is waiting on or fetching it (set include_in_use to delete it anyway) or it was used in the last minute. not_found: no such prepared file. not_ready: it is still being prepared, failed, or was already deleted. failed: an error stopped this file's delete; the others went on. A file left on disk is reported as untracked.",
             "enum": [
               "deleted",
               "requeued",
               "in_use",
               "not_found",
-              "not_ready"
+              "not_ready",
+              "failed"
             ],
             "type": "string"
           }
@@ -6795,7 +6796,7 @@
             "type": "integer"
           },
           "storage_full": {
-            "description": "Over its budget or the disk ceiling with nothing left to free; new preparations go elsewhere",
+            "description": "Over its budget or the disk ceiling with nothing left to free. A full node gets no new preparations; while the server is full, jobs that would be prepared on it wait.",
             "type": "boolean"
           },
           "untracked_bytes": {

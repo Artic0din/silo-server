@@ -23,6 +23,7 @@ const (
 	StorageDeleteInUse    = "in_use"    // refused: a download is waiting on or fetching it
 	StorageDeleteNotFound = "not_found" // no such prepared file
 	StorageDeleteNotReady = "not_ready" // still being prepared, failed, or already expired
+	StorageDeleteFailed   = "failed"    // an error stopped this file's delete; the others went on
 )
 
 // StorageDeleteResult is one prepared file's outcome.
@@ -36,7 +37,8 @@ type StorageDeleteResult struct {
 // download is still waiting on or fetching is refused unless includeInUse is
 // set; then its bytes are deleted and it is queued to be prepared again, so
 // those downloads wait for the new copy. Finished devices keep their copies
-// either way.
+// either way. An error stops only its own file, reported as failed, so the
+// results always say which deletes took effect.
 func (m *ArtifactManager) DeleteStorageFiles(ctx context.Context, ids []string, includeInUse bool, actor int) ([]StorageDeleteResult, error) {
 	if m == nil || m.repo == nil {
 		return nil, ErrFormatUnavailable
@@ -45,50 +47,59 @@ func (m *ArtifactManager) DeleteStorageFiles(ctx context.Context, ids []string, 
 	results := make([]StorageDeleteResult, 0, len(ids))
 	freed := false
 	for _, id := range uniqueIDs(ids) {
-		a, err := m.repo.GetByID(ctx, id)
-		if errors.Is(err, ErrNotFound) {
-			results = append(results, StorageDeleteResult{ArtifactID: id, Outcome: StorageDeleteNotFound})
-			continue
-		}
+		result, err := m.deleteStorageFile(ctx, batch, id, includeInUse, actor)
 		if err != nil {
-			return results, err
+			slog.WarnContext(ctx, "deleting prepared file failed", "component", "downloads", "artifact_id", id, "error", err)
+			result = StorageDeleteResult{ArtifactID: id, Outcome: StorageDeleteFailed}
 		}
-		if !artifactReady(a) {
-			results = append(results, StorageDeleteResult{ArtifactID: id, Outcome: StorageDeleteNotReady})
-			continue
-		}
-		applied, err := m.repo.ExpireReady(ctx, a, adminDeleteGrace)
-		if err != nil {
-			return results, err
-		}
-		if applied {
-			if err := removeExpiredLocalBytes(a); err != nil {
-				return results, err
-			}
-			m.recordAdminDelete(ctx, batch, a, actor, "")
-			results = append(results, StorageDeleteResult{ArtifactID: id, Outcome: StorageDeleteDeleted, Bytes: a.FileSize})
-			freed = true
-			continue
-		}
-		if !includeInUse {
-			results = append(results, StorageDeleteResult{ArtifactID: id, Outcome: StorageDeleteInUse})
-			continue
-		}
-		outcome, err := m.deleteInUse(ctx, a)
-		if err != nil {
-			return results, err
-		}
-		if outcome != StorageDeleteNotReady {
-			m.recordAdminDelete(ctx, batch, a, actor, "prepared again for waiting downloads")
-			freed = true
-		}
-		results = append(results, StorageDeleteResult{ArtifactID: id, Outcome: outcome, Bytes: a.FileSize})
+		freed = freed || result.Outcome == StorageDeleteDeleted || result.Outcome == StorageDeleteRequeued
+		results = append(results, result)
 	}
 	if freed {
 		m.cleanupRemoteOrphans(ctx)
 		m.notifyStorageChanged(ctx)
 	}
 	return results, nil
+}
+
+func (m *ArtifactManager) deleteStorageFile(ctx context.Context, batch, id string, includeInUse bool, actor int) (StorageDeleteResult, error) {
+	result := StorageDeleteResult{ArtifactID: id}
+	a, err := m.repo.GetByID(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		result.Outcome = StorageDeleteNotFound
+		return result, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	if !artifactReady(a) {
+		result.Outcome = StorageDeleteNotReady
+		return result, nil
+	}
+	applied, err := m.repo.ExpireReady(ctx, a, adminDeleteGrace)
+	if err != nil {
+		return result, err
+	}
+	if applied {
+		if err := removeExpiredLocalBytes(a); err != nil {
+			return result, err
+		}
+		m.recordAdminDelete(ctx, batch, a, actor, "")
+		result.Outcome, result.Bytes = StorageDeleteDeleted, a.FileSize
+		return result, nil
+	}
+	if !includeInUse {
+		result.Outcome = StorageDeleteInUse
+		return result, nil
+	}
+	if result.Outcome, err = m.deleteInUse(ctx, a); err != nil {
+		return result, err
+	}
+	if result.Outcome != StorageDeleteNotReady {
+		m.recordAdminDelete(ctx, batch, a, actor, "prepared again for waiting downloads")
+	}
+	result.Bytes = a.FileSize
+	return result, nil
 }
 
 // deleteInUse deletes the bytes of a file downloads still need and queues it
@@ -161,6 +172,18 @@ func (m *ArtifactManager) recordAdminDelete(ctx context.Context, batch string, a
 
 // ErrStorageLocationNotFound reports a location key that names no location.
 var ErrStorageLocationNotFound = errors.New("storage location not found")
+
+// ErrServerStorageFull reports that a job would have to be prepared on the
+// server while the server's prepared-file storage is full: over its budget or
+// the disk ceiling with nothing left to free.
+var ErrServerStorageFull = errors.New("server prepared-file storage is full")
+
+// storageFullRetryDelay is how long a job waits for space before it is
+// tried again; maintenance frees space every few minutes.
+const storageFullRetryDelay = 5 * time.Minute
+
+// storageGatedPreparer places jobs and honors storage-full locations itself.
+type storageGatedPreparer interface{ SetStorageGate(func(int) bool) }
 
 // ErrStorageListingUnavailable reports that a location's directory could not
 // be listed: the node is unreachable, refused, or the directory unreadable.

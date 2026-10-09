@@ -2,6 +2,7 @@ package transcodenode
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -9,8 +10,7 @@ import (
 )
 
 // artifactListTimeout bounds how long the listing route waits for the
-// directory read. The read itself cannot be canceled (a hung network mount
-// parks it), which is why only one may be outstanding at a time.
+// directory read; s.artifactLister admits one read at a time.
 const artifactListTimeout = 15 * time.Second
 
 // handleListDownloadArtifacts lists the files in this node's prepared-download
@@ -22,27 +22,18 @@ func (s *Server) handleListDownloadArtifacts(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "artifact directory unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if !s.artifactListInFlight.CompareAndSwap(false, true) {
+	listing, err := s.artifactLister.Inspect(r.Context(), s.artifactRoot, s.transcodeDir, artifactListTimeout)
+	switch {
+	case errors.Is(err, downloadstorage.ErrInspectBusy):
 		http.Error(w, "an artifact listing is already running", http.StatusServiceUnavailable)
-		return
-	}
-	result := make(chan downloadstorage.Listing, 1)
-	go func() {
-		defer s.artifactListInFlight.Store(false)
-		result <- downloadstorage.Inspect(s.artifactRoot, s.transcodeDir, time.Now())
-	}()
-	timer := time.NewTimer(artifactListTimeout)
-	defer timer.Stop()
-	select {
-	case listing := <-result:
-		if listing.Usage.Error != "" && len(listing.Files) == 0 {
-			http.Error(w, "artifact directory unreadable", http.StatusServiceUnavailable)
-			return
-		}
+	case errors.Is(err, downloadstorage.ErrInspectTimeout):
+		http.Error(w, "artifact directory did not answer in time", http.StatusServiceUnavailable)
+	case err != nil:
+		// The request ended; nobody is waiting for an answer.
+	case listing.Usage.Error != "" && len(listing.Files) == 0:
+		http.Error(w, "artifact directory unreadable", http.StatusServiceUnavailable)
+	default:
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(listing)
-	case <-timer.C:
-		http.Error(w, "artifact directory did not answer in time", http.StatusServiceUnavailable)
-	case <-r.Context().Done():
 	}
 }

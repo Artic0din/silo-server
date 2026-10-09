@@ -116,7 +116,8 @@ func (m *ArtifactManager) StorageOverview(ctx context.Context) (*StorageOverview
 		return nil, fmt.Errorf("reading storage activity: %w", err)
 	}
 
-	server := StorageLocationView{Key: LocationServer, Name: serverLocationName, Enabled: true, Online: true, Dir: m.artifactDir(), DirSource: StorageSourceDefault}
+	server := StorageLocationView{Key: LocationServer, Name: serverLocationName, Enabled: true, Online: true, Dir: m.artifactDir(), DirSource: StorageSourceDefault,
+		StorageFull: m.NodeStorageFull(0)}
 	if strings.TrimSpace(cfg.ArtifactDir) != "" {
 		server.DirSource = StorageSourceSetting
 	}
@@ -384,6 +385,10 @@ type WaitingDevice struct {
 	LastSeenAt *time.Time
 }
 
+// storageFileLocationSQL is the location a prepared file (alias a) is listed
+// under: where it is, or for an expired file, where it was.
+const storageFileLocationSQL = `CASE WHEN a.status = 'expired' THEN COALESCE(a.expired_from_node_id, 0) ELSE a.origin_node_id END`
+
 // StorageFilesPage lists prepared files at every location (or one), one keyset
 // page at a time. It returns limit rows at most; callers ask for one more than
 // they show to learn whether more follow.
@@ -438,7 +443,7 @@ func (m *ArtifactManager) StorageFilesPage(ctx context.Context, f StorageFileFil
 		WHERE d.artifact_id IS NOT NULL
 		GROUP BY d.artifact_id
 	)
-	SELECT a.id, a.status, a.format, a.origin_node_id, COALESCE(n.name, ''),
+	SELECT a.id, a.status, a.format, ` + storageFileLocationSQL + `, COALESCE(n.name, ''),
 	       a.media_file_id, COALESCE(f.media_folder_id, 0), COALESCE(f.content_id, ''), COALESCE(f.episode_id, ''),
 	       COALESCE(mi.title, ''), COALESCE(mi.type, ''), mi.year, ep.season_number, ep.episode_number, COALESCE(ep.title, ''),
 	       a.container, a.codec_video, a.codec_audio, a.resolution, a.target_bitrate_kbps, a.file_size,
@@ -446,12 +451,12 @@ func (m *ArtifactManager) StorageFilesPage(ctx context.Context, f StorageFileFil
 	       COALESCE(l.waiting, 0), COALESCE(l.downloading, 0), COALESCE(l.finished, 0), COALESCE(l.stale_waiting, 0)
 	FROM download_artifacts a
 	LEFT JOIN links l ON l.artifact_id = a.id
-	LEFT JOIN stream_nodes n ON n.id = a.origin_node_id
+	LEFT JOIN stream_nodes n ON n.id = ` + storageFileLocationSQL + `
 	LEFT JOIN media_files f ON f.id = a.media_file_id
 	LEFT JOIN episodes ep ON ep.content_id = f.episode_id
 	LEFT JOIN media_items mi ON mi.content_id = COALESCE(ep.series_id, f.content_id)
 	WHERE a.status IN ` + statuses + `
-	  AND ($1::int < 0 OR a.origin_node_id = $1)
+	  AND ($1::int < 0 OR ` + storageFileLocationSQL + ` = $1)
 	  AND ($2 = '' OR ($2 = 'in_use') = (COALESCE(l.waiting, 0) + COALESCE(l.downloading, 0) > 0) OR $2 = 'expired')
 	  AND ($3 = '' OR a.format = $3)
 	  AND ($4 = 0 OR f.media_folder_id = $4)

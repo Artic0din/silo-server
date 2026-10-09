@@ -14325,10 +14325,10 @@ export interface components {
       bytes: number;
       id: string;
       /**
-       * @description deleted: the file is gone; finished devices keep their copies. requeued: it was in use; it was deleted and queued to be prepared again. in_use: refused because a download is waiting on or fetching it (set include_in_use to delete it anyway) or it was used in the last minute. not_found: no such prepared file. not_ready: it is still being prepared, failed, or was already deleted.
+       * @description deleted: the file is gone; finished devices keep their copies. requeued: it was in use; it was deleted and queued to be prepared again. in_use: refused because a download is waiting on or fetching it (set include_in_use to delete it anyway) or it was used in the last minute. not_found: no such prepared file. not_ready: it is still being prepared, failed, or was already deleted. failed: an error stopped this file's delete; the others went on. A file left on disk is reported as untracked.
        * @enum {string}
        */
-      outcome: "deleted" | "requeued" | "in_use" | "not_found" | "not_ready";
+      outcome: "deleted" | "requeued" | "in_use" | "not_found" | "not_ready" | "failed";
     };
     AdminDownloadStorageEvent: {
       /** @description Whose device a revocation or removal concerned */
@@ -14509,7 +14509,7 @@ export interface components {
        * @description In-use bytes kept only for devices not seen within stale_device_days
        */
       stale_waiting_bytes: number;
-      /** @description Over its budget or the disk ceiling with nothing left to free; new preparations go elsewhere */
+      /** @description Over its budget or the disk ceiling with nothing left to free. A full node gets no new preparations; while the server is full, jobs that would be prepared on it wait. */
       storage_full: boolean;
       /** Format: int64 */
       untracked_bytes: number;

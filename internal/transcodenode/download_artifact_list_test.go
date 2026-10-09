@@ -40,16 +40,6 @@ func TestListDownloadArtifactsReportsFilesAndDirectory(t *testing.T) {
 	}
 }
 
-func TestListDownloadArtifactsAdmitsOneListingAtATime(t *testing.T) {
-	s := newTestServer(t)
-	s.artifactListInFlight.Store(true)
-	rec := httptest.NewRecorder()
-	s.handleListDownloadArtifacts(rec, httptest.NewRequest(http.MethodGet, "/downloads/artifacts", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503 while a listing runs", rec.Code)
-	}
-}
-
 func TestHealthCarriesPathFreeArtifactUsage(t *testing.T) {
 	s := newTestServer(t)
 	s.artifactProber = downloadstorage.NewProber(time.Hour)

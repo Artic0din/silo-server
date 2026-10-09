@@ -333,6 +333,27 @@ func (r *ArtifactRepository) MarkFailedOrRetry(ctx context.Context, id, owner, e
 	return terminal, true, nil
 }
 
+// DeferJob returns a running job to the queue until after delay without
+// counting the attempt, for a job that could not start for want of space
+// rather than because it failed. msg says why it waits.
+func (r *ArtifactRepository) DeferJob(ctx context.Context, id, owner, msg string, delay time.Duration) (bool, error) {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE download_artifacts
+		 SET status = CASE WHEN status = 'tracks_v1_running' THEN 'tracks_v1_queued'
+		                   WHEN status = 'audio_v2_running' THEN 'audio_v2_queued'
+		                   WHEN status = 'tone_map_running' THEN 'tone_map_queued'
+		                   ELSE 'queued' END,
+		     attempts = GREATEST(attempts - 1, 0), error_message = $2,
+		     next_retry_at = now() + make_interval(secs => $3),
+		     lease_owner = NULL, lease_expires_at = NULL
+		 WHERE id = $1 AND lease_owner = $4 AND status IN ('running', 'tone_map_running', 'audio_v2_running', 'tracks_v1_running')`,
+		id, msg, delay.Seconds(), owner)
+	if err != nil {
+		return false, fmt.Errorf("deferring artifact job: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // reclaimedArtifact reports a row recovered by the startup sweep.
 type reclaimedArtifact struct {
 	ID       string
@@ -439,8 +460,10 @@ const unusedReadyArtifactPredicate = `a.status IN ('ready', 'tone_map_ready', 'a
 // expireArtifactAssignment moves a ready row to 'expired': its bytes are gone,
 // but the row keeps the frozen recipe so finished devices keep their offline
 // manifest and a re-download can prepare the same file again. The locator is
-// cleared so remote cleanup never mistakes the old node file for a live one.
-const expireArtifactAssignment = `status = 'expired', origin_node_id = 0, origin_node_url = '', origin_node_group = '',
+// cleared so remote cleanup never mistakes the old node file for a live one;
+// expired_from_node_id keeps where the file was, for the inventory.
+const expireArtifactAssignment = `status = 'expired', expired_from_node_id = NULLIF(origin_node_id, 0),
+	origin_node_id = 0, origin_node_url = '', origin_node_group = '',
 	origin_artifact_id = '', lease_owner = NULL, lease_expires_at = NULL, next_retry_at = NULL`
 
 // RecoverMissing resolves a ready local artifact whose output file vanished.
@@ -616,18 +639,9 @@ func enqueueRemoteArtifactCleanup(ctx context.Context, tx pgx.Tx, artifact *Arti
 	return nil
 }
 
-// TouchLastUsed bumps last_used_at for LRU accounting (called on serve).
-func (r *ArtifactRepository) TouchLastUsed(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE download_artifacts SET last_used_at = now() WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("touching artifact: %w", err)
-	}
-	return nil
-}
-
 // TouchReady bumps last_used_at only while the artifact is still ready. It
-// returns false when missing-output recovery retired or requeued the row
-// first, so a caller never links a download to an artifact that is gone.
+// returns false when missing-output recovery or expiry changed the row first,
+// so a caller never links or serves an artifact whose bytes are gone.
 func (r *ArtifactRepository) TouchReady(ctx context.Context, id string) (bool, error) {
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE download_artifacts SET last_used_at = now()

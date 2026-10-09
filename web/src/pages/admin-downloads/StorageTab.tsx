@@ -417,7 +417,9 @@ function LocationCard({
         ) : null}
         {location.storage_full ? (
           <p className="text-warning">
-            Over its budget with nothing left to free; new preparations go elsewhere.
+            {location.kind === "server"
+              ? "Over its budget with nothing left to free; preparations that would run here wait for space."
+              : "Over its budget with nothing left to free; new preparations go elsewhere."}
           </p>
         ) : null}
       </div>

@@ -77,7 +77,7 @@ type AdminDownloadStorageLocation struct {
 	BudgetBytes       int64                      `json:"budget_bytes" minimum:"0" doc:"Storage budget for prepared files here; 0 means none"`
 	BudgetSource      string                     `json:"budget_source" enum:"setting,override,none"`
 	CleanupBacklog    int                        `json:"cleanup_backlog" minimum:"0" doc:"Node files queued for deletion and not yet deleted"`
-	StorageFull       bool                       `json:"storage_full" doc:"Over its budget or the disk ceiling with nothing left to free; new preparations go elsewhere"`
+	StorageFull       bool                       `json:"storage_full" doc:"Over its budget or the disk ceiling with nothing left to free. A full node gets no new preparations; while the server is full, jobs that would be prepared on it wait."`
 	ReplicasDisagree  bool                       `json:"replicas_disagree" doc:"API replicas report different directories or filesystems for the server's prepared files; they should share one volume"`
 }
 
@@ -157,7 +157,7 @@ type AdminDownloadStorageDeleteInput struct {
 
 type AdminDownloadStorageDeleteResult struct {
 	ID      string `json:"id"`
-	Outcome string `json:"outcome" enum:"deleted,requeued,in_use,not_found,not_ready" doc:"deleted: the file is gone; finished devices keep their copies. requeued: it was in use; it was deleted and queued to be prepared again. in_use: refused because a download is waiting on or fetching it (set include_in_use to delete it anyway) or it was used in the last minute. not_found: no such prepared file. not_ready: it is still being prepared, failed, or was already deleted."`
+	Outcome string `json:"outcome" enum:"deleted,requeued,in_use,not_found,not_ready,failed" doc:"deleted: the file is gone; finished devices keep their copies. requeued: it was in use; it was deleted and queued to be prepared again. in_use: refused because a download is waiting on or fetching it (set include_in_use to delete it anyway) or it was used in the last minute. not_found: no such prepared file. not_ready: it is still being prepared, failed, or was already deleted. failed: an error stopped this file's delete; the others went on. A file left on disk is reported as untracked."`
 	Bytes   int64  `json:"bytes" minimum:"0"`
 }
 

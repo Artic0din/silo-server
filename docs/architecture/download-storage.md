@@ -22,6 +22,12 @@ row's locator) and keeps the row, because finished downloads still reference its
 recipe and manifest. A request that needs an expired file requeues it like a failed
 one; `POST /downloads/{id}/prepare` does this for a finished row whose device asks for
 the file again. An expired row nothing references is deleted by the stale sweep.
+Expiry clears the row's locator; `expired_from_node_id` keeps the node the file was
+on, so the inventory lists an expired file under its former location.
+
+Serving a file touches the row only while it is still ready, so expiry and a file
+request cannot both win: once the touch commits, the file was used too recently to
+expire, and a request that loses gets `prepared_file_expired`.
 
 A missing file found by recovery, or a node requeue, expires the row instead of
 deleting it, and only in-flight rows are reset to `preparing`. An expired row is not a
@@ -46,9 +52,11 @@ advisory lock `pg_try_advisory_lock(0x5110d1, 1)`. Each pass, per location:
    filesystem is above `download.artifact_disk_ceiling_percent` (default 85, range
    50–95), expire cached files least recently used first until enough is freed.
    In-use files are never expired by this pass.
-3. A node that is still over with nothing left to free is storage-full and receives
-   no new preparations. Every replica recomputes this from the database on each
-   tick, so placement agrees whichever replica ran the pass.
+3. A location that is still over with nothing left to free is storage-full. A full
+   node receives no new preparations. While the server is full, a job that would be
+   prepared on it goes back to the queue for five minutes without spending an
+   attempt, and waits there until space is freed. Every replica recomputes this from
+   the database on each tick, so placement agrees whichever replica ran the pass.
 
 A pass is bounded to 30 seconds and 200 candidates per query, so a backlog drains over
 several passes. Locations whose measurements report the same filesystem type and exact
@@ -87,12 +95,15 @@ Hourly, and when an administrator asks for clean-up, the server lists each direc
 with the rows that should own them. A file named like the location's prepared files
 (`<media file>_<format>_<hash>_<id>.mp4` on the server, `<id>-<uuid>.mp4` and its
 `.part` and receipt files on a node) that no row accounts for and that nothing has
-written to for an hour is **untracked**. Any other file in the directory is never
+written to for an hour is **untracked**. A partial or receipt file beside a tracked
+finished file is not: a node deletes a whole artifact at once, finished file
+included. Any other file in the directory is never
 untracked, so a directory shared with other data, or with another location, cannot
 lose files Silo did not write; a node's check covers every node's rows, since nodes
 may share a volume. Untracked files are counted, never deleted automatically; an
 administrator deletes them, and the server lists the directory again before doing
-so.
+so. Each listing, the server's own or a node's, gives up after 20 seconds and runs one
+at a time, so a hung network mount fails the listing, not the maintenance pass.
 
 ## History
 

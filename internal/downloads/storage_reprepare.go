@@ -41,20 +41,29 @@ func (s *Service) PrepareAgain(ctx context.Context, userID int, profileID, devic
 	if s.artifacts == nil || (dl.Format == FormatTranscode && !cfg.TranscodeEnabled) {
 		return nil, ErrFormatUnavailable
 	}
-	// A finished or ready entry becomes preparing again, so it counts toward
-	// the concurrent cap like a new download would, checked under the same
-	// per-account lock. It creates no download, so the period quota is
-	// untouched.
+	// An entry that becomes preparing again counts toward the concurrent cap
+	// like a new download would. Whether it does is decided under the same
+	// per-account lock, from the entry and its file as they are now: a file
+	// still on the server is served as it is, and a concurrent call may
+	// already have made the entry active. It creates no download, so the
+	// period quota is untouched.
 	var updated *Download
 	var requeued bool
 	err = s.repo.WithUserQuotaLock(ctx, userID, func(ctx context.Context) error {
-		if dl.Status == StatusCompleted || dl.Status == StatusReady {
+		current, err := s.repo.GetManagedByID(ctx, downloadID, userID, profileID, deviceID)
+		if err != nil {
+			return err
+		}
+		activates, err := s.artifacts.prepareAgainActivates(ctx, current)
+		if err != nil {
+			return err
+		}
+		if activates {
 			if err := s.limiter.CheckCounts(ctx, userID, 1, 0); err != nil {
 				return err
 			}
 		}
-		var err error
-		updated, requeued, err = s.artifacts.repo.PrepareDownloadAgain(ctx, dl)
+		updated, requeued, err = s.artifacts.repo.PrepareDownloadAgain(ctx, current)
 		return err
 	})
 	if err != nil {
@@ -68,6 +77,24 @@ func (s *Service) PrepareAgain(ctx context.Context, userID int, profileID, devic
 		s.artifacts.publish(ctx, updated)
 	}
 	return updated, nil
+}
+
+// prepareAgainActivates reports whether PrepareDownloadAgain would return d
+// to preparing, which makes it count toward the concurrent cap: a finished or
+// ready entry whose file is no longer ready. A missing file row is left to
+// PrepareDownloadAgain, which refuses it.
+func (m *ArtifactManager) prepareAgainActivates(ctx context.Context, d *Download) (bool, error) {
+	if d.Status != StatusCompleted && d.Status != StatusReady {
+		return false, nil
+	}
+	a, err := m.repo.GetByID(ctx, d.ArtifactID)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !artifactReady(a), nil
 }
 
 // PrepareDownloadAgain requeues the expired (or failed) artifact a finished

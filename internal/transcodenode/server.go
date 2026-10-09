@@ -278,8 +278,8 @@ type Server struct {
 	// artifactProber measures artifactRoot in the background for health,
 	// status, and the artifact listing.
 	artifactProber *downloadstorage.Prober
-	// artifactListInFlight admits one directory listing at a time.
-	artifactListInFlight      atomic.Bool
+	// artifactLister lists artifactRoot for the API, one read at a time.
+	artifactLister            downloadstorage.Inspector
 	telemetry                 *streamtelemetry.Registry
 	sessions                  map[string]*playback.TranscodeSession
 	progressiveRemuxes        map[string]progressiveRemuxRequest

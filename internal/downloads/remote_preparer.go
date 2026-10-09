@@ -140,6 +140,9 @@ func (p *NodeAwarePreparer) prepareLocally(ctx context.Context, artifactID strin
 	if !p.LocalFallbackAllowed(ctx) {
 		return PreparedArtifact{}, errors.New("no eligible transcode node and local transcode fallback is disabled")
 	}
+	if p.storageFull != nil && p.storageFull(0) {
+		return PreparedArtifact{}, ErrServerStorageFull
+	}
 	return p.local.PrepareFile(ctx, artifactID, opts, outputPath)
 }
 

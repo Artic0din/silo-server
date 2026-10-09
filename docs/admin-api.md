@@ -1983,7 +1983,9 @@ records say is `in_use` and `cached` (files and bytes), `waiting_downloads`,
 `stale_waiting_bytes` (in-use bytes kept only for devices not seen within
 `stale_device_days`), `untracked_files` and `untracked_bytes` from the last
 reconciliation, its `budget_bytes` and `budget_source`, `cleanup_backlog` (node
-files queued for deletion), `storage_full`, and `replicas_disagree` when API replicas
+files queued for deletion), `storage_full` (over its budget or the disk ceiling with
+nothing left to free: a full node gets no new preparations, and while the server is
+full, jobs that would be prepared on it wait), and `replicas_disagree` when API replicas
 report different directories for the server's files.
 
 `GET /api/v2/admin/downloads/storage/files` lists prepared files with their
@@ -1997,8 +1999,9 @@ Keyset-paged with `limit` and `cursor`.
 (1–500) and `include_in_use`, and returns one `{id, outcome, bytes}` per distinct id
 in request order. `outcome` is `deleted`, `requeued` (it was in use and
 `include_in_use` was set: deleted and queued to be prepared again for the waiting
-downloads), `in_use` (refused), `not_found`, or `not_ready`. Devices that finished
-keep their copies. A file a download linked in the last minute is refused.
+downloads), `in_use` (refused), `not_found`, `not_ready`, or `failed` (an error
+stopped this file's delete; the other files went ahead, and a file left on disk is
+reported as untracked). Devices that finished keep their copies. A file a download linked in the last minute is refused.
 
 `POST /api/v2/admin/downloads/storage/locations/{location}/cleanup` runs clean-up at
 one location now and returns `freed_bytes`; `0` when nothing was due or another

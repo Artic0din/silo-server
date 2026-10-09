@@ -27,6 +27,9 @@ const (
 	// storageReconcileInterval spaces the directory listings that find files
 	// no row accounts for. A listing reads every file at a location.
 	storageReconcileInterval = time.Hour
+	// storageListTimeout bounds one directory listing, the server's own or a
+	// node's, so a hung mount fails the listing instead of the pass.
+	storageListTimeout = 20 * time.Second
 	// untrackedMinAge keeps a file out of the untracked count until it is old
 	// enough that no encode can still be writing or committing it.
 	untrackedMinAge = time.Hour
@@ -458,9 +461,6 @@ func (m *ArtifactManager) refreshStorageFull(ctx context.Context) {
 	graceCutoff := now.Add(-missingArtifactRetireGrace)
 	full := make(map[int]bool)
 	for _, loc := range locations {
-		if loc.NodeID == 0 {
-			continue
-		}
 		if need, _ := m.overage(loc, readyByNode[loc.NodeID], disks, now); need <= 0 {
 			continue
 		}
@@ -474,8 +474,9 @@ func (m *ArtifactManager) refreshStorageFull(ctx context.Context) {
 	m.mu.Unlock()
 }
 
-// NodeStorageFull reports whether a node was last found over its storage
-// budget or disk ceiling with nothing left to free.
+// NodeStorageFull reports whether a location, a node or the server (0), was
+// last found over its storage budget or disk ceiling with nothing left to
+// free.
 func (m *ArtifactManager) NodeStorageFull(nodeID int) bool {
 	if m == nil {
 		return false
@@ -508,18 +509,11 @@ func findUntracked(files []downloadstorage.File, owned *regexp.Regexp, tracked m
 		if !owned.MatchString(f.Name) || now.Sub(f.ModTime) < untrackedMinAge {
 			continue
 		}
-		switch f.Kind {
-		case downloadstorage.KindComplete:
-			if tracked[f.Name] {
-				continue
-			}
-		case downloadstorage.KindPartial:
-			// Old enough means nothing is writing it: untracked.
-		default:
-			// A receipt belongs to the finished file it describes.
-			if base, _, ok := strings.Cut(f.Name, ".mp4"); ok && tracked[base+".mp4"] {
-				continue
-			}
+		// A partial or receipt belongs to the finished file beside it. One next
+		// to a tracked file stays: a node deletes a whole artifact at once,
+		// finished file included, so it cannot be removed on its own.
+		if base, _, ok := strings.Cut(f.Name, ".mp4"); ok && tracked[base+".mp4"] {
+			continue
 		}
 		out = append(out, f)
 	}
@@ -566,7 +560,10 @@ func (m *ArtifactManager) reconcileStorage(ctx context.Context, only string) {
 // removed.
 func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, actor *int) (storageSampleUntracked, error) {
 	dir := m.artifactDir()
-	listing := downloadstorage.Inspect(dir, m.transcodeDir(), time.Now())
+	listing, err := m.serverLister.Inspect(ctx, dir, m.transcodeDir(), storageListTimeout)
+	if err != nil {
+		return storageSampleUntracked{}, fmt.Errorf("%w: %w", ErrStorageListingUnavailable, err)
+	}
 	if listing.Usage.Error != "" && len(listing.Files) == 0 {
 		return storageSampleUntracked{}, fmt.Errorf("%w: %s", ErrStorageListingUnavailable, listing.Usage.Error)
 	}
@@ -605,7 +602,7 @@ func (m *ArtifactManager) reconcileNode(ctx context.Context, n *nodepool.Node, r
 	if secret == "" {
 		return storageSampleUntracked{}, fmt.Errorf("%w: node credentials unavailable", ErrStorageListingUnavailable)
 	}
-	listCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	listCtx, cancel := context.WithTimeout(ctx, storageListTimeout)
 	defer cancel()
 	client := downloadprepare.HTTPPreparer{}
 	listing, err := client.ListArtifacts(listCtx, n.URL, secret)
