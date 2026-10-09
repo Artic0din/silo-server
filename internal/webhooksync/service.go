@@ -466,21 +466,43 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 // the item is at least as recent as the event, so a delayed delivery cannot
 // overwrite or erase newer activity.
 func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileID, mediaItemID string, state *ItemState, eventAt time.Time) bool {
-	updatedAt, ok, err := s.watch.ProgressUpdatedAt(ctx, userID, profileID, mediaItemID)
-	return err == nil && ok && progressOutranksEvent(updatedAt, state, eventAt)
+	progress, err := s.watch.Progress(ctx, userID, profileID, mediaItemID)
+	if err != nil || progress == nil {
+		return false
+	}
+	updatedAt, err := time.Parse(time.RFC3339Nano, progress.UpdatedAt)
+	if err != nil {
+		return false
+	}
+	return progressOutranksEvent(updatedAt, progress.PositionSeconds, state, eventAt)
 }
 
-// progressOutranksEvent reports whether progress last updated at updatedAt
-// wins over an event at eventAt. User stores keep updated_at in whole seconds,
-// so the event is compared at that precision too and a tie within one second
-// goes to Silo. Progress no newer than the last event applied for this external
-// user and item is that event's own write, so it is left to shouldSkipEvent,
-// which orders events of the same pair, including same-timestamp upgrades.
-func progressOutranksEvent(updatedAt time.Time, state *ItemState, eventAt time.Time) bool {
-	if state != nil && !updatedAt.After(state.LastEventAt) {
+// progressOutranksEvent reports whether progress last updated at updatedAt at
+// position wins over an event at eventAt. User stores keep updated_at in whole
+// seconds, so the event is compared at that precision too and a tie within one
+// second goes to Silo. The progress this external user and item's last event
+// wrote is left to shouldSkipEvent, which orders events of the same pair,
+// including same-timestamp upgrades.
+func progressOutranksEvent(updatedAt time.Time, position float64, state *ItemState, eventAt time.Time) bool {
+	if isPairsOwnWrite(updatedAt, position, state) {
 		return false
 	}
 	return !eventAt.Truncate(time.Second).After(updatedAt)
+}
+
+// isPairsOwnWrite reports whether progress is the write of the last event
+// applied for the pair: no newer than that event and at the position it
+// stored (user stores keep 0 for a completed item). As in history import, the
+// position tells it apart from Silo playback within the same second.
+func isPairsOwnWrite(updatedAt time.Time, position float64, state *ItemState) bool {
+	if state == nil || updatedAt.After(state.LastEventAt) {
+		return false
+	}
+	written := state.LastPositionSecond
+	if state.LastCompleted {
+		written = 0
+	}
+	return position == written
 }
 
 func (s *Service) failWebhook(ctx context.Context, connectionID string, result *ProcessWebhookResult, err error, summary string) (*ProcessWebhookResult, error) {

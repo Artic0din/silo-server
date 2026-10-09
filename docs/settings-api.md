@@ -612,7 +612,8 @@ Watch-state rules, shared by the v2 and bridge receivers:
   therefore has no further effect, and a replayed completion cannot undo a later
   unplayed mark. Silo progress for the profile at least as recent as the event,
   compared in whole seconds, also wins, including over an unplayed mark, unless
-  it is the write of the last event applied for that external user and item. There is no exactly-once
+  it is the write of the last event applied for that external user and item,
+  recognized by its time and position. There is no exactly-once
   guarantee beyond these rules.
 
 A Plex connection's `base_url` follows the history import rule for server
