@@ -60,10 +60,10 @@ measurement that still counts removed bytes is never acted on, by this replica o
 another. Grouping two identical disks by mistake only delays one of them by a pass.
 
 A server file counts as freed only once it is deleted. One that cannot be deleted has
-no ready row left, so the next reconciliation reports it as untracked. An
-administrator's delete of a file downloads still need moves the row back to the queue
-first and removes the file second, so a failure never leaves a ready row without its
-file.
+no ready row left, so the next reconciliation reports it as untracked. When an
+administrator deletes a file that downloads still need, the server moves its row back
+to the queue before it deletes the file, so a failure never leaves a ready row without
+its file.
 
 ## Measurement
 
@@ -108,9 +108,9 @@ storage views to re-read after a pass that freed bytes or an action.
 An administrator can revoke managed downloads (listed rows, or every row on one
 device). The row becomes `revoked` with `revoked_at`, `revoked_by`, and an optional
 reason; the file route refuses it, and its prepared file becomes cached if nothing else
-is in flight on it. A preparation only revoked rows were waiting on is canceled; the check that no live
-download refers to it runs in the statement that deletes it. History counts the size
-of the copies the device had finished downloading.
+is in flight on it. A preparation is canceled when no live download refers to it any
+more; the statement that deletes it checks this. History counts the size of the copies
+the device had finished downloading.
 A revoked episode is excluded from the device's series monitor, and a whole-device
 revoke can pause the device's monitors.
 
