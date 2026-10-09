@@ -1068,6 +1068,10 @@ func newChiRouter(deps Dependencies) chi.Router {
 	var userImportHandler *handlers.UserCollectionImportHandler
 	var settingsHandler *handlers.SettingsHandler
 	var settingValuesHandler *handlers.SettingValuesHandler
+	// One device-sightings recorder for every surface that registers the
+	// request's device (legacy and canonical settings, playback start), so
+	// they share one throttle window per (profile, device).
+	deviceSightings := handlers.NewDeviceSightings()
 	// userPluginSettingsHandler is the plugin handler the user-scoped
 	// /settings/plugins routes are registered on; v2 shares it.
 	var userPluginSettingsHandler *handlers.PluginHandler
@@ -1168,6 +1172,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 			userImportHandler.ArtworkResolver = deps.ArtworkResolver
 		}
 		settingsHandler = handlers.NewSettingsHandler(deps.UserStoreProvider)
+		settingsHandler.DeviceSightings = deviceSightings
 		settingsHandler.EventsHub = deps.EventsHub
 		if settingsRepo != nil {
 			settingsHandler.SetServerSettings(settingsRepo)
@@ -1178,6 +1183,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		// which degrades to "no typed settings routes" instead of no server.
 		if contract, err := settingscontract.Load(); err == nil {
 			settingValuesHandler = handlers.NewSettingValuesHandler(deps.UserStoreProvider, contract)
+			settingValuesHandler.DeviceSightings = deviceSightings
 			settingValuesHandler.EventsHub = deps.EventsHub
 			// Household management: a primary profile acting for another
 			// profile on its own account. Without the token service a
@@ -1301,6 +1307,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 		// Wire UserStoreProvider for progress/history persistence.
 		if deps.UserStoreProvider != nil {
 			playbackHandler.StoreProvider = deps.UserStoreProvider
+			playbackHandler.DeviceSightings = deviceSightings
 		}
 		playbackHandler.StableIdentityResolver = watchstate.NewStableIdentityResolver(itemRepo, episodeRepo, providerIDRepo)
 		playbackHandler.CompletionObserver = deps.WatchCompletionObserver
@@ -1696,6 +1703,9 @@ func newChiRouter(deps Dependencies) chi.Router {
 			deps.FileRepo, deps.FileRepo, contributor, contributions, notifier, slog.Default(),
 		)
 		markersHandler.BaseContext = deps.AppContext
+		if deps.DB != nil {
+			markersHandler.Libraries = catalog.NewFolderRepository(deps.DB)
+		}
 		if deps.MarkerPopulation != nil {
 			markersHandler.MarkerPopulation = deps.MarkerPopulation
 		}
