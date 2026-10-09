@@ -432,3 +432,31 @@ func TestJellyfinProviderRejectsMalformedPayloads(t *testing.T) {
 		})
 	}
 }
+
+func TestProgressOutranksEvent(t *testing.T) {
+	t.Parallel()
+	// A whole-second event time, so the pair's own write, which user stores
+	// keep in whole seconds, has exactly the event's timestamp.
+	at := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name      string
+		updatedAt time.Time
+		state     *ItemState
+		eventAt   time.Time
+		want      bool
+	}{
+		{name: "native progress newer than event", updatedAt: at, eventAt: at.Add(-time.Minute), want: true},
+		{name: "native progress as recent as event", updatedAt: at, eventAt: at, want: true},
+		{name: "event newer than progress", updatedAt: at, eventAt: at.Add(time.Minute), want: false},
+		{name: "same-timestamp upgrade over this pair's own write", updatedAt: at, state: &ItemState{LastEventAt: at}, eventAt: at, want: false},
+		{name: "native progress after this pair's last event", updatedAt: at.Add(time.Minute), state: &ItemState{LastEventAt: at}, eventAt: at.Add(time.Second), want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := progressOutranksEvent(tc.updatedAt, tc.state, tc.eventAt); got != tc.want {
+				t.Fatalf("progressOutranksEvent() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
