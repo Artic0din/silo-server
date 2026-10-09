@@ -114,19 +114,25 @@ func (r *ArtifactRepository) RecordFileEvent(ctx context.Context, batchID, reaso
 	return nil
 }
 
-// LastStorageEventAt returns when files were last removed at a location for
-// reason, or the zero time when history has none.
-func (r *ArtifactRepository) LastStorageEventAt(ctx context.Context, location, reason string) (time.Time, error) {
-	var at *time.Time
-	if err := r.pool.QueryRow(ctx,
-		`SELECT max(occurred_at) FROM download_storage_events WHERE location_key = $1 AND reason = $2`,
-		location, reason).Scan(&at); err != nil {
-		return time.Time{}, fmt.Errorf("reading the last storage event: %w", err)
+// LastRemovalByLocation returns, per location key, when files were last
+// removed there before the given time, for any reason.
+func (r *ArtifactRepository) LastRemovalByLocation(ctx context.Context, before time.Time) (map[string]time.Time, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT location_key, max(occurred_at) FROM download_storage_events WHERE occurred_at < $1 GROUP BY location_key`, before)
+	if err != nil {
+		return nil, fmt.Errorf("reading the last storage removals: %w", err)
 	}
-	if at == nil {
-		return time.Time{}, nil
+	defer rows.Close()
+	out := make(map[string]time.Time)
+	for rows.Next() {
+		var key string
+		var at time.Time
+		if err := rows.Scan(&key, &at); err != nil {
+			return nil, fmt.Errorf("reading the last storage removals: %w", err)
+		}
+		out[key] = at
 	}
-	return *at, nil
+	return out, rows.Err()
 }
 
 // PruneStorageEvents deletes history older than cutoff.

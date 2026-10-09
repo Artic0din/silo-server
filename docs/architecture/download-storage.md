@@ -42,18 +42,28 @@ Maintenance runs every five minutes on one replica at a time, under the session
 advisory lock `pg_try_advisory_lock(0x5110d1, 1)`. Each pass, per location:
 
 1. Expire cached files past the cache period.
-2. If ready bytes exceed the budget, or the filesystem is above
-   `download.artifact_disk_ceiling_percent` (default 85, range 50–95), expire cached
-   files least recently used first until enough is freed. In-use files are never
-   expired by this pass.
+2. Once cache expiry has run everywhere, if ready bytes exceed the budget, or the
+   filesystem is above `download.artifact_disk_ceiling_percent` (default 85, range
+   50–95), expire cached files least recently used first until enough is freed.
+   In-use files are never expired by this pass.
 3. A node that is still over with nothing left to free is storage-full and receives
    no new preparations. Every replica recomputes this from the database on each
    tick, so placement agrees whichever replica ran the pass.
 
 A pass is bounded to 30 seconds and 200 candidates per query, so a backlog drains over
-several passes. The ceiling acts only on a measurement newer than 15 minutes and newer
-than the location's last `disk_ceiling` removal in history, so one eviction is never
-repeated by another replica against the same measurement.
+several passes. Locations whose measurements report the same filesystem type and exact
+size are treated as one disk, such as nodes sharing a volume: what the pass frees at
+any of them counts toward the ceiling of all of them, so an overage is freed once. The
+ceiling acts only on a measurement newer than 15 minutes and newer than the last
+removal of any kind on that disk recorded in history before the pass began, so a
+measurement that still counts removed bytes is never acted on, by this replica or
+another. Grouping two identical disks by mistake only delays one of them by a pass.
+
+A server file counts as freed only once it is deleted. One that cannot be deleted has
+no ready row left, so the next reconciliation reports it as untracked. An
+administrator's delete of a file downloads still need moves the row back to the queue
+first and removes the file second, so a failure never leaves a ready row without its
+file.
 
 ## Measurement
 
@@ -98,7 +108,9 @@ storage views to re-read after a pass that freed bytes or an action.
 An administrator can revoke managed downloads (listed rows, or every row on one
 device). The row becomes `revoked` with `revoked_at`, `revoked_by`, and an optional
 reason; the file route refuses it, and its prepared file becomes cached if nothing else
-is in flight on it. A preparation only revoked rows were waiting on is canceled.
+is in flight on it. A preparation only revoked rows were waiting on is canceled; the check that no live
+download refers to it runs in the statement that deletes it. History counts the size
+of the copies the device had finished downloading.
 A revoked episode is excluded from the device's series monitor, and a whole-device
 revoke can pause the device's monitors.
 

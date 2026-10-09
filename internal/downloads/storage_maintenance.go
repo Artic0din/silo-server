@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -252,22 +253,76 @@ func (m *ArtifactManager) enforceStorage(ctx context.Context, only string) int64
 	if err != nil {
 		slog.WarnContext(ctx, "listing download storage locations failed", "component", "downloads", "error", err)
 	}
+	passStart := time.Now()
+	disks := m.readDiskState(ctx, locations, passStart)
 	var freed int64
-	cacheCutoff := time.Now().Add(-m.cacheTTL())
-	graceCutoff := time.Now().Add(-missingArtifactRetireGrace)
+	cacheCutoff := passStart.Add(-m.cacheTTL())
+	graceCutoff := passStart.Add(-missingArtifactRetireGrace)
+	selected := make([]storageLocation, 0, len(locations))
 	for _, loc := range locations {
-		if only != "" && loc.key() != only {
-			continue
+		if only == "" || loc.key() == only {
+			selected = append(selected, loc)
 		}
+	}
+	// Cache expiry first everywhere, so a disk shared by several locations
+	// counts all of it before any location is judged against the ceiling.
+	expired := make(map[string]int64, len(selected))
+	for _, loc := range selected {
 		// Past their cache period: nothing waits on them and nobody used them.
-		expired := m.expireAtLocation(ctx, loc, cacheCutoff, -1, StorageReasonCacheExpired)
-		freed += expired
-		if need, reason := m.overage(ctx, loc, readyByNode[loc.NodeID]-expired, expired); need > 0 {
-			freed += m.expireAtLocation(ctx, loc, graceCutoff, need, reason)
+		n := m.expireAtLocation(ctx, loc, cacheCutoff, -1, StorageReasonCacheExpired)
+		expired[loc.key()] = n
+		disks.freed[filesystemKey(loc)] += n
+		freed += n
+	}
+	for _, loc := range selected {
+		if need, reason := m.overage(loc, readyByNode[loc.NodeID]-expired[loc.key()], disks, passStart); need > 0 {
+			n := m.expireAtLocation(ctx, loc, graceCutoff, need, reason)
+			disks.freed[filesystemKey(loc)] += n
+			freed += n
 		}
 	}
 	m.publishStorageGauges(ctx, locations)
 	return freed
+}
+
+// diskState is what the disk ceiling knows about each filesystem in a pass:
+// bytes freed on it so far, and when files on it were last removed before the
+// pass began. known is false when history could not be read, and then the
+// ceiling is not acted on.
+type diskState struct {
+	freed       map[string]int64
+	lastRemoval map[string]time.Time
+	known       bool
+}
+
+func (m *ArtifactManager) readDiskState(ctx context.Context, locations []storageLocation, before time.Time) diskState {
+	state := diskState{freed: make(map[string]int64), lastRemoval: make(map[string]time.Time)}
+	// From history, so a pass on any replica knows what another replica removed.
+	removed, err := m.repo.LastRemovalByLocation(ctx, before)
+	if err != nil {
+		slog.WarnContext(ctx, "reading the last storage clean-up failed", "component", "downloads", "error", err)
+		return state
+	}
+	state.known = true
+	for _, loc := range locations {
+		key := filesystemKey(loc)
+		if at := removed[loc.key()]; at.After(state.lastRemoval[key]) {
+			state.lastRemoval[key] = at
+		}
+	}
+	return state
+}
+
+// filesystemKey groups locations whose measurements describe one filesystem,
+// such as nodes sharing a volume, so the ceiling frees an overage once rather
+// than once per location on it. Type and exact size are all a node's report
+// identifies a filesystem by; two identical disks grouped by mistake only
+// delay one of them by a pass, never free more than needed.
+func filesystemKey(loc storageLocation) string {
+	if loc.Usage == nil || loc.Usage.FSTotalBytes <= 0 {
+		return loc.key()
+	}
+	return loc.Usage.FSType + "/" + strconv.FormatInt(loc.Usage.FSTotalBytes, 10)
 }
 
 // publishStorageGauges refreshes the storage metrics after a pass.
@@ -291,36 +346,34 @@ func (m *ArtifactManager) publishStorageGauges(ctx context.Context, locations []
 
 // overage is how many bytes a location must free to get back under its budget
 // and the disk ceiling, and which of the two asks for more. ready is what its
-// prepared files hold now; justFreed is what this pass already freed there.
-func (m *ArtifactManager) overage(ctx context.Context, loc storageLocation, ready, justFreed int64) (int64, string) {
+// prepared files hold now.
+func (m *ArtifactManager) overage(loc storageLocation, ready int64, disks diskState, now time.Time) (int64, string) {
 	need, reason := int64(0), ""
 	if loc.Budget > 0 && ready > loc.Budget {
 		need, reason = ready-loc.Budget, StorageReasonBudget
 	}
-	// The last ceiling eviction comes from history, so a pass on any replica
-	// knows about one another replica made.
-	last, err := m.repo.LastStorageEventAt(ctx, loc.key(), StorageReasonDiskCeiling)
-	if err != nil {
-		slog.WarnContext(ctx, "reading the last disk ceiling clean-up failed", "component", "downloads", "location", loc.key(), "error", err)
+	if !disks.known {
 		return need, reason
 	}
-	if over := m.overCeiling(loc, justFreed, last, time.Now()); over > need {
+	key := filesystemKey(loc)
+	if over := m.overCeiling(loc, disks.freed[key], disks.lastRemoval[key], now); over > need {
 		need, reason = over, StorageReasonDiskCeiling
 	}
 	return need, reason
 }
 
 // overCeiling is how many bytes a location must free to get back under the
-// disk ceiling, judged from its latest measurement less what was just freed.
-// A measurement taken before the last ceiling eviction (lastEviction) still
-// counts the bytes that eviction removed, so it is not acted on twice, and one
-// older than ceilingMeasurementMaxAge may no longer be true.
-func (m *ArtifactManager) overCeiling(loc storageLocation, justFreed int64, lastEviction, now time.Time) int64 {
+// disk ceiling, judged from its latest measurement less what this pass already
+// freed on the same filesystem (justFreed). A measurement taken before the
+// last removal there (lastRemoval, from an earlier pass, for any reason) still
+// counts the removed bytes, so it is not acted on; one older than
+// ceilingMeasurementMaxAge may no longer be true.
+func (m *ArtifactManager) overCeiling(loc storageLocation, justFreed int64, lastRemoval, now time.Time) int64 {
 	u := loc.Usage
 	if u == nil || u.Stale || u.Error != "" || u.FSTotalBytes <= 0 || now.Sub(u.MeasuredAt) > ceilingMeasurementMaxAge {
 		return 0
 	}
-	if !lastEviction.IsZero() && !u.MeasuredAt.After(lastEviction) {
+	if !lastRemoval.IsZero() && !u.MeasuredAt.After(lastRemoval) {
 		return 0
 	}
 	limit := u.FSTotalBytes / 100 * int64(m.diskCeilingPercent())
@@ -360,7 +413,8 @@ func (m *ArtifactManager) expireAtLocation(ctx context.Context, loc storageLocat
 
 // expireArtifact expires one ready file and removes its bytes: a local file
 // directly, a node file through the remote cleanup queue the expiry wrote.
-// It returns false when the row changed first.
+// It returns false when the row changed first or a server file could not be
+// removed.
 func (m *ArtifactManager) expireArtifact(ctx context.Context, a *Artifact, reason, batch string, actor *int) bool {
 	applied, err := m.repo.ExpireReady(ctx, a, missingArtifactRetireGrace)
 	if err != nil {
@@ -370,9 +424,12 @@ func (m *ArtifactManager) expireArtifact(ctx context.Context, a *Artifact, reaso
 	if !applied {
 		return false
 	}
-	// A failed local removal leaves a file no ready row names, which the next
-	// reconciliation reports as untracked.
-	m.removeExpiredLocalBytes(ctx, a)
+	// The bytes count as freed only once they are gone. A file that stays has
+	// no ready row left, so the next reconciliation reports it as untracked.
+	if err := removeExpiredLocalBytes(a); err != nil {
+		slog.WarnContext(ctx, "removing expired prepared file failed", "component", "downloads", "artifact_id", a.ID, "error", err)
+		return false
+	}
 	recordStorageFreed(locationKeyForNode(a.OriginNodeID), reason, a.FileSize)
 	if err := m.repo.RecordArtifactEvent(ctx, batch, reason, locationKeyForNode(a.OriginNodeID), a.ID, a.FileSize, actor, ""); err != nil {
 		slog.WarnContext(ctx, "recording prepared-file clean-up failed", "component", "downloads", "artifact_id", a.ID, "error", err)
@@ -396,13 +453,15 @@ func (m *ArtifactManager) refreshStorageFull(ctx context.Context) {
 		slog.WarnContext(ctx, "listing download storage locations failed", "component", "downloads", "error", err)
 		return
 	}
-	graceCutoff := time.Now().Add(-missingArtifactRetireGrace)
+	now := time.Now()
+	disks := m.readDiskState(ctx, locations, now)
+	graceCutoff := now.Add(-missingArtifactRetireGrace)
 	full := make(map[int]bool)
 	for _, loc := range locations {
 		if loc.NodeID == 0 {
 			continue
 		}
-		if need, _ := m.overage(ctx, loc, readyByNode[loc.NodeID], 0); need <= 0 {
+		if need, _ := m.overage(loc, readyByNode[loc.NodeID], disks, now); need <= 0 {
 			continue
 		}
 		// Over, but clean-up can still free something: not full yet.
@@ -509,7 +568,7 @@ func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, acto
 	dir := m.artifactDir()
 	listing := downloadstorage.Inspect(dir, m.transcodeDir(), time.Now())
 	if listing.Usage.Error != "" && len(listing.Files) == 0 {
-		return storageSampleUntracked{}, errors.New(listing.Usage.Error)
+		return storageSampleUntracked{}, fmt.Errorf("%w: %s", ErrStorageListingUnavailable, listing.Usage.Error)
 	}
 	tracked, err := m.repo.trackedArtifactFiles(ctx, 0)
 	if err != nil {
@@ -544,14 +603,14 @@ func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, acto
 func (m *ArtifactManager) reconcileNode(ctx context.Context, n *nodepool.Node, remove bool, actor *int) (storageSampleUntracked, error) {
 	secret := m.nodeSecret()
 	if secret == "" {
-		return storageSampleUntracked{}, errors.New("node credentials unavailable")
+		return storageSampleUntracked{}, fmt.Errorf("%w: node credentials unavailable", ErrStorageListingUnavailable)
 	}
 	listCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	client := downloadprepare.HTTPPreparer{}
 	listing, err := client.ListArtifacts(listCtx, n.URL, secret)
 	if err != nil {
-		return storageSampleUntracked{}, err
+		return storageSampleUntracked{}, fmt.Errorf("%w: %w", ErrStorageListingUnavailable, err)
 	}
 	tracked, err := m.repo.trackedArtifactFiles(ctx, n.ID)
 	if err != nil {

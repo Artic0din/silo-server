@@ -6214,7 +6214,7 @@
         "additionalProperties": false,
         "properties": {
           "bytes": {
-            "description": "Size of the revoked copies",
+            "description": "Size of the revoked copies the device had finished downloading",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -6714,11 +6714,11 @@
             "type": "integer"
           },
           "dir": {
-            "description": "Directory of prepared files; empty for a node using its default until its directory is first listed",
+            "description": "Directory of prepared files. For a node, the one it was last listed in, which is the one it uses; before its first listing, the configured one, or empty when that is the default.",
             "type": "string"
           },
           "dir_source": {
-            "description": "default: the built-in location. setting: download.artifact_dir. override: this node's own directory.",
+            "description": "Where the configured directory comes from. default: the built-in location. setting: download.artifact_dir. override: this node's own directory.",
             "enum": [
               "default",
               "setting",
@@ -6772,6 +6772,10 @@
           "online": {
             "description": "The server, or an enabled node whose last health check succeeded",
             "type": "boolean"
+          },
+          "pending_dir": {
+            "description": "A node's configured directory when it differs from the one it was last listed in. The node moves to it when it restarts; files are not moved.",
+            "type": "string"
           },
           "reconciled_at": {
             "description": "RFC 3339 instant in UTC with millisecond precision",

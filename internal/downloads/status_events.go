@@ -27,7 +27,13 @@ func (s *Service) ReportStatus(ctx context.Context, userID int, profileID, devic
 	if event.Revision < 1 || event.UpdatedAt.IsZero() || event.UpdatedAt.After(time.Now()) {
 		return nil, ErrInvalidStatusEvent
 	}
-	return s.repo.ReportStatus(ctx, userID, profileID, deviceID, id, event)
+	d, err := s.repo.ReportStatus(ctx, userID, profileID, deviceID, id, event)
+	if err == nil && event.Status == StatusCompleted && s.artifacts != nil {
+		// A finished copy moves its prepared file from in use to cached and
+		// changes the device's row, so open storage views re-read.
+		s.artifacts.notifyStorageChanged(ctx)
+	}
+	return d, err
 }
 
 // ReportStatus locks the existing lifecycle row. Late/equal events acknowledge

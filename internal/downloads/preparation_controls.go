@@ -131,6 +131,18 @@ func (r *ArtifactRepository) ResumePreparations(ctx context.Context, ids []strin
 // preparing and fails the downloads still waiting on them with errMsg, in one
 // transaction. It returns the deleted jobs and the downloads it failed.
 func (r *ArtifactRepository) CancelPreparations(ctx context.Context, ids []string, errMsg string) ([]stoppedArtifact, []*Download, error) {
+	return r.cancelPreparations(ctx, ids, errMsg, "")
+}
+
+// CancelAbandonedPreparations is CancelPreparations for jobs no live download
+// refers to any more. The check runs in the statement that deletes the job,
+// so a download that linked the job since the caller looked keeps it.
+func (r *ArtifactRepository) CancelAbandonedPreparations(ctx context.Context, ids []string, errMsg string) ([]stoppedArtifact, []*Download, error) {
+	return r.cancelPreparations(ctx, ids, errMsg,
+		` AND NOT EXISTS (SELECT 1 FROM downloads d WHERE d.artifact_id = download_artifacts.id AND `+liveLinkPredicate+`)`)
+}
+
+func (r *ArtifactRepository) cancelPreparations(ctx context.Context, ids []string, errMsg, filter string) ([]stoppedArtifact, []*Download, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("beginning preparation cancel: %w", err)
@@ -140,7 +152,7 @@ func (r *ArtifactRepository) CancelPreparations(ctx context.Context, ids []strin
 		`WITH target AS (
 		     SELECT id, status IN `+runningArtifactStatuses+` AS running
 		     FROM download_artifacts
-		     WHERE id = ANY($1) AND `+preparingArtifactPredicate+`
+		     WHERE id = ANY($1) AND `+preparingArtifactPredicate+filter+`
 		     FOR UPDATE
 		 )
 		 DELETE FROM download_artifacts a USING target t
@@ -365,8 +377,16 @@ func (m *ArtifactManager) ResumePreparations(ctx context.Context, ids []string) 
 // CancelPreparations deletes the listed jobs, stops their running attempts,
 // and fails the downloads waiting on them.
 func (m *ArtifactManager) CancelPreparations(ctx context.Context, ids []string) ([]PreparationResult, error) {
+	return m.cancelPreparations(ctx, ids, m.repo.CancelPreparations)
+}
+
+func (m *ArtifactManager) cancelPreparations(
+	ctx context.Context,
+	ids []string,
+	cancel func(context.Context, []string, string) ([]stoppedArtifact, []*Download, error),
+) ([]PreparationResult, error) {
 	ids = uniqueIDs(ids)
-	canceled, failed, err := m.repo.CancelPreparations(ctx, ids, PreparationCanceledMessage)
+	canceled, failed, err := cancel(ctx, ids, PreparationCanceledMessage)
 	if err != nil {
 		return nil, err
 	}

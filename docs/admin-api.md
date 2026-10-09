@@ -658,7 +658,8 @@ budget; `null` or `-1` restores `download.artifact_max_bytes`) are writable here
 A new budget applies at the next storage maintenance pass. A new directory applies
 when the node restarts; files in the old directory are not moved, so in-use files are
 prepared again and cached ones are dropped. See
-[prepared download storage](architecture/download-storage.md).
+[prepared download storage](architecture/download-storage.md). The frozen
+`/api/v1/admin/nodes` routes neither accept nor return these two fields.
 
 Capability fields are not writable here. They are owned by the health sweep,
 because only the node can say what hardware it has.
@@ -1974,8 +1975,10 @@ can be listed and revoked.
 first and then transcode nodes by name, plus the settings that govern them
 (`cache_hours`, `disk_ceiling_percent`, `default_budget_bytes`,
 `stale_device_days`), `preparing_jobs`, and `freed_last_30_days_bytes`. A location
-carries its `key` (`server` or `node:<id>`), `name`, `online`, `dir` and
-`dir_source`, the latest on-disk `usage` (absent until one is reported), what Silo's
+carries its `key` (`server` or `node:<id>`), `name`, `online`, `dir` (for a node,
+the directory it was last listed in, which is the one it uses), `dir_source` (where
+the configured directory comes from), `pending_dir` (a node's configured directory
+when it differs from `dir`; the node moves there when it restarts), the latest on-disk `usage` (absent until one is reported), what Silo's
 records say is `in_use` and `cached` (files and bytes), `waiting_downloads`,
 `stale_waiting_bytes` (in-use bytes kept only for devices not seen within
 `stale_device_days`), `untracked_files` and `untracked_bytes` from the last
@@ -2028,7 +2031,8 @@ with where each one's prepared file is and any revocation.
 or `user_id`, `profile_id`, and `device_id` for every download on one device, plus
 optional `pause_monitors` (whole-device only) and `reason` (up to 500 characters,
 kept in history). It returns `revoked` (newly revoked; already revoked rows are not
-counted), `bytes`, `paused_monitors`, and `download_ids`. The server stops serving
+counted), `bytes` (the size of the revoked copies the device had finished
+downloading), `paused_monitors`, and `download_ids`. The server stops serving
 the files at once; an app that supports revocation deletes its copies at its next
 sync and then deletes the entries (see
 [downloads-api.md](downloads-api.md#93-robustness-rules)).

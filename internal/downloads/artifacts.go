@@ -342,8 +342,9 @@ func (m *ArtifactManager) ensureResolved(ctx context.Context, file *models.Media
 	if row.Status == ArtifactFailed || row.Status == ArtifactExpired {
 		switch err := m.repo.Requeue(ctx, row.ID); {
 		case errors.Is(err, ErrNotFound):
-			// The failed row was swept between EnsureQueued and Requeue:
-			// create a fresh job instead of linking to a dead artifact id.
+			// Another request requeued the row first, or it was swept. Link
+			// to whatever it is now, or create a fresh job when it is gone;
+			// requeuing again could reset a job already running or ready.
 			if row, _, err = m.repo.EnsureQueued(ctx, a); err != nil {
 				return nil, err
 			}

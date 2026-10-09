@@ -61,8 +61,9 @@ type AdminDownloadStorageLocation struct {
 	Enabled           bool                       `json:"enabled"`
 	Online            bool                       `json:"online" doc:"The server, or an enabled node whose last health check succeeded"`
 	LastHealthCheck   *Instant                   `json:"last_health_check,omitempty"`
-	Dir               string                     `json:"dir,omitempty" doc:"Directory of prepared files; empty for a node using its default until its directory is first listed"`
-	DirSource         string                     `json:"dir_source" enum:"default,setting,override" doc:"default: the built-in location. setting: download.artifact_dir. override: this node's own directory."`
+	Dir               string                     `json:"dir,omitempty" doc:"Directory of prepared files. For a node, the one it was last listed in, which is the one it uses; before its first listing, the configured one, or empty when that is the default."`
+	DirSource         string                     `json:"dir_source" enum:"default,setting,override" doc:"Where the configured directory comes from. default: the built-in location. setting: download.artifact_dir. override: this node's own directory."`
+	PendingDir        string                     `json:"pending_dir,omitempty" doc:"A node's configured directory when it differs from the one it was last listed in. The node moves to it when it restarts; files are not moved."`
 	Usage             *AdminDownloadStorageUsage `json:"usage,omitempty" doc:"Latest measurement of the files on disk; absent until one is reported"`
 	InUseFiles        int                        `json:"in_use_files" minimum:"0" doc:"Files a download is waiting on or fetching, by Silo's records"`
 	InUseBytes        int64                      `json:"in_use_bytes" minimum:"0"`
@@ -287,7 +288,7 @@ type AdminDownloadRevokeInput struct {
 type AdminDownloadRevokeOutput struct {
 	Body struct {
 		Revoked        int      `json:"revoked" minimum:"0" doc:"Downloads newly revoked; already revoked ones are not counted"`
-		Bytes          int64    `json:"bytes" minimum:"0" doc:"Size of the revoked copies"`
+		Bytes          int64    `json:"bytes" minimum:"0" doc:"Size of the revoked copies the device had finished downloading"`
 		PausedMonitors int      `json:"paused_monitors" minimum:"0"`
 		DownloadIDs    []string `json:"download_ids" doc:"The revoked downloads"`
 	}
@@ -482,10 +483,13 @@ func registerAdminDownloadStorage(reg *Registry) {
 		}
 		n, bytes, err := svc.DeleteUntrackedFiles(ctx, in.Location, claimsFrom(ctx).UserID)
 		if err != nil {
-			if errors.Is(err, downloads.ErrStorageLocationNotFound) {
+			switch {
+			case errors.Is(err, downloads.ErrStorageLocationNotFound):
 				return nil, NewProblem(TypeNotFound, "Storage location not found.")
+			case errors.Is(err, downloads.ErrStorageListingUnavailable):
+				return nil, NewProblem(TypeDependencyUnavailable, "The location's directory could not be listed.").WithRetryAfter(30)
 			}
-			return nil, NewProblem(TypeDependencyUnavailable, "The location's directory could not be listed.").WithRetryAfter(30)
+			return nil, serviceProblem(err)
 		}
 		out := new(AdminDownloadStorageUntrackedOutput)
 		out.Body.Files, out.Body.Bytes = n, max(bytes, 0)
@@ -662,7 +666,7 @@ func adminDownloadStorageUsageOf(u *downloadstorage.Usage) *AdminDownloadStorage
 func adminDownloadStorageLocationOf(v downloads.StorageLocationView) AdminDownloadStorageLocation {
 	out := AdminDownloadStorageLocation{
 		Key: v.Key, Kind: "server", Name: v.Name, Enabled: v.Enabled, Online: v.Online,
-		LastHealthCheck: instantPtr(v.LastHealthCheck), Dir: v.Dir, DirSource: v.DirSource,
+		LastHealthCheck: instantPtr(v.LastHealthCheck), Dir: v.Dir, DirSource: v.DirSource, PendingDir: v.PendingDir,
 		Usage:      adminDownloadStorageUsageOf(v.Usage),
 		InUseFiles: v.InUseFiles, InUseBytes: max(v.InUseBytes, 0), CachedFiles: v.CachedFiles, CachedBytes: max(v.CachedBytes, 0),
 		WaitingDownloads: v.WaitingDownloads, StaleWaitingBytes: max(v.StaleWaitingBytes, 0),

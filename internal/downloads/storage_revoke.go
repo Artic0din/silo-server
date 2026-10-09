@@ -31,7 +31,7 @@ type RevokeRequest struct {
 // RevokeResult reports what a revoke changed.
 type RevokeResult struct {
 	Revoked        []*Download
-	Bytes          int64
+	Bytes          int64 // finished copies only
 	PausedMonitors int
 }
 
@@ -74,51 +74,22 @@ func (s *Service) RevokeDeviceDownloads(ctx context.Context, req RevokeRequest) 
 
 // cancelAbandonedPreparations cancels unfinished preparations that no other
 // download needs any more, so revoked rows do not leave a node encoding for
-// nobody. A preparation a finished download still refers to is left alone:
-// canceling deletes the row, and that download's manifest and any later
-// prepare-again read its recipe.
+// nobody. A preparation any live download refers to is left alone, including
+// a finished one: canceling deletes the row, and that download's manifest and
+// any later prepare-again read its recipe.
 func (m *ArtifactManager) cancelAbandonedPreparations(ctx context.Context, revoked []*Download) {
-	seen := make(map[string]bool)
-	var abandoned []string
+	var ids []string
 	for _, d := range revoked {
-		if d.ArtifactID == "" || seen[d.ArtifactID] {
-			continue
+		if d.ArtifactID != "" {
+			ids = append(ids, d.ArtifactID)
 		}
-		seen[d.ArtifactID] = true
-		needed, err := m.repo.hasLiveLink(ctx, d.ArtifactID)
-		if err != nil {
-			slog.WarnContext(ctx, "checking a revoked download's preparation failed", "component", "downloads", "artifact_id", d.ArtifactID, "error", err)
-			continue
-		}
-		if needed {
-			continue
-		}
-		a, err := m.repo.GetByID(ctx, d.ArtifactID)
-		if err != nil || artifactReady(a) || a.Status == ArtifactExpired {
-			continue
-		}
-		abandoned = append(abandoned, a.ID)
 	}
-	if len(abandoned) == 0 {
+	if len(ids) == 0 {
 		return
 	}
-	if _, err := m.CancelPreparations(ctx, abandoned); err != nil {
+	if _, err := m.cancelPreparations(ctx, ids, m.repo.CancelAbandonedPreparations); err != nil {
 		slog.WarnContext(ctx, "canceling preparations of revoked downloads failed", "component", "downloads", "error", err)
 	}
-}
-
-// hasLiveLink reports whether a download other than a revoked, failed, or
-// canceled one refers to an artifact: one waiting on it, fetching it, or
-// finished with it.
-func (r *ArtifactRepository) hasLiveLink(ctx context.Context, artifactID string) (bool, error) {
-	var exists bool
-	err := r.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM downloads d WHERE d.artifact_id = $1 AND `+liveLinkPredicate+`)`, artifactID,
-	).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("checking artifact links: %w", err)
-	}
-	return exists, nil
 }
 
 // revokeManagedSQL revokes the selected managed rows, excludes revoked
@@ -146,7 +117,7 @@ const revokeManagedSQL = `WITH revoked AS (
 	INSERT INTO download_storage_events
 		(batch_id, reason, location_key, location_name, download_id, user_id, content_id, episode_id, title, bytes, actor_user_id, detail)
 	SELECT $7, 'revoked', 'device', COALESCE(u.device_name, ''), r.id, r.user_id, r.content_id, COALESCE(r.episode_id, ''),
-	       ` + storageEventTitleSQL + `, GREATEST(r.file_size, 0), $5, $6
+	       ` + storageEventTitleSQL + `, CASE WHEN r.completed_at IS NULL THEN 0 ELSE GREATEST(r.file_size, 0) END, $5, $6
 	FROM revoked r
 	LEFT JOIN user_devices u ON u.user_id = r.user_id AND u.profile_id = r.profile_id AND u.device_id = r.device_id
 	LEFT JOIN episodes ep ON ep.content_id = r.episode_id
@@ -182,7 +153,11 @@ func (r *Repository) RevokeManaged(ctx context.Context, req RevokeRequest, batch
 	}
 	result := &RevokeResult{Revoked: revoked}
 	for _, d := range revoked {
-		result.Bytes += max(d.FileSize, 0)
+		// Only a finished copy takes space on the device. Preparing again
+		// clears completed_at, so a row being fetched again does not count.
+		if d.CompletedAt != nil {
+			result.Bytes += max(d.FileSize, 0)
+		}
 	}
 	if req.PauseMonitors && len(req.IDs) == 0 {
 		tag, err := tx.Exec(ctx,

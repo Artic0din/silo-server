@@ -465,9 +465,7 @@ func TestTrackRecipeArtifactQueueRejectsMergeBaseWorkers(t *testing.T) {
 	if err != nil || legacyRequeue.Status != ArtifactTracksQueued {
 		t.Fatalf("legacy requeue = (%+v, %v), want database-normalized tracks queued", legacyRequeue, err)
 	}
-	if err := repo.Requeue(ctx, row.ID); err != nil {
-		t.Fatal(err)
-	}
+	requeueForTest(t, pool, row.ID)
 	if requeued, err := repo.GetByID(ctx, row.ID); err != nil || requeued.Status != ArtifactTracksQueued {
 		t.Fatalf("Requeue = (%+v, %v), want tracks queued", requeued, err)
 	}
@@ -555,7 +553,7 @@ func TestArtifactMarkFencedByOwner(t *testing.T) {
 }
 
 func TestArtifactRemoteLocatorRoundTripsAndRequeueClearsIt(t *testing.T) {
-	repo, _, fileID := newArtifactTestRepo(t)
+	repo, pool, fileID := newArtifactTestRepo(t)
 	ctx := context.Background()
 	row, _, err := repo.EnsureQueued(ctx, newArtifact(t, fileID, "hash-remote-locator"))
 	if err != nil {
@@ -586,9 +584,7 @@ func TestArtifactRemoteLocatorRoundTripsAndRequeueClearsIt(t *testing.T) {
 	if refreshed.OriginNodeURL != "http://transcode-new" || refreshed.OriginNodeGroup != "host-new" {
 		t.Fatalf("refreshed artifact = %+v", refreshed)
 	}
-	if err := repo.Requeue(ctx, row.ID); err != nil {
-		t.Fatal(err)
-	}
+	requeueForTest(t, pool, row.ID)
 	queued, err := repo.GetByID(ctx, row.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1337,9 +1333,7 @@ func TestConfirmArtifactLinkResetsDownloadOfRequeuedArtifact(t *testing.T) {
 	// Simulate recovery requeuing the artifact after the create read it:
 	// requeue without the linked-download reset, as a racing requeue whose
 	// reset ran before this row was inserted would leave it.
-	if err := repo.Requeue(ctx, ready.ID); err != nil {
-		t.Fatal(err)
-	}
+	requeueForTest(t, pool, ready.ID)
 	got, err := downloads.ConfirmArtifactLink(ctx, &d)
 	if err != nil || got.Status != StatusPreparing || got.ID != d.ID {
 		t.Fatalf("link to a requeued artifact = %+v (%v), want preparing", got, err)
@@ -1379,9 +1373,7 @@ func TestConfirmArtifactLinkIgnoresRowRelinkedConcurrently(t *testing.T) {
 	if err := scanInto(pool.QueryRow(ctx, `SELECT `+downloadColumns+` FROM downloads WHERE artifact_id = $1`, ready.ID), &stale); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Requeue(ctx, ready.ID); err != nil {
-		t.Fatal(err)
-	}
+	requeueForTest(t, pool, ready.ID)
 	if _, err := pool.Exec(ctx, `UPDATE downloads SET artifact_id = NULL, format = 'original' WHERE id = $1`, stale.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1428,5 +1420,17 @@ func TestRecoverReadyArtifactsSkipsIndeterminateStatErrors(t *testing.T) {
 	row, err := repo.GetByID(ctx, ready.ID)
 	if err != nil || row.Status != ArtifactReady {
 		t.Fatalf("artifact after indeterminate stat error = %+v (%v), want unchanged", row, err)
+	}
+}
+
+// requeueForTest forces an artifact back to queued the way recovery does,
+// whatever its status. Requeue itself only takes a failed or expired row.
+func requeueForTest(t *testing.T, pool *pgxpool.Pool, id string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `UPDATE download_artifacts SET status = 'failed' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewArtifactRepository(pool).Requeue(context.Background(), id); err != nil {
+		t.Fatal(err)
 	}
 }

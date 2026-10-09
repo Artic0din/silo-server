@@ -62,7 +62,9 @@ func (m *ArtifactManager) DeleteStorageFiles(ctx context.Context, ids []string, 
 			return results, err
 		}
 		if applied {
-			m.removeExpiredLocalBytes(ctx, a)
+			if err := removeExpiredLocalBytes(a); err != nil {
+				return results, err
+			}
 			m.recordAdminDelete(ctx, batch, a, actor, "")
 			results = append(results, StorageDeleteResult{ArtifactID: id, Outcome: StorageDeleteDeleted, Bytes: a.FileSize})
 			freed = true
@@ -91,25 +93,28 @@ func (m *ArtifactManager) DeleteStorageFiles(ctx context.Context, ids []string, 
 
 // deleteInUse deletes the bytes of a file downloads still need and queues it
 // to be prepared again, through the same transitions missing-output recovery
-// uses: the waiting downloads return to preparing in that transaction.
+// uses: the waiting downloads return to preparing in that transaction. A node
+// file is queued for deletion in the same transaction. A server file is
+// removed after the row has moved on, so a failed removal leaves a file no
+// ready row names, never a ready row without its file.
 func (m *ArtifactManager) deleteInUse(ctx context.Context, a *Artifact) (string, error) {
+	var linked []*Download
+	var result artifactRecovery
+	var err error
 	if a.OriginArtifactID != "" {
-		result, err := m.requeueRemoteArtifactNow(ctx, a, "deleted by an administrator")
-		if err != nil {
-			return "", err
-		}
-		return recoveryOutcome(result), nil
+		linked, result, err = m.repo.RequeueRemote(ctx, a)
+	} else {
+		linked, result, err = m.repo.RecoverMissing(ctx, a.ID, 0)
 	}
-	if a.OutputPath != "" {
-		for _, path := range []string{a.OutputPath, a.OutputPath + ".part"} {
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return "", fmt.Errorf("removing prepared file: %w", err)
-			}
-		}
-	}
-	linked, result, err := m.repo.RecoverMissing(ctx, a.ID, 0)
 	if err != nil {
 		return "", err
+	}
+	if result != artifactUnchanged && a.OriginArtifactID == "" && a.OutputPath != "" {
+		// Only the finished file: a requeued job's next attempt writes its own
+		// partial file beside it.
+		if err := os.Remove(a.OutputPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("removing prepared file: %w", err)
+		}
 	}
 	if result == artifactRequeued {
 		for _, d := range linked {
@@ -133,16 +138,18 @@ func recoveryOutcome(result artifactRecovery) string {
 }
 
 // removeExpiredLocalBytes deletes an expired server file. A node file goes
-// through the remote cleanup queue its expiry wrote.
-func (m *ArtifactManager) removeExpiredLocalBytes(ctx context.Context, a *Artifact) {
+// through the remote cleanup queue its expiry wrote. A file it cannot remove
+// has no ready row left, so reconciliation reports it as untracked.
+func removeExpiredLocalBytes(a *Artifact) error {
 	if a.OriginArtifactID != "" || a.OutputPath == "" {
-		return
+		return nil
 	}
 	for _, path := range []string{a.OutputPath, a.OutputPath + ".part"} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			slog.WarnContext(ctx, "removing deleted prepared file failed", "component", "downloads", "artifact_id", a.ID, "error", err)
+			return fmt.Errorf("removing prepared file: %w", err)
 		}
 	}
+	return nil
 }
 
 func (m *ArtifactManager) recordAdminDelete(ctx context.Context, batch string, a *Artifact, actor int, detail string) {
@@ -154,6 +161,10 @@ func (m *ArtifactManager) recordAdminDelete(ctx context.Context, batch string, a
 
 // ErrStorageLocationNotFound reports a location key that names no location.
 var ErrStorageLocationNotFound = errors.New("storage location not found")
+
+// ErrStorageListingUnavailable reports that a location's directory could not
+// be listed: the node is unreachable, refused, or the directory unreadable.
+var ErrStorageListingUnavailable = errors.New("storage location could not be listed")
 
 // DeleteUntrackedFiles lists one location's directory now and deletes the
 // files no row accounts for. It returns how many files and bytes it removed.

@@ -2,8 +2,12 @@ package downloads
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -286,15 +290,17 @@ func TestRevokeManagedExcludesMonitoredEpisodesAndRecordsHistory(t *testing.T) {
 	now := time.Now()
 	episodeID := fmt.Sprintf("ep-%d", now.UnixNano())
 	ids := []string{fmt.Sprintf("dl-rev-a-%d", now.UnixNano()), fmt.Sprintf("dl-rev-b-%d", now.UnixNano())}
+	// The first copy is on the device; the second is still waiting to be
+	// fetched, so it frees nothing there.
 	for i, id := range ids {
-		ep := ""
+		ep, status, completedAt := "", StatusReady, (*time.Time)(nil)
 		if i == 0 {
-			ep = episodeID
+			ep, status, completedAt = episodeID, StatusCompleted, &now
 		}
 		if err := f.repo.Create(ctx, &Download{
 			ID: id, UserID: f.userID, ProfileID: f.profileA, DeviceID: f.deviceA, MediaFileID: f.fileID,
-			ContentID: f.contentID, EpisodeID: ep, Kind: KindQueued, Status: StatusCompleted,
-			Format: FormatOriginal, FileSize: 500, CreatedAt: now, UpdatedAt: now,
+			ContentID: f.contentID, EpisodeID: ep, Kind: KindQueued, Status: status,
+			Format: FormatOriginal, FileSize: 500, CreatedAt: now, UpdatedAt: now, CompletedAt: completedAt,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -315,7 +321,7 @@ func TestRevokeManagedExcludesMonitoredEpisodesAndRecordsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Revoked) != 2 || result.Bytes != 1000 || result.PausedMonitors != 1 {
+	if len(result.Revoked) != 2 || result.Bytes != 500 || result.PausedMonitors != 1 {
 		t.Fatalf("revoke result = %+v", result)
 	}
 	for _, d := range result.Revoked {
@@ -329,8 +335,9 @@ func TestRevokeManagedExcludesMonitoredEpisodesAndRecordsHistory(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM download_subscription_exclusions WHERE subscription_id = $1 AND episode_id = $2`, subID, episodeID).Scan(&excluded); err != nil || excluded != 1 {
 		t.Fatalf("monitor exclusions = %d (%v), want the revoked episode", excluded, err)
 	}
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM download_storage_events WHERE user_id = $1 AND reason = 'revoked' AND actor_user_id = $2`, f.userID, actor).Scan(&events); err != nil || events != 2 {
-		t.Fatalf("revoke history = %d (%v), want one per row", events, err)
+	var eventBytes int64
+	if err := f.pool.QueryRow(ctx, `SELECT count(*), COALESCE(sum(bytes), 0) FROM download_storage_events WHERE user_id = $1 AND reason = 'revoked' AND actor_user_id = $2`, f.userID, actor).Scan(&events, &eventBytes); err != nil || events != 2 || eventBytes != 500 {
+		t.Fatalf("revoke history = %d rows, %d bytes (%v), want one per row and only the copy on the device", events, eventBytes, err)
 	}
 	if err := f.pool.QueryRow(ctx, `SELECT revoked_reason, revoked_by FROM downloads WHERE id = $1`, ids[0]).Scan(&reason, &revokedBy); err != nil || reason != "lost phone" || revokedBy == nil || *revokedBy != actor {
 		t.Fatalf("revoked row = (%q, %v, %v)", reason, revokedBy, err)
@@ -588,4 +595,225 @@ func TestFailedSweepKeepsARecipeAFinishedDownloadReads(t *testing.T) {
 	if !listed[unreferenced.ID] {
 		t.Fatal("an unreferenced failed preparation is not swept")
 	}
+}
+
+// localReadyArtifact turns a stored artifact into a ready server file at path.
+func localReadyArtifact(t *testing.T, repo *ArtifactRepository, pool *pgxpool.Pool, fileID int, path string, age time.Duration) *Artifact {
+	t.Helper()
+	a := remoteReadyArtifact(t, repo, pool, fileID, 1, 100, age)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE download_artifacts SET origin_node_id = 0, origin_node_url = '', origin_artifact_id = '', output_path = $2 WHERE id = $1`,
+		a.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetByID(context.Background(), a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// An administrator deleting a node file downloads still wait on requeues it;
+// history shows the delete, not a missing file as well.
+func TestAdminDeleteOfAnInUseNodeFileRecordsOnlyTheDelete(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	nodeID := 700000 + rand.IntN(100000)
+	a := remoteReadyArtifact(t, repo, pool, fileID, nodeID, 100, time.Hour)
+	linkRecoveryDownload(t, pool, fileID, a.ID, StatusReady)
+	m := storageTestManager(repo, &config.Config{})
+
+	results, err := m.DeleteStorageFiles(context.Background(), []string{a.ID}, true, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != StorageDeleteRequeued {
+		t.Fatalf("results = %+v, want one requeued", results)
+	}
+	if got := eventReasons(t, pool, a.ID); len(got) != 1 || got[0] != StorageReasonAdminDelete {
+		t.Fatalf("history = %v, want only admin_delete", got)
+	}
+}
+
+// Deleting an in-use server file moves the row first and then removes the
+// file, so the row never claims bytes that are gone.
+func TestAdminDeleteOfAnInUseServerFileRequeuesThenRemovesIt(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	path := filepath.Join(t.TempDir(), "prepared.mp4")
+	if err := os.WriteFile(path, []byte("bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := localReadyArtifact(t, repo, pool, fileID, path, time.Hour)
+	linkRecoveryDownload(t, pool, fileID, a.ID, StatusReady)
+	m := storageTestManager(repo, &config.Config{})
+
+	results, err := m.DeleteStorageFiles(context.Background(), []string{a.ID}, true, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != StorageDeleteRequeued {
+		t.Fatalf("results = %+v, want one requeued", results)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("prepared file still on disk: %v", err)
+	}
+	if got := artifactStatus(t, repo, a.ID); got != ArtifactQueued {
+		t.Fatalf("status = %s, want queued", got)
+	}
+}
+
+// Expiry counts bytes as freed only once they are gone. A server file that
+// cannot be removed is not recorded as freed; reconciliation reports it.
+func TestExpiryDoesNotCountAServerFileItCannotRemove(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	// A non-empty directory where the file should be makes os.Remove fail.
+	path := filepath.Join(t.TempDir(), "prepared.mp4")
+	if err := os.MkdirAll(filepath.Join(path, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	a := localReadyArtifact(t, repo, pool, fileID, path, 5*24*time.Hour)
+	m := storageTestManager(repo, &config.Config{})
+
+	if m.expireArtifact(context.Background(), a, StorageReasonCacheExpired, newStorageBatchID(), nil) {
+		t.Fatal("expiry reported a file it could not remove as freed")
+	}
+	if got := eventReasons(t, pool, a.ID); len(got) != 0 {
+		t.Fatalf("history = %v, want nothing recorded", got)
+	}
+}
+
+// A revoke cancels only preparations no live download refers to, checked in
+// the statement that deletes them, so a download that linked the job after
+// the revoke looked keeps it.
+func TestCancelAbandonedPreparationsKeepsAJobADownloadStillNeeds(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	needed := remoteReadyArtifact(t, repo, pool, fileID, 1, 100, time.Hour)
+	abandoned := remoteReadyArtifact(t, repo, pool, fileID, 1, 100, time.Hour)
+	if _, err := pool.Exec(ctx, `UPDATE download_artifacts SET status = 'queued' WHERE id = ANY($1)`,
+		[]string{needed.ID, abandoned.ID}); err != nil {
+		t.Fatal(err)
+	}
+	linkRecoveryDownload(t, pool, fileID, needed.ID, StatusPreparing)
+	linkRecoveryDownload(t, pool, fileID, abandoned.ID, StatusRevoked)
+
+	canceled, _, err := repo.CancelAbandonedPreparations(ctx, []string{needed.ID, abandoned.ID}, "canceled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(canceled) != 1 || canceled[0].ID != abandoned.ID {
+		t.Fatalf("canceled = %+v, want only the abandoned job", canceled)
+	}
+	if got := artifactStatus(t, repo, needed.ID); got != ArtifactQueued {
+		t.Fatalf("job a download waits on: status = %s, want queued", got)
+	}
+}
+
+// nodeOnDisk is a transcode node whose last health check measured a disk.
+func nodeOnDisk(t *testing.T, id int, used, total int64, measured time.Time) *nodepool.Node {
+	t.Helper()
+	stats, err := json.Marshal(map[string]any{"artifacts": downloadstorage.Usage{
+		MeasuredAt: measured, FSUsedBytes: used, FSTotalBytes: total, FSType: "xfs",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	none := int64(0)
+	return &nodepool.Node{ID: id, Name: fmt.Sprintf("node-%d", id), Type: "transcode", Enabled: true,
+		LastStats: stats, DownloadArtifactMaxBytesOverride: &none}
+}
+
+// Two nodes on one volume report the same disk. Over the ceiling, the pass
+// frees the overage once, not once per node.
+func TestDiskCeilingFreesASharedDiskOnce(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	first, second := 700000+rand.IntN(50000), 750000+rand.IntN(50000)
+	var files []*Artifact
+	for _, node := range []int{first, second} {
+		for range 3 {
+			files = append(files, remoteReadyArtifact(t, repo, pool, fileID, node, 100, 2*time.Hour))
+		}
+	}
+	cfg := &config.Config{}
+	cfg.Download.ArtifactCacheHours = 72
+	cfg.Download.ArtifactDiskCeilingPercent = 85
+	// 950 of 1000 used: 100 over the 85% ceiling.
+	measured := time.Now()
+	m := storageTestManager(repo, cfg, nodeOnDisk(t, first, 950, 1000, measured), nodeOnDisk(t, second, 950, 1000, measured))
+
+	if freed := m.enforceStorage(ctx, ""); freed != 100 {
+		t.Fatalf("freed = %d, want 100: the overage once for the shared disk", freed)
+	}
+	expired := 0
+	for _, a := range files {
+		if artifactStatus(t, repo, a.ID) == ArtifactExpired {
+			expired++
+		}
+	}
+	if expired != 1 {
+		t.Fatalf("expired %d files, want 1", expired)
+	}
+
+	// The next pass reads the same measurement, taken before that removal:
+	// it still counts the removed bytes, so it is not acted on again.
+	if freed := m.enforceStorage(ctx, ""); freed != 0 {
+		t.Fatalf("freed = %d on a measurement older than the last removal", freed)
+	}
+}
+
+// Two downloads can read the same expired row. The first requeues it; the
+// second must not reset the job if it is already running or ready.
+func TestRequeueOnlyTakesAFailedOrExpiredRow(t *testing.T) {
+	repo, pool, fileID := newArtifactTestRepo(t)
+	ctx := context.Background()
+	a := remoteReadyArtifact(t, repo, pool, fileID, 1, 100, time.Hour)
+	if err := repo.Requeue(ctx, a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Requeue of a ready row = %v, want ErrNotFound", err)
+	}
+	if got := artifactStatus(t, repo, a.ID); got != ArtifactReady {
+		t.Fatalf("status = %s, want ready untouched", got)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE download_artifacts SET status = 'expired' WHERE id = $1`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Requeue(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Requeue(ctx, a.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second Requeue = %v, want ErrNotFound", err)
+	}
+}
+
+// A node keeps the directory it started with until it restarts. The overview
+// names that one, and the edited directory as pending.
+func TestStorageOverviewNamesTheDirectoryANodeStillUses(t *testing.T) {
+	repo, pool, _ := newArtifactTestRepo(t)
+	ctx := context.Background()
+	var nodeID int
+	if err := pool.QueryRow(ctx, `INSERT INTO stream_nodes (name, type, url, enabled) VALUES ($1, 'transcode', 'http://moved-node', true) RETURNING id`,
+		fmt.Sprintf("moved-node-%d", time.Now().UnixNano())).Scan(&nodeID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM stream_nodes WHERE id = $1`, nodeID) })
+	if err := repo.UpsertStorageSample(ctx, nodeID, "", downloadstorage.Usage{Dir: "/old/downloads", MeasuredAt: time.Now()}, &storageSampleUntracked{}); err != nil {
+		t.Fatal(err)
+	}
+	moved := "/new/downloads"
+	node := &nodepool.Node{ID: nodeID, Name: "moved-node", Type: "transcode", Enabled: true, DownloadArtifactDirOverride: &moved}
+	m := storageTestManager(repo, &config.Config{}, node)
+
+	overview, err := m.StorageOverview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range overview.Locations {
+		if v.NodeID != nodeID {
+			continue
+		}
+		if v.Dir != "/old/downloads" || v.PendingDir != moved || v.DirSource != StorageSourceOverride {
+			t.Fatalf("node directory = (%q, pending %q, %s), want the listed one with the edit pending", v.Dir, v.PendingDir, v.DirSource)
+		}
+		return
+	}
+	t.Fatal("node missing from the overview")
 }

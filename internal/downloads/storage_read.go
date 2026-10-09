@@ -29,10 +29,13 @@ type StorageLocationView struct {
 	// LastHealthCheck is when the API last heard from a node.
 	LastHealthCheck *time.Time
 	// Dir is the directory, when known: always for the server, and for a node
-	// after the API has listed its directory once. DirSource says where it is
-	// configured.
-	Dir       string
-	DirSource string
+	// the one it was last listed in, or before its first listing the
+	// configured one. DirSource says where the configured directory comes
+	// from. PendingDir is a configured node directory that differs from the
+	// listed one; the node moves to it when it restarts.
+	Dir        string
+	DirSource  string
+	PendingDir string
 	// Usage is the latest measurement, nil until one has been reported.
 	Usage *downloadstorage.Usage
 	// Bytes and files Silo's records hold here: in use (a download is waiting
@@ -141,14 +144,16 @@ func (m *ArtifactManager) StorageOverview(ctx context.Context) (*StorageOverview
 			Enabled: n.Enabled, Online: n.Enabled && n.Healthy, LastHealthCheck: n.LastHealthCheck,
 			CleanupBacklog: backlog[n.ID], StorageFull: m.NodeStorageFull(n.ID),
 		}
+		var configured string
 		switch {
 		case n.DownloadArtifactDirOverride != nil:
-			v.Dir, v.DirSource = *n.DownloadArtifactDirOverride, StorageSourceOverride
+			configured, v.DirSource = *n.DownloadArtifactDirOverride, StorageSourceOverride
 		case strings.TrimSpace(cfg.ArtifactDir) != "":
-			v.Dir, v.DirSource = cfg.ArtifactDir, StorageSourceSetting
+			configured, v.DirSource = cfg.ArtifactDir, StorageSourceSetting
 		default:
 			v.DirSource = StorageSourceDefault
 		}
+		v.Dir = configured
 		if n.DownloadArtifactMaxBytesOverride != nil {
 			v.Budget, v.BudgetSource = budgetView(*n.DownloadArtifactMaxBytesOverride, StorageSourceOverride)
 		} else {
@@ -159,7 +164,12 @@ func (m *ArtifactManager) StorageOverview(ctx context.Context) (*StorageOverview
 			sample := rows[0]
 			usage := sample.usage
 			v.Usage, v.UntrackedFiles, v.UntrackedBytes, v.ReconciledAt = &usage, sample.untrackedFiles, sample.untrackedBytes, sample.reconciledAt
-			if v.Dir == "" || v.DirSource == StorageSourceDefault {
+			// A node fixes its directory at startup: the listing names the one
+			// it uses, which can still be the old one after an edit.
+			if usage.Dir != "" {
+				if configured != "" && configured != usage.Dir {
+					v.PendingDir = configured
+				}
 				v.Dir = usage.Dir
 			}
 		}

@@ -71,11 +71,18 @@ func TestDownloadStatusEventsPostgres(t *testing.T) {
 	if err := repo.Create(t.Context(), original); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{repo: repo}
+	artifacts := &ArtifactManager{}
+	storageChanges := 0
+	artifacts.SetStorageNotifier(func(context.Context) { storageChanges++ })
+	service := &Service{repo: repo, artifacts: artifacts}
 	event := StatusEvent{Status: StatusCompleted, UpdatedAt: base.Add(time.Minute), Revision: 1}
 	current, err := service.ReportStatus(t.Context(), 1, "one", "device", "entry", event)
 	if err != nil || current.Status != StatusCompleted || !current.CompletedAt.Equal(event.UpdatedAt) {
 		t.Fatalf("%+v %v", current, err)
+	}
+	// A finished copy turns its prepared file from in use to cached.
+	if storageChanges != 1 {
+		t.Fatalf("storage views notified %d times after a completed report, want 1", storageChanges)
 	}
 	for _, at := range []time.Time{event.UpdatedAt, event.UpdatedAt.Add(-time.Second)} {
 		got, err := service.ReportStatus(t.Context(), 1, "one", "device", "entry", StatusEvent{Status: StatusDownloading, UpdatedAt: at, Revision: 1})

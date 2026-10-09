@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,8 +112,13 @@ func (f *fakeAdminDownloadStorage) CleanupLocation(_ context.Context, location s
 }
 
 func (*fakeAdminDownloadStorage) DeleteUntrackedFiles(_ context.Context, location string, _ int) (int, int64, error) {
-	if location == "node:404" {
+	switch location {
+	case "node:404":
 		return 0, 0, downloads.ErrStorageLocationNotFound
+	case "node:503":
+		return 0, 0, fmt.Errorf("%w: node unreachable", downloads.ErrStorageListingUnavailable)
+	case "node:500":
+		return 0, 0, errors.New("database unavailable")
 	}
 	return 6, 38_000_000_000, nil
 }
@@ -211,6 +217,9 @@ func TestAdminDownloadStorageRefusesUnknownLocationsAndOversizedIDs(t *testing.T
 		status       int
 	}{
 		{http.MethodPost, "/admin/downloads/storage/locations/node:404/untracked/delete", http.StatusNotFound},
+		// Only a listing failure asks the administrator to retry.
+		{http.MethodPost, "/admin/downloads/storage/locations/node:503/untracked/delete", http.StatusServiceUnavailable},
+		{http.MethodPost, "/admin/downloads/storage/locations/node:500/untracked/delete", http.StatusInternalServerError},
 		{http.MethodPost, "/admin/downloads/storage/locations/node:404/cleanup", http.StatusNotFound},
 		// Ten digits pass the pattern but not int4.
 		{http.MethodGet, "/admin/downloads/storage/files?location=node:9999999999", http.StatusUnprocessableEntity},

@@ -14238,7 +14238,7 @@ export interface components {
     AdminDownloadRevokeOutputBody: {
       /**
        * Format: int64
-       * @description Size of the revoked copies
+       * @description Size of the revoked copies the device had finished downloading
        */
       bytes: number;
       /** @description The revoked downloads */
@@ -14463,10 +14463,10 @@ export interface components {
        * @description Node files queued for deletion and not yet deleted
        */
       cleanup_backlog: number;
-      /** @description Directory of prepared files; empty for a node using its default until its directory is first listed */
+      /** @description Directory of prepared files. For a node, the one it was last listed in, which is the one it uses; before its first listing, the configured one, or empty when that is the default. */
       dir?: string;
       /**
-       * @description default: the built-in location. setting: download.artifact_dir. override: this node's own directory.
+       * @description Where the configured directory comes from. default: the built-in location. setting: download.artifact_dir. override: this node's own directory.
        * @enum {string}
        */
       dir_source: "default" | "setting" | "override";
@@ -14495,6 +14495,8 @@ export interface components {
       node_id?: string;
       /** @description The server, or an enabled node whose last health check succeeded */
       online: boolean;
+      /** @description A node's configured directory when it differs from the one it was last listed in. The node moves to it when it restarts; files are not moved. */
+      pending_dir?: string;
       /**
        * Format: date-time
        * @description RFC 3339 instant in UTC with millisecond precision
