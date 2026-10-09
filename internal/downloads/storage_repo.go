@@ -179,6 +179,8 @@ type storageSampleUntracked struct {
 	Files int
 	Bytes int64
 	At    time.Time
+	// Failed counts files a removal could not delete; they stay untracked.
+	Failed int
 }
 
 // serverSampleRetention is how long a replica's measurement of the server's

@@ -14529,7 +14529,15 @@ export interface components {
     AdminDownloadStorageUntrackedOutputBody: {
       /** Format: int64 */
       bytes: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Untracked files that could not be deleted, for example on a read-only directory; they stay untracked
+       */
+      failed_files: number;
+      /**
+       * Format: int64
+       * @description Untracked files deleted
+       */
       files: number;
     };
     AdminDownloadStorageUsage: {

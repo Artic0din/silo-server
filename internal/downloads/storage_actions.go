@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/Silo-Server/silo-server/internal/nodepool"
@@ -81,7 +80,7 @@ func (m *ArtifactManager) deleteStorageFile(ctx context.Context, batch, id strin
 		return result, err
 	}
 	if applied {
-		if err := removeExpiredLocalBytes(a); err != nil {
+		if err := m.removeExpiredLocalBytes(ctx, a); err != nil {
 			return result, err
 		}
 		m.recordAdminDelete(ctx, batch, a, actor, "")
@@ -123,7 +122,7 @@ func (m *ArtifactManager) deleteInUse(ctx context.Context, a *Artifact) (string,
 	if result != artifactUnchanged && a.OriginArtifactID == "" && a.OutputPath != "" {
 		// Only the finished file: a requeued job's next attempt writes its own
 		// partial file beside it.
-		if err := os.Remove(a.OutputPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := m.serverDir.Remove(ctx, storageDirTimeout, a.OutputPath); err != nil {
 			return "", fmt.Errorf("removing prepared file: %w", err)
 		}
 	}
@@ -151,14 +150,12 @@ func recoveryOutcome(result artifactRecovery) string {
 // removeExpiredLocalBytes deletes an expired server file. A node file goes
 // through the remote cleanup queue its expiry wrote. A file it cannot remove
 // has no ready row left, so reconciliation reports it as untracked.
-func removeExpiredLocalBytes(a *Artifact) error {
+func (m *ArtifactManager) removeExpiredLocalBytes(ctx context.Context, a *Artifact) error {
 	if a.OriginArtifactID != "" || a.OutputPath == "" {
 		return nil
 	}
-	for _, path := range []string{a.OutputPath, a.OutputPath + ".part"} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("removing prepared file: %w", err)
-		}
+	if err := m.serverDir.Remove(ctx, storageDirTimeout, a.OutputPath, a.OutputPath+".part"); err != nil {
+		return fmt.Errorf("removing prepared file: %w", err)
 	}
 	return nil
 }
@@ -189,30 +186,40 @@ type storageGatedPreparer interface{ SetStorageGate(func(int) bool) }
 // be listed: the node is unreachable, refused, or the directory unreadable.
 var ErrStorageListingUnavailable = errors.New("storage location could not be listed")
 
+// UntrackedDeleteResult is what deleting a location's untracked files did.
+type UntrackedDeleteResult struct {
+	Files int
+	Bytes int64
+	// Failed counts files that could not be deleted; they stay untracked.
+	Failed int
+}
+
 // DeleteUntrackedFiles lists one location's directory now and deletes the
-// files no row accounts for. It returns how many files and bytes it removed.
-func (m *ArtifactManager) DeleteUntrackedFiles(ctx context.Context, location string, actor int) (files int, bytes int64, err error) {
+// files no row accounts for. It returns how many files and bytes it removed
+// and how many it could not.
+func (m *ArtifactManager) DeleteUntrackedFiles(ctx context.Context, location string, actor int) (UntrackedDeleteResult, error) {
 	if m == nil || m.repo == nil {
-		return 0, 0, ErrFormatUnavailable
+		return UntrackedDeleteResult{}, ErrFormatUnavailable
 	}
 	nodeID, ok := ParseLocationKey(location)
 	if !ok {
-		return 0, 0, ErrStorageLocationNotFound
+		return UntrackedDeleteResult{}, ErrStorageLocationNotFound
 	}
 	var summary storageSampleUntracked
+	var err error
 	if nodeID == 0 {
 		summary, err = m.reconcileServer(ctx, true, &actor)
 	} else {
 		n, findErr := m.storageNode(ctx, nodeID)
 		if findErr != nil {
-			return 0, 0, findErr
+			return UntrackedDeleteResult{}, findErr
 		}
 		summary, err = m.reconcileNode(ctx, n, true, &actor)
 	}
 	if summary.Files > 0 {
 		m.notifyStorageChanged(ctx)
 	}
-	return summary.Files, summary.Bytes, err
+	return UntrackedDeleteResult{Files: summary.Files, Bytes: summary.Bytes, Failed: summary.Failed}, err
 }
 
 // storageNode returns the node a location key names, or

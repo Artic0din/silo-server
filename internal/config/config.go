@@ -351,7 +351,9 @@ type DownloadConfig struct {
 	MaxConcurrentPrepares int    `yaml:"-"` // encode/remux worker-pool size (default 2)
 	ArtifactMaxBytes      int64  `yaml:"-"` // storage budget for prepared artifacts at each location (0 = none)
 	// ArtifactCacheHours is how long a prepared file no download is waiting
-	// on stays after its last use; 0 deletes it as soon as nothing needs it.
+	// on stays after its last use; 0 deletes it once nothing needs it and it
+	// has gone unused for ten minutes, the grace that protects a download
+	// being linked to it.
 	ArtifactCacheHours int `yaml:"-"`
 	// ArtifactDiskCeilingPercent is the filesystem fill at which clean-up
 	// deletes cached prepared files early, whatever the budget says.

@@ -111,16 +111,16 @@ func (f *fakeAdminDownloadStorage) CleanupLocation(_ context.Context, location s
 	return 41_700_000_000, nil
 }
 
-func (*fakeAdminDownloadStorage) DeleteUntrackedFiles(_ context.Context, location string, _ int) (int, int64, error) {
+func (*fakeAdminDownloadStorage) DeleteUntrackedFiles(_ context.Context, location string, _ int) (downloads.UntrackedDeleteResult, error) {
 	switch location {
 	case "node:404":
-		return 0, 0, downloads.ErrStorageLocationNotFound
+		return downloads.UntrackedDeleteResult{}, downloads.ErrStorageLocationNotFound
 	case "node:503":
-		return 0, 0, fmt.Errorf("%w: node unreachable", downloads.ErrStorageListingUnavailable)
+		return downloads.UntrackedDeleteResult{}, fmt.Errorf("%w: node unreachable", downloads.ErrStorageListingUnavailable)
 	case "node:500":
-		return 0, 0, errors.New("database unavailable")
+		return downloads.UntrackedDeleteResult{}, errors.New("database unavailable")
 	}
-	return 6, 38_000_000_000, nil
+	return downloads.UntrackedDeleteResult{Files: 6, Bytes: 38_000_000_000}, nil
 }
 
 type fakeAdminDownloadDevices struct{ lastRevoke downloads.RevokeRequest }

@@ -14,7 +14,9 @@ A prepared file is **in use** while an in-flight managed download links it: stat
 `preparing`, `ready`, or `downloading`. A `completed` row does not hold its file; the
 device already has the bytes. A ready file that no in-flight download links is
 **cached**: it stays for `download.artifact_cache_hours` (default 72) after its `last_used_at`, so
-another device or a re-download can reuse it, then it **expires**.
+another device or a re-download can reuse it, then it **expires**. The period never
+drops below ten minutes, even at 0: that grace keeps a file from expiring while a new
+download is being linked to it.
 
 `expired` is an artifact status, not a deleted row. Expiry removes the bytes (a node
 file through the remote orphan queue, written in the same transaction that clears the
@@ -87,6 +89,9 @@ overdue walk is reported as stale rather than as zero.
 
 The API server stores its measurement in `download_storage_samples` so every replica
 serves the same numbers; a replica's row is pruned after seven days without an update.
+Until a replica's own first measurement finishes, as after a restart, clean-up and
+placement use the newest stored one, so a server already over its ceiling is known to
+be full before the first queued job is claimed.
 Measurement errors carry the operation and errno, never the path. Nodes report theirs in the `artifacts` block of
 `/api/v1/health`, which the API already polls every 30 seconds and keeps in
 `stream_nodes.last_stats`; that block carries no paths.
@@ -105,8 +110,10 @@ untracked, so a directory shared with other data, or with another location, cann
 lose files Silo did not write; a node's check covers every node's rows, since nodes
 may share a volume. Untracked files are counted, never deleted automatically; an
 administrator deletes them, and the server lists the directory again before doing
-so. Each listing, the server's own or a node's, gives up after 20 seconds and runs one
-at a time, so a hung network mount fails the listing, not the maintenance pass.
+so. Each call on a directory, a listing (the server's own or a node's) or a server
+removal, gives up after 20 seconds and runs one at a time per directory, so a hung
+network mount fails the call, not the maintenance pass. A file that cannot be deleted
+is reported as failed and stays untracked.
 
 ## History
 

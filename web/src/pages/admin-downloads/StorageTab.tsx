@@ -213,11 +213,17 @@ export default function StorageTab({
           const target = untrackedTarget;
           deleteUntracked.mutate(target.key, {
             onSuccess: (result) => {
-              toast.success(
-                result.files > 0
-                  ? `Deleted ${result.files} untracked ${result.files === 1 ? "file" : "files"} (${formatStorageBytes(result.bytes)})`
-                  : "No untracked files were left to delete",
-              );
+              const deleted = `Deleted ${result.files} untracked ${result.files === 1 ? "file" : "files"} (${formatStorageBytes(result.bytes)})`;
+              if (result.failed_files > 0) {
+                toast.error(
+                  `${result.failed_files} untracked ${result.failed_files === 1 ? "file" : "files"} on ${target.name} could not be deleted. Check the directory's permissions.` +
+                    (result.files > 0 ? ` ${deleted}.` : ""),
+                );
+              } else {
+                toast.success(
+                  result.files > 0 ? deleted : "No untracked files were left to delete",
+                );
+              }
               setUntrackedTarget(null);
             },
             // The dialog closes on confirm, so a failure is reported here.

@@ -24,9 +24,9 @@ func (s *Server) handleListDownloadArtifacts(w http.ResponseWriter, r *http.Requ
 	}
 	listing, err := s.artifactLister.Inspect(r.Context(), s.artifactRoot, s.transcodeDir, artifactListTimeout)
 	switch {
-	case errors.Is(err, downloadstorage.ErrInspectBusy):
+	case errors.Is(err, downloadstorage.ErrDirBusy):
 		http.Error(w, "an artifact listing is already running", http.StatusServiceUnavailable)
-	case errors.Is(err, downloadstorage.ErrInspectTimeout):
+	case errors.Is(err, downloadstorage.ErrDirTimeout):
 		http.Error(w, "artifact directory did not answer in time", http.StatusServiceUnavailable)
 	case err != nil:
 		// The request ended; nobody is waiting for an answer.

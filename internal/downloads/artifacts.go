@@ -117,9 +117,9 @@ type ArtifactManager struct {
 	storageNodes  StorageNodes
 	storageNotify func(context.Context)
 	serverProber  *downloadstorage.Prober
-	// serverLister lists the server's directory for reconciliation, one read
-	// at a time and time-limited, so a hung mount cannot stall maintenance.
-	serverLister       downloadstorage.Inspector
+	// serverDir guards calls on the server's directory, listings and removals,
+	// one at a time and time-limited, so a hung mount cannot stall maintenance.
+	serverDir          downloadstorage.DirGuard
 	lastStorageSweep   time.Time
 	lastReconcile      time.Time
 	lastServerSampleAt time.Time

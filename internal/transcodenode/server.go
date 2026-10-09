@@ -279,7 +279,7 @@ type Server struct {
 	// status, and the artifact listing.
 	artifactProber *downloadstorage.Prober
 	// artifactLister lists artifactRoot for the API, one read at a time.
-	artifactLister            downloadstorage.Inspector
+	artifactLister            downloadstorage.DirGuard
 	telemetry                 *streamtelemetry.Registry
 	sessions                  map[string]*playback.TranscodeSession
 	progressiveRemuxes        map[string]progressiveRemuxRequest

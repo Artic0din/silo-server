@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -27,9 +26,10 @@ const (
 	// storageReconcileInterval spaces the directory listings that find files
 	// no row accounts for. A listing reads every file at a location.
 	storageReconcileInterval = time.Hour
-	// storageListTimeout bounds one directory listing, the server's own or a
-	// node's, so a hung mount fails the listing instead of the pass.
-	storageListTimeout = 20 * time.Second
+	// storageDirTimeout bounds one call on a prepared-file directory: a
+	// listing, the server's own or a node's, or a server removal. A hung
+	// mount fails the call instead of the pass.
+	storageDirTimeout = 20 * time.Second
 	// untrackedMinAge keeps a file out of the untracked count until it is old
 	// enough that no encode can still be writing or committing it.
 	untrackedMinAge = time.Hour
@@ -125,6 +125,24 @@ type storageLocation struct {
 
 func (l storageLocation) key() string { return locationKeyForNode(l.NodeID) }
 
+// storedServerUsage is the newest measurement of the server's directory any
+// replica has stored.
+func (m *ArtifactManager) storedServerUsage(ctx context.Context) (downloadstorage.Usage, bool) {
+	samples, err := m.repo.storageSamples(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "reading stored server storage samples failed", "component", "downloads", "error", err)
+		return downloadstorage.Usage{}, false
+	}
+	var newest downloadstorage.Usage
+	found := false
+	for _, sample := range samples[0] {
+		if !found || sample.usage.MeasuredAt.After(newest.MeasuredAt) {
+			newest, found = sample.usage, true
+		}
+	}
+	return newest, found
+}
+
 // nodeArtifactUsage reads the artifacts block a node reported on its last
 // health check.
 func nodeArtifactUsage(n *nodepool.Node) *downloadstorage.Usage {
@@ -154,6 +172,11 @@ func (m *ArtifactManager) storageLocations(ctx context.Context, readyByNode map[
 	cfg := m.downloadConfig()
 	locations := []storageLocation{{NodeID: 0, Name: serverLocationName, Budget: cfg.ArtifactMaxBytes}}
 	if usage, ok := m.ServerStorageUsage(); ok {
+		locations[0].Usage = &usage
+	} else if usage, ok := m.storedServerUsage(ctx); ok {
+		// Until this replica's first measurement finishes, as after a
+		// restart, the newest one any replica stored. The ceiling ignores
+		// it once it is too old to trust.
 		locations[0].Usage = &usage
 	}
 	source := m.nodeSource()
@@ -429,7 +452,7 @@ func (m *ArtifactManager) expireArtifact(ctx context.Context, a *Artifact, reaso
 	}
 	// The bytes count as freed only once they are gone. A file that stays has
 	// no ready row left, so the next reconciliation reports it as untracked.
-	if err := removeExpiredLocalBytes(a); err != nil {
+	if err := m.removeExpiredLocalBytes(ctx, a); err != nil {
 		slog.WarnContext(ctx, "removing expired prepared file failed", "component", "downloads", "artifact_id", a.ID, "error", err)
 		return false
 	}
@@ -560,7 +583,7 @@ func (m *ArtifactManager) reconcileStorage(ctx context.Context, only string) {
 // removed.
 func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, actor *int) (storageSampleUntracked, error) {
 	dir := m.artifactDir()
-	listing, err := m.serverLister.Inspect(ctx, dir, m.transcodeDir(), storageListTimeout)
+	listing, err := m.serverDir.Inspect(ctx, dir, m.transcodeDir(), storageDirTimeout)
 	if err != nil {
 		return storageSampleUntracked{}, fmt.Errorf("%w: %w", ErrStorageListingUnavailable, err)
 	}
@@ -575,7 +598,7 @@ func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, acto
 	if remove {
 		var removed, left []downloadstorage.File
 		for _, f := range untracked {
-			if err := os.Remove(filepath.Join(dir, f.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := m.serverDir.Remove(ctx, storageDirTimeout, filepath.Join(dir, f.Name)); err != nil {
 				slog.WarnContext(ctx, "removing untracked prepared file failed", "component", "downloads", "file", f.Name, "error", err)
 				left = append(left, f)
 				continue
@@ -583,6 +606,7 @@ func (m *ArtifactManager) reconcileServer(ctx context.Context, remove bool, acto
 			removed = append(removed, f)
 		}
 		summary := sumUntracked(removed)
+		summary.Failed = len(left)
 		m.recordUntrackedRemoval(ctx, LocationServer, summary, actor)
 		if m.serverProber != nil {
 			m.serverProber.Refresh(dir, m.transcodeDir())
@@ -602,7 +626,7 @@ func (m *ArtifactManager) reconcileNode(ctx context.Context, n *nodepool.Node, r
 	if secret == "" {
 		return storageSampleUntracked{}, fmt.Errorf("%w: node credentials unavailable", ErrStorageListingUnavailable)
 	}
-	listCtx, cancel := context.WithTimeout(ctx, storageListTimeout)
+	listCtx, cancel := context.WithTimeout(ctx, storageDirTimeout)
 	defer cancel()
 	client := downloadprepare.HTTPPreparer{}
 	listing, err := client.ListArtifacts(listCtx, n.URL, secret)
@@ -638,6 +662,7 @@ func (m *ArtifactManager) reconcileNode(ctx context.Context, n *nodepool.Node, r
 		removed = append(removed, f)
 	}
 	summary := sumUntracked(removed)
+	summary.Failed = len(left)
 	m.recordUntrackedRemoval(ctx, NodeLocationKey(n.ID), summary, actor)
 	remaining := sumUntracked(left)
 	m.recordSampleAfterRemoval(ctx, n.ID, "", listing.Usage, &remaining)

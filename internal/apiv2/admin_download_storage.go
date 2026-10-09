@@ -23,7 +23,7 @@ type AdminDownloadStorageService interface {
 	StorageEventsPage(context.Context, downloads.StorageEventFilter, *downloads.StorageEventPosition, int) ([]downloads.StorageEventBatch, error)
 	DeleteStorageFiles(ctx context.Context, ids []string, includeInUse bool, actor int) ([]downloads.StorageDeleteResult, error)
 	CleanupLocation(ctx context.Context, location string) (int64, error)
-	DeleteUntrackedFiles(ctx context.Context, location string, actor int) (int, int64, error)
+	DeleteUntrackedFiles(ctx context.Context, location string, actor int) (downloads.UntrackedDeleteResult, error)
 }
 
 // AdminDownloadDeviceService reads every device's managed downloads and
@@ -179,8 +179,9 @@ type AdminDownloadStorageCleanupOutput struct {
 
 type AdminDownloadStorageUntrackedOutput struct {
 	Body struct {
-		Files int   `json:"files" minimum:"0"`
-		Bytes int64 `json:"bytes" minimum:"0"`
+		Files       int   `json:"files" minimum:"0" doc:"Untracked files deleted"`
+		Bytes       int64 `json:"bytes" minimum:"0"`
+		FailedFiles int   `json:"failed_files" minimum:"0" doc:"Untracked files that could not be deleted, for example on a read-only directory; they stay untracked"`
 	}
 }
 
@@ -481,7 +482,7 @@ func registerAdminDownloadStorage(reg *Registry) {
 		if p != nil {
 			return nil, p
 		}
-		n, bytes, err := svc.DeleteUntrackedFiles(ctx, in.Location, claimsFrom(ctx).UserID)
+		result, err := svc.DeleteUntrackedFiles(ctx, in.Location, claimsFrom(ctx).UserID)
 		if err != nil {
 			switch {
 			case errors.Is(err, downloads.ErrStorageLocationNotFound):
@@ -492,7 +493,7 @@ func registerAdminDownloadStorage(reg *Registry) {
 			return nil, serviceProblem(err)
 		}
 		out := new(AdminDownloadStorageUntrackedOutput)
-		out.Body.Files, out.Body.Bytes = n, max(bytes, 0)
+		out.Body.Files, out.Body.Bytes, out.Body.FailedFiles = result.Files, max(result.Bytes, 0), result.Failed
 		return out, nil
 	})
 

@@ -6852,7 +6852,14 @@
             "minimum": 0,
             "type": "integer"
           },
+          "failed_files": {
+            "description": "Untracked files that could not be deleted, for example on a read-only directory; they stay untracked",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "files": {
+            "description": "Untracked files deleted",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -6860,7 +6867,8 @@
         },
         "required": [
           "files",
-          "bytes"
+          "bytes",
+          "failed_files"
         ],
         "type": "object"
       },

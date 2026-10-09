@@ -172,6 +172,24 @@ describe("AdminDownloads storage tab", () => {
     expect(mocks.deleteUntracked).toHaveBeenCalledWith("node:9", expect.any(Object));
   });
 
+  it("reports untracked files that could not be deleted", () => {
+    mocks.deleteUntracked.mockImplementation(
+      (
+        _location: string,
+        options: {
+          onSuccess: (result: { files: number; bytes: number; failed_files: number }) => void;
+        },
+      ) => options.onSuccess({ files: 0, bytes: 0, failed_files: 2 }),
+    );
+    renderAt();
+    const node = screen.getByRole("region", { name: "node-gpu-1" });
+    fireEvent.click(within(node).getByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete untracked files" }));
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "2 untracked files on node-gpu-1 could not be deleted. Check the directory's permissions.",
+    );
+  });
+
   it("says why deleting untracked files failed", () => {
     mocks.deleteUntracked.mockImplementation(
       (_location: string, options: { onError: (error: Error) => void }) =>

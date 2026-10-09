@@ -44,7 +44,8 @@ type AdminDeviceRow struct {
 	// Copies counts rows that are not revoked; Finished, Waiting, Failed
 	// split them. Revoked counts rows still waiting for the device to confirm.
 	Copies, Finished, Waiting, Failed, Revoked int
-	// BytesOnDevice is the size of the finished copies.
+	// BytesOnDevice is the size of the finished copies, including revoked
+	// ones the device has not confirmed deleting.
 	BytesOnDevice int64
 	Monitors      int
 	Stale         bool
@@ -93,7 +94,10 @@ func (r *Repository) listDevicesPage(ctx context.Context, f AdminDeviceFilter, a
 			       count(*) FILTER (WHERE d.status IN ('queued', 'preparing', 'ready', 'downloading')) AS waiting,
 			       count(*) FILTER (WHERE d.status = 'failed') AS failed,
 			       count(*) FILTER (WHERE d.status = 'revoked') AS revoked,
-			       COALESCE(SUM(GREATEST(d.file_size, 0)) FILTER (WHERE d.status = 'completed'), 0)::bigint AS bytes_on_device
+			       -- A revoked finished copy stays on the device until it confirms the
+			       -- delete, which removes the row.
+			       COALESCE(SUM(GREATEST(d.file_size, 0)) FILTER (WHERE d.status = 'completed'
+			                    OR (d.status = 'revoked' AND d.completed_at IS NOT NULL)), 0)::bigint AS bytes_on_device
 			FROM downloads d
 			LEFT JOIN user_devices u ON u.user_id = d.user_id AND u.profile_id = d.profile_id AND u.device_id = d.device_id
 			LEFT JOIN users us ON us.id = d.user_id
@@ -167,14 +171,14 @@ func (r *Repository) listEntriesPage(ctx context.Context, f AdminEntryFilter, af
 	rows, err := r.pool.Query(ctx, `SELECT `+qualifiedColumns(downloadColumns, "d")+`,
 		COALESCE(mi.title, ''), COALESCE(mi.type, ''), ep.season_number, ep.episode_number, COALESCE(ep.title, ''),
 		COALESCE(us.username, ''), COALESCE(u.device_name, ''), d.revoked_at, d.revoked_reason,
-		a.origin_node_id, COALESCE(n.name, '')
+		`+storageFileLocationSQL+`, COALESCE(n.name, '')
 	FROM downloads d
 	LEFT JOIN media_items mi ON mi.content_id = d.content_id
 	LEFT JOIN episodes ep ON ep.content_id = d.episode_id
 	LEFT JOIN users us ON us.id = d.user_id
 	LEFT JOIN user_devices u ON u.user_id = d.user_id AND u.profile_id = d.profile_id AND u.device_id = d.device_id
 	LEFT JOIN download_artifacts a ON a.id = d.artifact_id
-	LEFT JOIN stream_nodes n ON n.id = a.origin_node_id
+	LEFT JOIN stream_nodes n ON n.id = `+storageFileLocationSQL+`
 	WHERE d.device_id IS NOT NULL
 		AND ($1 = 0 OR d.user_id = $1)
 		AND ($2 = '' OR d.profile_id = $2)

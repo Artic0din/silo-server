@@ -2009,7 +2009,8 @@ replica was already cleaning up. An unknown location is `404`.
 `POST /api/v2/admin/downloads/storage/locations/{location}/untracked/delete` lists
 the directory again and deletes files named like Silo's prepared files that no
 prepared-file record accounts for and that nothing has written to for an hour,
-returning `files` and `bytes`; other files in the directory are never touched. It
+returning `files` and `bytes` deleted and `failed_files` it could not delete (they stay
+untracked); other files in the directory are never touched. It
 answers `404` for an unknown location and `503` when the directory cannot be listed
 (an offline node). Filters and bodies that name an account, library, or node id larger
 than the database holds are `422`.
@@ -2025,7 +2026,8 @@ history).
 `GET /api/v2/admin/downloads/devices` lists every device holding managed downloads,
 across accounts: account, profile, device, `last_seen_at` (last registry sync or
 download request), `stale`, counts of copies by state, `revoked` copies waiting for
-the device, `bytes_on_device` (finished copies), and active series `monitors`.
+the device, `bytes_on_device` (finished copies, including revoked ones the device has
+not yet confirmed deleting), and active series `monitors`.
 Filters: `q`, `stale`, `platform`; `sort` is `last_seen` (longest unseen first,
 default) or `size`. `GET /api/v2/admin/downloads/entries` lists the managed
 downloads themselves, filtered by `user_id`, `profile_id`, `device_id`, or `status`,

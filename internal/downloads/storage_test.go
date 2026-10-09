@@ -994,3 +994,96 @@ func TestStorageHistorySplitsABatchByLocation(t *testing.T) {
 		t.Fatalf("history rows for the batch = %v, want one per location", bytes)
 	}
 }
+
+// An untracked file the server cannot delete is reported as failed, not
+// passed off as "nothing left to delete".
+func TestDeleteUntrackedFilesReportsFilesItCannotRemove(t *testing.T) {
+	repo, _, _ := newArtifactTestRepo(t)
+	dir := t.TempDir()
+	name := fmt.Sprintf("%d_transcode_abc123_%d.mp4", 900000+rand.IntN(1000), 900000+rand.IntN(1000))
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	// A read-only directory refuses the unlink.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	cfg := &config.Config{}
+	cfg.Download.ArtifactDir = dir
+	m := storageTestManager(repo, cfg)
+
+	result, err := m.DeleteUntrackedFiles(context.Background(), LocationServer, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Files != 0 || result.Failed != 1 {
+		t.Fatalf("result = %+v, want 0 deleted and 1 failed", result)
+	}
+}
+
+// A revoked finished copy is still on the device until it confirms the
+// delete, so the device's size keeps counting it.
+func TestDeviceSizeKeepsRevokedCopiesUntilConfirmed(t *testing.T) {
+	f := seedManagedFixture(t)
+	ctx := context.Background()
+	now := time.Now()
+	id := fmt.Sprintf("dl-held-%d", now.UnixNano())
+	if err := f.repo.Create(ctx, &Download{
+		ID: id, UserID: f.userID, ProfileID: f.profileA, DeviceID: f.deviceA, MediaFileID: f.fileID,
+		ContentID: f.contentID, Kind: KindQueued, Status: StatusCompleted, Format: FormatOriginal,
+		FileSize: 700, CreatedAt: now, UpdatedAt: now, CompletedAt: &now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = f.pool.Exec(ctx, `DELETE FROM download_storage_events WHERE download_id = $1`, id) })
+	if _, err := f.repo.RevokeManaged(ctx, RevokeRequest{IDs: []string{id}}, newStorageBatchID()); err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{repo: f.repo}
+	rows, err := svc.AdminListDevicesPage(ctx, AdminDeviceFilter{Query: "Phone A"}, nil, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.DeviceID == f.deviceA {
+			if row.BytesOnDevice != 700 {
+				t.Fatalf("bytes on device = %d, want the revoked copy still counted", row.BytesOnDevice)
+			}
+			return
+		}
+	}
+	t.Fatal("device missing")
+}
+
+// Right after a restart this replica has not measured the server's directory
+// yet; the newest stored measurement stands in, so a server already over its
+// disk ceiling is known to be full before the first job is claimed.
+func TestStorageFullUsesTheStoredServerMeasurementAfterARestart(t *testing.T) {
+	repo, pool, _ := newArtifactTestRepo(t)
+	ctx := context.Background()
+	reporter := fmt.Sprintf("restart-test-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM download_storage_samples WHERE node_id IS NULL AND reporter = $1`, reporter)
+	})
+	full := downloadstorage.Usage{MeasuredAt: time.Now(), FSUsedBytes: 990, FSTotalBytes: 1000, FSType: "restart-test"}
+	if err := repo.UpsertStorageSample(ctx, 0, reporter, full, nil); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Download.ArtifactDiskCeilingPercent = 85
+	cfg.Download.ArtifactDir = t.TempDir()
+	m := storageTestManager(repo, cfg)
+	m.refreshStorageFull(ctx)
+	if !m.NodeStorageFull(0) {
+		t.Fatal("a server over its disk ceiling was not known to be full before its first local measurement")
+	}
+}

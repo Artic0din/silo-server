@@ -185,7 +185,7 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 				tracksCapable = p.preparedTracksCapableNodeURLs(ctx)
 			}
 			node, release = selector.ReserveTranscodeWorkWith("download-prepare-"+artifactID, func(candidate *nodepool.Node) bool {
-				if !hasStorage(candidate) {
+				if candidate == nil {
 					return false
 				}
 				nodeURL := strings.TrimRight(candidate.URL, "/")
@@ -204,7 +204,9 @@ func (p *NodeAwarePreparer) PrepareFile(ctx context.Context, artifactID string, 
 						return false
 					}
 				}
-				return true
+				// Last, so only a node that could run the recipe counts as
+				// turned away for space.
+				return hasStorage(candidate)
 			})
 		}
 	} else if selector, ok := p.planner.(eligibleTranscodeWorkPlanner); ok && p.storageFull != nil {

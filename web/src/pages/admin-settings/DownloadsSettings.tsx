@@ -192,7 +192,7 @@ export default function DownloadsSettings() {
             <SettingField
               label="Keep cached files for"
               type="number"
-              description="Hours a prepared file nothing is waiting on stays after its last use, so another download or a re-download can reuse it. 0 to 720; 0 deletes it as soon as nothing needs it."
+              description="Hours a prepared file nothing is waiting on stays after its last use, so another download or a re-download can reuse it. 0 to 720; 0 deletes it once nothing needs it and it has gone unused for ten minutes."
               value={form.getValue("download.artifact_cache_hours")}
               onChange={(v) => form.setValue("download.artifact_cache_hours", v)}
               restartRequired={restartKeys.has("download.artifact_cache_hours")}
