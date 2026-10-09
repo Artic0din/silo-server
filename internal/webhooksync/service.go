@@ -347,7 +347,9 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 			result.Summary = "Skipped stale mark-unplayed event"
 			return result, nil
 		}
-		if s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, event.OccurredAt) {
+		if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, event.OccurredAt); err != nil {
+			return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
+		} else if newer {
 			result.Outcome = OutcomeSkipped
 			result.Summary = "Skipped because local watch progress is newer"
 			return result, nil
@@ -401,7 +403,9 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	if err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
 	}
-	if s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, record.UpdatedAt) {
+	if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, record.UpdatedAt); err != nil {
+		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
+	} else if newer {
 		result.Outcome = OutcomeSkipped
 		result.Summary = "Skipped because local watch progress is newer"
 		return result, nil
@@ -446,17 +450,18 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 
 // localProgressIsNewer reports whether the profile's Silo watch progress for
 // the item is at least as recent as the event, so a delayed delivery cannot
-// overwrite or erase newer activity.
-func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileID, mediaItemID string, state *ItemState, eventAt time.Time) bool {
+// overwrite or erase newer activity. An unreadable progress row is an error,
+// so a delivery never writes over progress it could not check.
+func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileID, mediaItemID string, state *ItemState, eventAt time.Time) (bool, error) {
 	progress, err := s.watch.Progress(ctx, userID, profileID, mediaItemID)
 	if err != nil || progress == nil {
-		return false
+		return false, err
 	}
 	updatedAt, err := time.Parse(time.RFC3339Nano, progress.UpdatedAt)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("parse local progress updated_at: %w", err)
 	}
-	return progressOutranksEvent(updatedAt, progress.PositionSeconds, state, eventAt)
+	return progressOutranksEvent(updatedAt, progress.PositionSeconds, state, eventAt), nil
 }
 
 // progressOutranksEvent reports whether progress last updated at updatedAt at

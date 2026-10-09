@@ -2,6 +2,7 @@ package webhooksync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -22,10 +23,14 @@ import (
 type removeRecorder struct {
 	userstore.UserStore
 	progressUpdatedAt time.Time
+	progressErr       error
 	removed           []string
 }
 
 func (r *removeRecorder) GetProgress(_ context.Context, profileID, mediaItemID string) (*userstore.WatchProgress, error) {
+	if r.progressErr != nil {
+		return nil, r.progressErr
+	}
 	return &userstore.WatchProgress{ProfileID: profileID, MediaItemID: mediaItemID, UpdatedAt: r.progressUpdatedAt.UTC().Format(time.RFC3339)}, nil
 }
 
@@ -91,7 +96,7 @@ func TestProcessWebhookMarkUnplayedRespectsNewerLocalProgressDB(t *testing.T) {
 	}
 	store := &removeRecorder{progressUpdatedAt: localUpdatedAt}
 	svc := NewService(NewRepository(pool, cipher), historyimport.NewRepository(pool, cipher), recorderProvider{store: store})
-	unplay := func(at time.Time) *ProcessWebhookResult {
+	unplay := func(at time.Time) (*ProcessWebhookResult, error) {
 		t.Helper()
 		body := fmt.Sprintf(`{
 			"notification_type": "UserDataSaved",
@@ -102,17 +107,19 @@ func TestProcessWebhookMarkUnplayedRespectsNewerLocalProgressDB(t *testing.T) {
 		}`, at.Format(time.RFC3339Nano), tmdbID)
 		req := httptest.NewRequest("POST", "/webhook", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		result, err := svc.ProcessWebhookBounded(ctx, suffix, req, 1<<20)
-		if err != nil {
-			t.Fatalf("ProcessWebhookBounded() error = %v", err)
-		}
-		return result
+		return svc.ProcessWebhookBounded(ctx, suffix, req, 1<<20)
 	}
 
-	if result := unplay(localUpdatedAt.Add(-time.Hour)); result.Outcome != OutcomeSkipped || len(store.removed) != 0 {
-		t.Fatalf("older mark-unplayed: outcome %q (%s), removed %v; want skipped with nothing removed", result.Outcome, result.Summary, store.removed)
+	// A progress read that fails stops the delivery before anything is removed.
+	store.progressErr = errors.New("user store unavailable")
+	if result, err := unplay(localUpdatedAt.Add(time.Hour)); err == nil || result.Outcome != OutcomeError || len(store.removed) != 0 {
+		t.Fatalf("unreadable progress: outcome %q, err %v, removed %v; want an error with nothing removed", result.Outcome, err, store.removed)
 	}
-	if result := unplay(localUpdatedAt.Add(time.Hour)); result.Outcome != OutcomeApplied || len(store.removed) != 1 || store.removed[0] != mediaItemID {
-		t.Fatalf("newer mark-unplayed: outcome %q (%s), removed %v; want applied to %s", result.Outcome, result.Summary, store.removed, mediaItemID)
+	store.progressErr = nil
+	if result, err := unplay(localUpdatedAt.Add(-time.Hour)); err != nil || result.Outcome != OutcomeSkipped || len(store.removed) != 0 {
+		t.Fatalf("older mark-unplayed: outcome %q, err %v, removed %v; want skipped with nothing removed", result.Outcome, err, store.removed)
+	}
+	if result, err := unplay(localUpdatedAt.Add(time.Hour)); err != nil || result.Outcome != OutcomeApplied || len(store.removed) != 1 || store.removed[0] != mediaItemID {
+		t.Fatalf("newer mark-unplayed: outcome %q, err %v, removed %v; want applied to %s", result.Outcome, err, store.removed, mediaItemID)
 	}
 }
