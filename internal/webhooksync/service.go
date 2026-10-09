@@ -471,15 +471,16 @@ func (s *Service) localProgressIsNewer(ctx context.Context, userID int, profileI
 }
 
 // progressOutranksEvent reports whether progress last updated at updatedAt
-// wins over an event at eventAt. Progress no newer than the last event applied
-// for this external user and item is that event's own write (user stores keep
-// whole seconds), so it is left to shouldSkipEvent, which orders events of the
-// same pair, including same-timestamp upgrades.
+// wins over an event at eventAt. User stores keep updated_at in whole seconds,
+// so the event is compared at that precision too and a tie within one second
+// goes to Silo. Progress no newer than the last event applied for this external
+// user and item is that event's own write, so it is left to shouldSkipEvent,
+// which orders events of the same pair, including same-timestamp upgrades.
 func progressOutranksEvent(updatedAt time.Time, state *ItemState, eventAt time.Time) bool {
 	if state != nil && !updatedAt.After(state.LastEventAt) {
 		return false
 	}
-	return !eventAt.After(updatedAt)
+	return !eventAt.Truncate(time.Second).After(updatedAt)
 }
 
 func (s *Service) failWebhook(ctx context.Context, connectionID string, result *ProcessWebhookResult, err error, summary string) (*ProcessWebhookResult, error) {
