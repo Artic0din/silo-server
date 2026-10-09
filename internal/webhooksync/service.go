@@ -421,9 +421,26 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 	if err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load existing item state")
 	}
+	applied := ItemState{
+		ConnectionID:       conn.ID,
+		ExternalUserID:     event.UserID,
+		ExternalItemID:     event.ExternalItemID,
+		MediaItemID:        match.MediaItemID,
+		LastEventAt:        event.OccurredAt,
+		LastCompleted:      event.Completed,
+		LastPositionSecond: event.PositionSeconds,
+	}
 	if newer, err := s.localProgressIsNewer(ctx, conn.UserID, profileID, match.MediaItemID, state, record.UpdatedAt); err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to load local watch progress")
 	} else if newer {
+		// A per-playback completion still ends its playback, so the rest of it
+		// (a stop in the credits, a repeated scrobble) stays ignored even
+		// though newer Silo progress kept this one from applying.
+		if event.CompletionPerPlayback && event.Completed {
+			if err := s.repo.UpsertItemState(ctx, applied); err != nil {
+				return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist playback completion")
+			}
+		}
 		result.Outcome = OutcomeSkipped
 		result.Summary = "Skipped because local watch progress is newer"
 		return result, nil
@@ -449,15 +466,7 @@ func (s *Service) ProcessWebhookBounded(ctx context.Context, secret string, r *h
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to apply imported watch progress")
 	}
 
-	if err := s.repo.UpsertItemState(ctx, ItemState{
-		ConnectionID:       conn.ID,
-		ExternalUserID:     event.UserID,
-		ExternalItemID:     event.ExternalItemID,
-		MediaItemID:        match.MediaItemID,
-		LastEventAt:        event.OccurredAt,
-		LastCompleted:      event.Completed,
-		LastPositionSecond: event.PositionSeconds,
-	}); err != nil {
+	if err := s.repo.UpsertItemState(ctx, applied); err != nil {
 		return s.failWebhook(ctx, conn.ID, result, err, "Failed to persist imported watch progress")
 	}
 
