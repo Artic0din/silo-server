@@ -588,7 +588,7 @@ func (h *SectionHandler) loadResolvedHomeSections(ctx context.Context) ([]sectio
 		}
 	}
 
-	overrides, err := h.loadProfileSectionOverrides(ctx, userID, profileID, "home", "")
+	overrides, err := h.loadProfileSectionOverrides(ctx, userID, profileID, adminSectionScopeHome, "")
 	if err != nil {
 		return nil, nil, catalog.AccessFilter{}, profileID, err
 	}
@@ -649,7 +649,7 @@ func (h *SectionHandler) loadResolvedLibrarySections(ctx context.Context, librar
 		}
 	}
 
-	overrides, err := h.loadProfileSectionOverrides(ctx, userID, profileID, "library", strconv.Itoa(libraryID))
+	overrides, err := h.loadProfileSectionOverrides(ctx, userID, profileID, adminSectionScopeLibrary, strconv.Itoa(libraryID))
 	if err != nil {
 		return nil, catalog.AccessFilter{}, profileID, err
 	}

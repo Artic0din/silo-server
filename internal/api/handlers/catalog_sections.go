@@ -16,9 +16,9 @@ func (h *SectionHandler) ResolveCatalogSection(ctx context.Context, req catalog.
 	var rows []sections.ResolvedSection
 	var err error
 	switch req.Scope {
-	case "home":
+	case adminSectionScopeHome:
 		rows, _, _, _, err = h.loadResolvedHomeSections(ctx)
-	case "library":
+	case adminSectionScopeLibrary:
 		if err := h.requireViewableLibrary(ctx, req.LibraryID); err != nil {
 			if apiErr, ok := errors.AsType[*APIError](err); ok && apiErr.Status == http.StatusNotFound {
 				return catalog.SectionDefinition{}, catalog.ErrCatalogSourceNotFound
