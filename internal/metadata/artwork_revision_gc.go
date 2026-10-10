@@ -461,16 +461,19 @@ func referencedArtworkPaths(ctx context.Context, q interface {
 // reference through a surface without a displacement trigger. A persisted
 // keyset cursor walks the parked rows in id order, so a still referenced row
 // is read once per cycle but never rewritten. A new cycle starts at most once
-// per recheck interval.
+// per recheck interval and covers only rows that last changed before it
+// started, so rows that keep maturing above the cursor cannot hold it open.
 func (g *ArtworkRevisionGarbageCollector) sweepDormant(ctx context.Context, limit int) (checked, requeued int, err error) {
 	var afterID int64
 	var cycleDue bool
+	var cycleStartedAt *time.Time
 	err = g.pool.QueryRow(ctx, `
-		SELECT after_id, cycle_started_at <= NOW() - ($1 * interval '1 second')
+		SELECT after_id, cycle_started_at <= NOW() - ($1 * interval '1 second'),
+			CASE WHEN after_id > 0 THEN cycle_started_at END
 		FROM artwork_revision_gc_dormant_cursor`,
-		int64(artworkRevisionDormantRecheck/time.Second)).Scan(&afterID, &cycleDue)
+		int64(artworkRevisionDormantRecheck/time.Second)).Scan(&afterID, &cycleDue, &cycleStartedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		afterID, cycleDue, err = 0, true, nil
+		afterID, cycleDue, cycleStartedAt, err = 0, true, nil, nil
 	}
 	if err != nil {
 		return 0, 0, fmt.Errorf("artwork revision GC: read dormant cursor: %w", err)
@@ -483,9 +486,9 @@ func (g *ArtworkRevisionGarbageCollector) sweepDormant(ctx context.Context, limi
 		SELECT id, original_path
 		FROM artwork_revision_gc_candidates
 		WHERE next_attempt_at IS NULL AND id > $1
-		  AND updated_at < NOW() - ($3 * interval '1 second')
+		  AND updated_at < LEAST(NOW() - ($3 * interval '1 second'), $4::timestamptz)
 		ORDER BY id
-		LIMIT $2`, afterID, limit, int64(artworkRevisionDormantRecheck/time.Second))
+		LIMIT $2`, afterID, limit, int64(artworkRevisionDormantRecheck/time.Second), cycleStartedAt)
 	if err != nil {
 		return 0, 0, fmt.Errorf("artwork revision GC: list dormant revisions: %w", err)
 	}

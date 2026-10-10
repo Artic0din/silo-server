@@ -1023,6 +1023,57 @@ func TestArtworkRevisionGCDormantSweepCycles(t *testing.T) {
 	}
 }
 
+// TestArtworkRevisionGCDormantCycleEndsWhileRowsArrive keeps a full batch of
+// parked rows maturing above the cursor during a long cycle. The cycle must
+// still end, or the rows behind the cursor are never checked again.
+func TestArtworkRevisionGCDormantCycleEndsWhileRowsArrive(t *testing.T) {
+	pool := artworkRevisionGCTestPool(t)
+	ctx := context.Background()
+	prefix := fmt.Sprintf("tmdb/movies/%d/poster/original.arrival-", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM artwork_revision_gc_candidates WHERE original_path LIKE $1`, prefix+"%")
+	})
+	// seed parks a row that last changed age ago.
+	seed := func(n int, age string) int64 {
+		t.Helper()
+		path := fmt.Sprintf("%s%d.webp", prefix, n)
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO artwork_revision_gc_candidates (
+				original_path, image_type, object_keys, not_before, next_attempt_at
+			) VALUES ($1, 'poster', '{}', NOW() - interval '5 days', NULL)`, path); err != nil {
+			t.Fatalf("seed dormant candidate: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+			UPDATE artwork_revision_gc_candidates SET updated_at = NOW() - $2::interval
+			WHERE original_path = $1`, path, age); err != nil {
+			t.Fatalf("age dormant candidate: %v", err)
+		}
+		return dormantCandidateID(t, pool, path)
+	}
+	// Two rows parked before a cycle that started three days ago.
+	first := seed(0, "4 days")
+	seed(1, "4 days")
+	placeDormantCursor(t, pool, first-1)
+	if _, err := pool.Exec(ctx, `
+		UPDATE artwork_revision_gc_dormant_cursor SET cycle_started_at = NOW() - interval '3 days'`); err != nil {
+		t.Fatalf("age dormant cycle: %v", err)
+	}
+	collector := NewArtworkRevisionGarbageCollector(pool, &blockingArtworkRevisionDeleter{started: make(chan struct{})})
+
+	// Each sweep reads one row while another row, parked during the cycle and
+	// now past the recheck interval, lands above the cursor.
+	for n := 2; n < 12; n++ {
+		if _, _, err := collector.sweepDormant(ctx, 1); err != nil {
+			t.Fatalf("sweep dormant: %v", err)
+		}
+		if afterID, _ := dormantCursor(t, pool); afterID == 0 {
+			return
+		}
+		seed(n, "2 days")
+	}
+	t.Fatal("dormant cycle never ended while parked rows kept arriving above its cursor")
+}
+
 func dormantCandidateID(t *testing.T, pool *pgxpool.Pool, path string) int64 {
 	t.Helper()
 	var id int64
