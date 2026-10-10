@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	maxDownloadBytes = 25 * 1024 * 1024 // allow oversized provider originals; cached variants are dimension-capped
-	downloadTimeout  = 30 * time.Second
+	maxDownloadBytes    = 25 * 1024 * 1024 // allow oversized provider originals; cached variants are dimension-capped
+	appleImageUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15"
+	downloadTimeout     = 30 * time.Second
 )
 
 // ObjectPutter is the artwork storage interface required by Cacher.
@@ -502,6 +503,10 @@ func (c *Cacher) downloadImage(ctx context.Context, rawURL string) ([]byte, erro
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
+	}
+	// Apple rejects uncached renditions fetched with Go's default user agent.
+	if strings.HasSuffix(parsed.Hostname(), ".mzstatic.com") {
+		req.Header.Set("User-Agent", appleImageUserAgent)
 	}
 
 	if client == nil {
