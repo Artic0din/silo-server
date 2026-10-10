@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pluginv1 "github.com/Silo-Server/silo-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
+	"github.com/Silo-Server/silo-server/internal/models"
 )
 
 const (
@@ -637,5 +638,13 @@ func TestPluginProviderGetImages_PickerLookup(t *testing.T) {
 				t.Fatal("plugin-specific provider ID changed")
 			}
 		})
+	}
+}
+
+func TestPersonKindFromStringMapsCreator(t *testing.T) {
+	for _, value := range []string{"Creator", "creator", " CREATOR "} {
+		if got := personKindFromString(value); got != models.PersonKindCreator {
+			t.Errorf("personKindFromString(%q) = %v, want PersonKindCreator", value, got)
+		}
 	}
 }
