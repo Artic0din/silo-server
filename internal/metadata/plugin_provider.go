@@ -16,6 +16,8 @@ import (
 	"github.com/Silo-Server/silo-server/internal/pluginhost"
 )
 
+const pluginPersonKindCreator = "creator"
+
 type pluginMetadataResolver interface {
 	MetadataProviderClient(ctx context.Context, installationID int, capabilityID string) (pluginMetadataClient, error)
 }
@@ -904,6 +906,8 @@ func personKindFromString(value string) models.PersonKind {
 		return models.PersonKindAuthor
 	case "narrator":
 		return models.PersonKindNarrator
+	case pluginPersonKindCreator:
+		return models.PersonKindCreator
 	default:
 		return models.PersonKindFromJob(value)
 	}

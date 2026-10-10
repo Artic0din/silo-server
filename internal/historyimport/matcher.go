@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+const (
+	imdbIDField = "imdb_id"
+	tmdbIDField = "tmdb_id"
+	tvdbIDField = "tvdb_id"
+)
+
 // Matcher reasons are diagnostics; PublicUnmatchedReason keys its summaries
 // on these constants and prefixes.
 const (
@@ -120,9 +126,9 @@ func (m *Matcher) matchEpisode(ctx context.Context, record Record) (*Match, stri
 		value  string
 		label  string
 	}{
-		{column: "tvdb_id", value: record.TVDBID, label: "tvdb_id"},
-		{column: "tmdb_id", value: record.TMDBID, label: "tmdb_id"},
-		{column: "imdb_id", value: record.IMDbID, label: "imdb_id"},
+		{column: tvdbIDField, value: record.TVDBID, label: tvdbIDField},
+		{column: tmdbIDField, value: record.TMDBID, label: tmdbIDField},
+		{column: imdbIDField, value: record.IMDbID, label: imdbIDField},
 	} {
 		if candidate.value == "" {
 			continue
@@ -155,9 +161,9 @@ func (m *Matcher) matchEpisode(ctx context.Context, record Record) (*Match, stri
 		value  string
 		label  string
 	}{
-		{column: "tvdb_id", value: record.SeriesTVDBID, label: "series tvdb_id"},
-		{column: "tmdb_id", value: record.SeriesTMDBID, label: "series tmdb_id"},
-		{column: "imdb_id", value: record.SeriesIMDbID, label: "series imdb_id"},
+		{column: tvdbIDField, value: record.SeriesTVDBID, label: "series tvdb_id"},
+		{column: tmdbIDField, value: record.SeriesTMDBID, label: "series tmdb_id"},
+		{column: imdbIDField, value: record.SeriesIMDbID, label: "series imdb_id"},
 	} {
 		if candidate.value == "" {
 			continue
@@ -223,9 +229,9 @@ func (m *Matcher) matchMedia(ctx context.Context, kind, tmdbID, imdbID, tvdbID s
 		value  string
 		label  string
 	}{
-		{column: "tmdb_id", value: tmdbID, label: "tmdb_id"},
-		{column: "imdb_id", value: imdbID, label: "imdb_id"},
-		{column: "tvdb_id", value: tvdbID, label: "tvdb_id"},
+		{column: tmdbIDField, value: tmdbID, label: tmdbIDField},
+		{column: imdbIDField, value: imdbID, label: imdbIDField},
+		{column: tvdbIDField, value: tvdbID, label: tvdbIDField},
 	}
 	if kind == KindSeries {
 		candidates = []struct {
@@ -233,9 +239,9 @@ func (m *Matcher) matchMedia(ctx context.Context, kind, tmdbID, imdbID, tvdbID s
 			value  string
 			label  string
 		}{
-			{column: "tvdb_id", value: tvdbID, label: "tvdb_id"},
-			{column: "tmdb_id", value: tmdbID, label: "tmdb_id"},
-			{column: "imdb_id", value: imdbID, label: "imdb_id"},
+			{column: tvdbIDField, value: tvdbID, label: tvdbIDField},
+			{column: tmdbIDField, value: tmdbID, label: tmdbIDField},
+			{column: imdbIDField, value: imdbID, label: imdbIDField},
 		}
 		if preferTMDB {
 			candidates[0], candidates[1] = candidates[1], candidates[0]
