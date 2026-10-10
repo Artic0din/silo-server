@@ -25,6 +25,9 @@
 ./internal/catalog TestRuleFieldsFilterCatalogDB
 ./internal/api/handlers TestCatalogProfileSectionsDB
 
+# Scan membership reconciliation retries a transaction Postgres aborts as a deadlock victim.
+./internal/catalog TestFolderMembershipReconciliationRetriesDeadlockDB
+
 # Profile history and account/invitation persistence.
 ./internal/api/handlers TestEbookProgressEventsPostgres
 ./internal/api/handlers TestRemoveHistoryHidesEpisodesWithoutLibraryFilePostgres
