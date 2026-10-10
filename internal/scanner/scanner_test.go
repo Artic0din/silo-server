@@ -224,6 +224,53 @@ func TestScanStateUpdateReasons_SkipsProbeRepairForRejectedUnchangedFile(t *test
 	}
 }
 
+// TestScanStateFromMediaFileCarriesProbeRejection covers the single-file scan,
+// which builds its scan state from the stored row rather than the folder query.
+func TestScanStateFromMediaFileCarriesProbeRejection(t *testing.T) {
+	t.Parallel()
+
+	modifiedAt := time.Now().UTC().Truncate(time.Microsecond)
+	rejectedAt := modifiedAt.Add(time.Minute)
+	state := scanStateFromMediaFile(&models.MediaFile{
+		ContentID:      "matched-content",
+		FileSize:       1_000,
+		FileModifiedAt: &modifiedAt,
+		ProbeFailedAt:  &rejectedAt,
+	})
+	if state.ProbeFailedAt == nil {
+		t.Fatal("scan state dropped probe_failed_at")
+	}
+	reasons := scanStateUpdateReasons(state, 1_000, modifiedAt, nil, false, fileRootAssignment{}, fileGroupAssignment{}, "movies", true)
+	if testStringSliceContains(reasons, "probe_repair") {
+		t.Fatalf("rejected unchanged file got reasons %#v, want no probe_repair", reasons)
+	}
+}
+
+// TestExtraFileUnchangedSkipsRejectedExtra covers an extra ffprobe rejected:
+// rescanning the same bytes must not probe it again, while new bytes must.
+func TestExtraFileUnchangedSkipsRejectedExtra(t *testing.T) {
+	t.Parallel()
+
+	modifiedAt := time.Now().UTC().Truncate(time.Microsecond)
+	rejectedAt := modifiedAt.Add(time.Minute)
+	rejected := &scanStateFile{
+		ExtraID:        "extra-1",
+		FileSize:       1_000,
+		FileModifiedAt: &modifiedAt,
+		ProbeFailedAt:  &rejectedAt,
+	}
+	if !extraFileUnchanged(rejected, "extra-1", 1_000, modifiedAt) {
+		t.Fatal("rejected unchanged extra would be probed again")
+	}
+	if extraFileUnchanged(rejected, "extra-1", 2_000, modifiedAt) {
+		t.Fatal("rejected extra with new bytes must be probed")
+	}
+	unprobed := &scanStateFile{ExtraID: "extra-1", FileSize: 1_000, FileModifiedAt: &modifiedAt}
+	if extraFileUnchanged(unprobed, "extra-1", 1_000, modifiedAt) {
+		t.Fatal("unprobed extra without a rejection must be probed")
+	}
+}
+
 func TestIdentityOnlyUpdateReasons(t *testing.T) {
 	t.Parallel()
 
