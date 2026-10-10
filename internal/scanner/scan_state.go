@@ -367,6 +367,7 @@ func scanStateFromMediaFile(file *models.MediaFile) *scanStateFile {
 		MultiEpisodeEnd:        file.MultiEpisodeEnd,
 		ProbeSource:            file.ProbeSource,
 		ProbeUpdatedAt:         file.ProbeUpdatedAt,
+		ProbeFailedAt:          file.ProbeFailedAt,
 		MissingSince:           file.MissingSince,
 		HasVideoTracks:         len(file.VideoTracks) > 0,
 		HasNonImageVideoTracks: probeFacts.HasNonImageVideoTracks,
