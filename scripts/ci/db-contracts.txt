@@ -23,6 +23,7 @@
 
 # Section and Smart collection rule fields and operators compile to working SQL.
 ./internal/catalog TestRuleFieldsFilterCatalogDB
+./internal/api/handlers TestCatalogProfileSectionsDB
 
 # Profile history and account/invitation persistence.
 ./internal/api/handlers TestEbookProgressEventsPostgres
