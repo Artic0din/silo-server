@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strconv"
 	"testing"
@@ -135,6 +136,15 @@ func TestCatalogProfileSectionsDB(t *testing.T) {
 				h.StoreProvider = &failingSectionProvider{UserStoreProvider: provider, err: lookupErr, failProvider: failProvider}
 				if _, err := resolver.Resolve(viewerContext(owner), req, viewer); !errors.Is(err, lookupErr) {
 					t.Fatalf("failed profile lookup = %v, want %v", err, lookupErr)
+				}
+				var layoutErr error
+				if scope == "home" {
+					_, layoutErr = h.HomeLayout(viewerContext(owner))
+				} else {
+					_, layoutErr = h.LibraryLayout(viewerContext(owner), f.library)
+				}
+				if apiErr, ok := errors.AsType[*APIError](layoutErr); !ok || apiErr.Status != http.StatusInternalServerError {
+					t.Fatalf("layout after failed profile lookup = %v, want internal error", layoutErr)
 				}
 			}
 			h.StoreProvider = provider

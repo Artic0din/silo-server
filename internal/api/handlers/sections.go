@@ -562,10 +562,12 @@ func (h *SectionHandler) loadProfileSectionOverrides(ctx context.Context, userID
 	}
 	store, err := h.StoreProvider.ForUser(ctx, userID)
 	if err != nil {
+		slog.ErrorContext(ctx, "accessing user store for profile sections", "component", "api", "scope", scope, "error", err)
 		return nil, err
 	}
 	overrides, err := store.ListSectionOverrides(ctx, profileID, scope, libraryID)
 	if err != nil {
+		slog.ErrorContext(ctx, "loading profile section overrides", "component", "api", "scope", scope, "error", err)
 		return nil, err
 	}
 	return toSectionOverrides(overrides), nil
