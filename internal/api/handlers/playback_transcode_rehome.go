@@ -475,6 +475,7 @@ func (h *PlaybackHandler) moveTranscodeToNodeV3(
 		err = errors.Join(
 			transcodenode.ValidateAudioRecipeAttestation(req, response),
 			transcodenode.ValidateCopyFMP4RecipeAttestation(req, response),
+			transcodenode.ValidateCopyVideoMPEGTSAttestation(req, response),
 			transcodenode.ValidateThrottleAttestation(req, response),
 			transcodenode.ValidateSubtitleRenditionAttestation(req, response),
 		)

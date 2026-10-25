@@ -134,6 +134,10 @@ type TranscodeStartResponse struct {
 	// promises a rendition their playlist does not carry; nodes that predate
 	// remux renditions omit it for a copy remux.
 	SubtitleRendition bool `json:"subtitle_rendition,omitempty"`
+	// CopyVideoMPEGTS attests that the executor packages the requested copy
+	// remux as MPEG-TS. Older nodes omit it and are rejected before an fMP4
+	// stream is published under a plan that promises MPEG-TS.
+	CopyVideoMPEGTS bool `json:"copy_video_mpegts,omitempty"`
 }
 
 var ErrAudioRecipeAttestationMismatch = errors.New("transcode node audio recipe attestation mismatch")
@@ -202,6 +206,20 @@ func ValidateCopyFMP4RecipeAttestation(req TranscodeStartRequest, response Trans
 func ValidateKeyframePlaylistAttestation(req TranscodeStartRequest, response TranscodeStartResponse) error {
 	if req.KeyframePlaylist && !response.KeyframePlaylist {
 		return ErrKeyframePlaylistAttestationMismatch
+	}
+	return nil
+}
+
+// ErrCopyVideoMPEGTSAttestationMismatch reports an executor that ignored
+// requested MPEG-TS copy packaging.
+var ErrCopyVideoMPEGTSAttestationMismatch = errors.New("transcode node mpeg-ts copy attestation mismatch")
+
+// ValidateCopyVideoMPEGTSAttestation rejects an executor that silently
+// packaged a requested MPEG-TS copy remux as fMP4. Requests without it stay
+// compatible with older nodes, which omit the field.
+func ValidateCopyVideoMPEGTSAttestation(req TranscodeStartRequest, response TranscodeStartResponse) error {
+	if req.CopyVideoMPEGTS && !response.CopyVideoMPEGTS {
+		return ErrCopyVideoMPEGTSAttestationMismatch
 	}
 	return nil
 }
@@ -1924,6 +1942,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		SoftwareVideoDecode:   session.Opts().SoftwareVideoDecode,
 		KeyframePlaylist:      session.Opts().KeyframePlaylist,
 		SubtitleRendition:     session.HasSubtitleRendition(),
+		CopyVideoMPEGTS:       session.Opts().CopyVideoMPEGTS,
 	})
 }
 
