@@ -1752,6 +1752,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 			&handlers.PoolFolderLookup{Pool: deps.DB},
 			deps.MetadataService,
 		)
+		adminMatchHandler.EventBus = deps.EventBus
 	}
 
 	// Build admin split/merge handler for repairing wrong version groupings.
@@ -1788,6 +1789,7 @@ func newChiRouter(deps Dependencies) chi.Router {
 			detailSvc,
 		)
 		adminImageHandler.EventsHub = deps.EventsHub
+		adminImageHandler.EventBus = deps.EventBus
 	}
 
 	var adminIntroHandler *handlers.AdminIntroHandler
