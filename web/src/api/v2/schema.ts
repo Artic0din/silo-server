@@ -33436,11 +33436,17 @@ export interface components {
       tmdb_id: number;
     };
     WatchMarker: {
+      algorithm?: string;
+      /** Format: double */
+      confidence?: number;
       /**
        * Format: double
        * @example 90
        */
       end_seconds: number;
+      provider?: string;
+      /** @enum {string} */
+      source?: "scanner" | "online" | "plugin" | "s3" | "manual";
       /**
        * Format: double
        * @example 0

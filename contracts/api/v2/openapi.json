@@ -51629,12 +51629,34 @@
       "WatchMarker": {
         "additionalProperties": false,
         "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "confidence": {
+            "format": "double",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
           "end_seconds": {
             "examples": [
               90
             ],
             "format": "double",
             "type": "number"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "scanner",
+              "online",
+              "plugin",
+              "s3",
+              "manual"
+            ],
+            "type": "string"
           },
           "start_seconds": {
             "examples": [
