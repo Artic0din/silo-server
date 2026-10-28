@@ -1686,6 +1686,9 @@ func newChiRouter(deps Dependencies) chi.Router {
 		adminHandler.RestartStatus = restartStatus
 		adminHandler.CatalogSearchStatus = catalogSearchService
 		adminHandler.DiagnosticsStore = diagnosticsStore
+		if profileHandler != nil {
+			adminHandler.ProfileAvatars = profileHandler
+		}
 		if watchlistTitles != nil && deps.DB != nil {
 			adminHandler.WatchlistTitlesSweeper = watchlistTitles
 		}
