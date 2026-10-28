@@ -166,6 +166,7 @@ answers any owner.
 | Devices and addresses | `/admin/devices`, `/admin/devices/capabilities`, `/admin/ips` |
 | Downloads | `/admin/downloads/entries`, `/admin/downloads/devices`, `/admin/downloads/preparations`, `/admin/downloads/preparations/capabilities` |
 | Hosts and nodes | `/admin/system/resources`, `/admin/system/resources/capabilities`, `/admin/nodes/summary`, `/admin/nodes/capabilities`, `/admin/server/status` |
+| Catalog | `/admin/catalog/items`, `/admin/catalog/capabilities` |
 
 The scope never returns filesystem paths, node addresses, storage keys, setting
 values or credentials. Operations that carry them stay outside it: item files, download

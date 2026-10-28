@@ -75,6 +75,7 @@ var apiKeyScopeRoutes = map[string][]scopeRoute{
 		{http.MethodGet, regexp.MustCompile(`^/api/v2/admin/nodes/summary$`)},
 		{http.MethodGet, regexp.MustCompile(`^/api/v2/admin/nodes/capabilities$`)},
 		{http.MethodGet, regexp.MustCompile(`^/api/v2/admin/server/status$`)},
+		{http.MethodGet, regexp.MustCompile(`^/api/v2/admin/catalog/(items|capabilities)$`)},
 	},
 	auth.ScopeAdminSessionsControl: {
 		{http.MethodGet, regexp.MustCompile(`^/api/v2/admin/sessions/command-capabilities$`)},
