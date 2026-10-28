@@ -504,6 +504,7 @@
 ./internal/catalog TestItemBackdropReplaceWaitsForCacheWriteDB
 ./internal/catalog TestFilterUnreferencedImageDirsPostgres
 ./internal/metadata TestItemOnlyArtworkBackfillAndRepairDB
+./internal/metadata TestSeasonBackdropBackfillAndRepairDB
 ./internal/jellycompat TestRecommendationsListEveryBackdropDB
 
 # The A–Z letter index files titles by sort title and reports each letter's
