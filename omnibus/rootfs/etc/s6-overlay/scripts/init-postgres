@@ -68,9 +68,22 @@ fi
 s6-setuidgid postgres install -d -m 0755 "$PGDATA/conf.d"
 s6-setuidgid postgres install -m 0644 /etc/silo-omnibus/postgresql.omnibus.conf "$PGDATA/conf.d/00-omnibus.conf"
 
+# With ENABLE_NODE_ACCESS, listen on every interface and let the silo role in
+# from the network with its password; Silo itself stays on the socket.
+network_conf="$PGDATA/conf.d/01-node-access.conf"
+if [[ -e "$STATE_DIR/postgres.network" ]]; then
+  printf "# Written by the Silo omnibus image while ENABLE_NODE_ACCESS is on.\nlisten_addresses = '*'\n" |
+    write_as postgres "$network_conf"
+else
+  s6-setuidgid postgres rm -f "$network_conf"
+fi
+
 # pg_hba.conf belongs to the image too. A data directory from the official
 # PostgreSQL image trusts every local connection, which here would let any
 # account in the container sign in as the superuser.
+# Without the network rule even with node access on: init-postgres-db adds it
+# once the role has its current password, so a rotated-out password never
+# reaches a remote login.
 (umask 077 && write_as postgres "$PGDATA/pg_hba.conf") <<'HBA'
 # Written by the Silo omnibus image on every start; edits do not survive.
 local   all          all                 peer
