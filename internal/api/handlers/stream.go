@@ -832,7 +832,12 @@ func (h *StreamHandler) abortPlaybackSession(ctx context.Context, session *playb
 		return
 	}
 	h.finalizeSessionAbort(ctx, session, true, "stream_abort")
-	markAttemptStoppedServerSide(ctx, h.PlanStoreV3, h.StreamDeny, session.ID)
+	// The playback handler's finish hook writes the admin log for the play,
+	// as it does for every other end.
+	if finisher, ok := h.sessionMgr.(detachedFinisher); ok {
+		finisher.FinishDetached(playback.WithEndReason(ctx, string(PlaybackEndAborted)), *session)
+	}
+	stopAttemptServerSide(ctx, h.PlanStoreV3, h.StreamDeny, session.ID, abortStopID(session.ID))
 	deleteSessionRecipeV3(ctx, h.SessionRecipeStore, session.ID)
 }
 
