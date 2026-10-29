@@ -204,8 +204,12 @@ done
 
 source_cluster=""
 if [[ -n "${DATABASE_URL:-}" ]]; then
-  # Silo's database is elsewhere; only its directories move.
-  (( ${#clusters[@]} == 0 )) || log "leaving the cluster in $(host "${clusters[0]}") alone: DATABASE_URL points Silo at another database"
+  # Silo's database is elsewhere; only its directories move. The earlier file
+  # set DATABASE_URL for Silo itself, so one in .env never reached it: beside
+  # the earlier stack's cluster, that cluster is the database Silo used.
+  if (( ${#clusters[@]} > 0 )); then
+    fail "DATABASE_URL in .env names another database, but the earlier stack ran Silo on the cluster in $(host "${clusters[0]}"): its Compose file set DATABASE_URL itself. Remove DATABASE_URL from .env to move that cluster here, or move $(host "${clusters[0]}") aside to keep using the other database"
+  fi
 elif (( ${#clusters[@]} > 1 )); then
   fail "found more than one PostgreSQL cluster under $host_root/postgres; move aside every one but the cluster Silo used"
 elif (( ${#clusters[@]} == 0 )); then
@@ -357,6 +361,15 @@ SQL
   if [[ "${provider,,}" == meilisearch && "$(url_host "$meili_url")" == meilisearch ]] && ! truthy "${ENABLE_MEILISEARCH:-false}"; then
     stage_psql -d silo -c "UPDATE server_settings SET value = 'postgres' WHERE key = 'catalog.search.provider'"
     log "search used the earlier stack's Meilisearch and now uses PostgreSQL. Set ENABLE_MEILISEARCH=true in .env to use the bundled Meilisearch; Silo builds a new index"
+    provider=postgres
+  fi
+  # Meilisearch search keeps its paging sessions in Redis, which the earlier
+  # stack always ran. One chosen in the admin UI stays chosen, but this file
+  # starts Redis only when asked. A provider in .env overrides the stored one,
+  # and init-config starts Redis for SILO_SEARCH_PROVIDER=meilisearch itself.
+  if [[ -z "$env_provider" && "${provider,,}" == meilisearch && -z "${REDIS_URL:-}" ]] && ! truthy "${ENABLE_REDIS:-false}" &&
+    ! truthy "${ENABLE_MEILISEARCH:-false}" && ! truthy "${ENABLE_NODE_ACCESS:-false}"; then
+    fail "search uses a Meilisearch chosen in the admin UI, whose paging sessions need the Redis the earlier stack always ran. Set ENABLE_REDIS=true in .env and start again; the earlier Compose file still starts meanwhile"
   fi
 
   s6-setuidgid postgres pg_ctl -D "$pg_stage" -s -w -m fast stop
